@@ -135,8 +135,9 @@ namespace TheLastBell.Interaction
 
         public void PickupAndReattach(bool attachToHandBone = false)
         {
-            animController?.TriggerItemPickup(transform);
-            if (attachToHandBone && handAttachPoint != null)
+            animController?.TriggerFlashlightPickup();
+            bool useHand = attachToHandBone || (CameraModeController.Instance != null && CameraModeController.Instance.IsThirdPerson);
+            if (useHand && handAttachPoint != null)
             {
                 AttachToHand();
             }
@@ -170,6 +171,7 @@ namespace TheLastBell.Interaction
         private void ApplyStateVisualAndPhysics(FlashlightPhysicalState state)
         {
             bool isDropped = (state == FlashlightPhysicalState.DroppedPhysics);
+            bool inHand = (state == FlashlightPhysicalState.HeldInHandBone);
 
             if (itemRigidbody != null)
             {
@@ -183,6 +185,7 @@ namespace TheLastBell.Interaction
             if (flashlightController != null)
             {
                 flashlightController.SetPhysicsDropped(isDropped);
+                flashlightController.SetAttachedToHand(inHand);
             }
         }
 

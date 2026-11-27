@@ -1,20 +1,18 @@
 using System;
 using UnityEngine;
+using UnityEngine.Animations;
 using UnityEngine.Playables;
 
 namespace TheLastBell.Player
 {
     /// <summary>
-    /// THE LAST BELL - Modüler Çok Katmanlı Karakter Animasyon Yöneticisi.
+    /// THE LAST BELL - Modüler 7 Katmanlı Karakter Animasyon Yöneticisi.
     /// Animator bileşeninin bulunduğu karakter modeli (Character_Model) üzerinde çalışır.
-    /// Katmanlar:
-    ///   0: Base Layer (Locomotion, Crouch, Exhausted, Climb, Crawl)
-    ///   1: UpperBody (Nefes, korku/tetikte olma, gövde dönüşü)
-    ///   2: RightArm_Flashlight (El feneri tutma, nişan alma, bırakma)
-    ///   3: LeftArm_Interaction (Kapı açma, eşya alma, çevre etkileşimi)
-    ///   4: Head_Look (Kafa/boyun bakış takibi ve ses tepkileri)
-    ///   5: Additive_Reactions (Titreme, darbe irkilmesi, nefes katmanı)
-    ///   6: FullBody_Override (Düşme, kalkma, senaryolu olaylar ve sinematikler)
+    /// Özellikler:
+    /// - 7 bağımsız katman (Base, UpperBody, RightArm_Flashlight, LeftArm_Interaction, Head_Look, Additive_Reactions, FullBody_Override)
+    /// - Mobil performanslı Foot IK (zemin adaptasyonu ve ayak gömülmesini önleme)
+    /// - İzole klip önizleme için PlayableGraph desteği (AnimationDebugPanel)
+    /// - Hata ayıklama için katman ağırlığı geçersiz kılma (override) ve canlı telemetri
     /// </summary>
     [DisallowMultipleComponent]
     public class ProtagonistAnimationController : MonoBehaviour
@@ -37,9 +35,15 @@ namespace TheLastBell.Player
         [Header("--- Katman Ağırlıkları & Geçiş Hızı ---")]
         [SerializeField] private float layerBlendSpeed = 10f;
         [SerializeField] private bool flashlightEquipped = true;
-        [SerializeField] private float additiveWeight = 0.35f;
-        [SerializeField] private float headLookAtWeight = 0.55f;
-        [SerializeField] private float rightHandIkWeight = 0.25f;
+        [SerializeField] private float headLookAtWeight = 0.45f;
+        [SerializeField] private float rightHandIkWeight = 0.0f;
+
+        [Header("--- Ayak Zemin IK (Foot IK) ---")]
+        [SerializeField] private bool enableFootIK = true;
+        [SerializeField] private float footSoleOffset = 0.09f;
+        [SerializeField] private float footRayHeight = 0.45f;
+        [SerializeField] private float footRayDistance = 0.70f;
+        [SerializeField] private LayerMask groundLayers = ~0;
 
         [Header("--- Timeline / Sinematik Entegrasyonu ---")]
         [SerializeField] private PlayableDirector activeDirector;
@@ -52,9 +56,24 @@ namespace TheLastBell.Player
         private int idxFullOverride = -1;
 
         private float leftArmTimer = 0f;
+        private float headLookTimer = 0f;
         private float fullOverrideTimer = 0f;
+        private float fearLevel = 0f;
         private bool isCinematicOverride = false;
         private bool isInitialized = false;
+        private bool isGroundedCached = true;
+
+        // Debug manuel katman ağırlığı geçersiz kılmaları (-1 = otomatik)
+        private readonly float[] manualLayerWeights = new float[] { -1f, -1f, -1f, -1f, -1f, -1f, -1f };
+
+        // İzole klip önizleme (PlayableGraph)
+        private PlayableGraph previewGraph;
+        private AnimationClipPlayable previewClipPlayable;
+        private bool isIsolatedPreview = false;
+        private bool previewPlaying = false;
+        private bool previewLoop = true;
+        private float previewSpeed = 1f;
+        private AnimationClip currentPreviewClip;
 
         // Animator Parametre Hash'leri
         private static readonly int HashSpeed = Animator.StringToHash("Speed");
@@ -73,6 +92,12 @@ namespace TheLastBell.Player
         private static readonly int HashImpactFlinch = Animator.StringToHash("ImpactFlinch");
         private static readonly int HashFall = Animator.StringToHash("Fall");
         private static readonly int HashGetUp = Animator.StringToHash("GetUp");
+        private static readonly int HashStumble = Animator.StringToHash("Stumble");
+        private static readonly int HashFlashlightRaise = Animator.StringToHash("FlashlightRaise");
+        private static readonly int HashFlashlightLower = Animator.StringToHash("FlashlightLower");
+        private static readonly int HashFlashlightRelease = Animator.StringToHash("FlashlightRelease");
+        private static readonly int HashFlashlightPickup = Animator.StringToHash("FlashlightPickup");
+        private static readonly int HashLookRight = Animator.StringToHash("LookRight");
         private static readonly int HashCinematicActive = Animator.StringToHash("CinematicActive");
 
         // Animasyon Olay Kancaları (Animation Events)
@@ -86,11 +111,21 @@ namespace TheLastBell.Player
         public Animator AnimatorComponent => animator;
         public bool IsFlashlightEquipped => flashlightEquipped;
         public bool IsFullBodyOverrideActive => isCinematicOverride || fullOverrideTimer > 0f;
+        public bool IsIsolatedPreviewActive => isIsolatedPreview;
+        public bool IsPreviewPlaying => previewPlaying;
+        public bool IsPreviewLoop => previewLoop;
+        public float PreviewSpeed => previewSpeed;
+        public AnimationClip CurrentPreviewClip => currentPreviewClip;
         public Transform RightHandSocket => rightHandAttachSocket;
 
         private void Awake()
         {
             InitializeIfNeeded();
+        }
+
+        private void OnDestroy()
+        {
+            StopIsolatedPreview();
         }
 
         public void InitializeIfNeeded()
@@ -137,8 +172,8 @@ namespace TheLastBell.Player
                 {
                     var sock = new GameObject("Flashlight_Hand_Socket");
                     sock.transform.SetParent(rightHand, false);
-                    sock.transform.localPosition = new Vector3(0.02f, 0.04f, 0.02f);
-                    sock.transform.localRotation = Quaternion.identity;
+                    sock.transform.localPosition = new Vector3(0.01f, 0.055f, 0.025f);
+                    sock.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
                     rightHandAttachSocket = sock.transform;
                 }
             }
@@ -146,6 +181,11 @@ namespace TheLastBell.Player
 
         private void Update()
         {
+            if (isIsolatedPreview)
+            {
+                StepIsolatedPreview(Time.unscaledDeltaTime);
+                return;
+            }
             StepAnimationLayers(Time.deltaTime);
         }
 
@@ -155,15 +195,16 @@ namespace TheLastBell.Player
             float safeDt = Mathf.Max(0.0001f, dt);
 
             if (leftArmTimer > 0f) leftArmTimer = Mathf.Max(0f, leftArmTimer - safeDt);
+            if (headLookTimer > 0f) headLookTimer = Mathf.Max(0f, headLookTimer - safeDt);
             if (fullOverrideTimer > 0f) fullOverrideTimer = Mathf.Max(0f, fullOverrideTimer - safeDt);
 
             bool fullOverride = IsFullBodyOverrideActive;
 
-            float targetUpper = fullOverride ? 0f : 0.25f;
+            float targetUpper = fullOverride ? 0f : (fearLevel > 0.05f ? fearLevel : 0f);
             float targetRight = (!fullOverride && flashlightEquipped) ? 1f : 0f;
             float targetLeft = (!fullOverride && leftArmTimer > 0f) ? 1f : 0f;
-            float targetHead = fullOverride ? 0f : 1f;
-            float targetAdd = fullOverride ? 0f : additiveWeight;
+            float targetHead = (!fullOverride && (headLookTimer > 0f || lookTargetOverride != null)) ? 1f : 0f;
+            float targetAdd = (!fullOverride && fearLevel > 0.1f) ? Mathf.Clamp01(fearLevel * 0.45f) : 0f;
             float targetFull = fullOverride ? 1f : 0f;
 
             BlendLayer(idxUpperBody, targetUpper, safeDt);
@@ -174,17 +215,37 @@ namespace TheLastBell.Player
             BlendLayer(idxFullOverride, targetFull, safeDt);
         }
 
-        private void BlendLayer(int layerIdx, float targetWeight, float dt)
+        private void BlendLayer(int layerIdx, float autoTarget, float dt)
         {
             if (layerIdx < 0 || layerIdx >= animator.layerCount) return;
+            float target = (layerIdx < manualLayerWeights.Length && manualLayerWeights[layerIdx] >= 0f)
+                ? manualLayerWeights[layerIdx]
+                : autoTarget;
+
             float cur = animator.GetLayerWeight(layerIdx);
-            float next = Mathf.MoveTowards(cur, targetWeight, dt * layerBlendSpeed);
+            float next = Mathf.MoveTowards(cur, target, dt * layerBlendSpeed);
             animator.SetLayerWeight(layerIdx, next);
+        }
+
+        public void SetManualLayerWeight(int layerIndex, float weight)
+        {
+            if (layerIndex < 0 || layerIndex >= manualLayerWeights.Length) return;
+            manualLayerWeights[layerIndex] = weight;
+            if (animator != null && layerIndex < animator.layerCount && weight >= 0f)
+            {
+                animator.SetLayerWeight(layerIndex, Mathf.Clamp01(weight));
+            }
+        }
+
+        public void ClearManualLayerWeights()
+        {
+            for (int i = 0; i < manualLayerWeights.Length; i++) manualLayerWeights[i] = -1f;
         }
 
         public void UpdateLocomotionParameters(float speed, float strafe, float moveMagnitude, float speedMultiplier, bool isCrouching, bool isGrounded, bool isExhausted)
         {
-            if (animator == null) return;
+            if (animator == null || isIsolatedPreview) return;
+            isGroundedCached = isGrounded;
             animator.SetFloat(HashSpeed, speed);
             animator.SetFloat(HashStrafe, strafe);
             animator.SetFloat(HashMoveMag, Mathf.Clamp01(moveMagnitude));
@@ -207,18 +268,48 @@ namespace TheLastBell.Player
 
         public void SetFearLevel(float fear01)
         {
-            if (animator != null) animator.SetFloat(HashFearLevel, Mathf.Clamp01(fear01));
+            fearLevel = Mathf.Clamp01(fear01);
+            if (animator != null) animator.SetFloat(HashFearLevel, fearLevel);
         }
 
-        public void SetLookTarget(Transform target)
+        public void SetLookTarget(Transform target) => lookTargetOverride = target;
+
+        public void TriggerLookRight(float duration = 2.1f)
         {
-            lookTargetOverride = target;
+            headLookTimer = Mathf.Max(0.5f, duration);
+            if (animator != null) animator.SetTrigger(HashLookRight);
+        }
+
+        public void TriggerFlashlightRaise()
+        {
+            flashlightEquipped = true;
+            if (animator != null)
+            {
+                animator.SetBool(HashFlashlightHeld, true);
+                animator.SetTrigger(HashFlashlightRaise);
+            }
+        }
+
+        public void TriggerFlashlightLower()
+        {
+            if (animator != null) animator.SetTrigger(HashFlashlightLower);
+        }
+
+        public void TriggerFlashlightRelease()
+        {
+            if (animator != null) animator.SetTrigger(HashFlashlightRelease);
+        }
+
+        public void TriggerFlashlightPickup(float duration = 2.3f)
+        {
+            fullOverrideTimer = Mathf.Max(0.8f, duration);
+            if (animator != null) animator.SetTrigger(HashFlashlightPickup);
         }
 
         public void TriggerDoorInteract(Transform doorHandle = null)
         {
-            leftArmInteractTargetSafe(doorHandle);
-            leftArmTimer = 0.85f;
+            if (doorHandle != null) leftHandInteractTarget = doorHandle;
+            leftArmTimer = 2.0f;
             if (animator != null)
             {
                 animator.SetTrigger(HashDoorOpen);
@@ -228,12 +319,9 @@ namespace TheLastBell.Player
 
         public void TriggerItemPickup(Transform itemTarget = null)
         {
-            leftArmInteractTargetSafe(itemTarget);
-            leftArmTimer = 0.9f;
-            if (animator != null)
-            {
-                animator.SetTrigger(HashPickUp);
-            }
+            if (itemTarget != null) leftHandInteractTarget = itemTarget;
+            leftArmTimer = 1.2f;
+            if (animator != null) animator.SetTrigger(HashPickUp);
         }
 
         public void TriggerImpactFlinch()
@@ -241,13 +329,19 @@ namespace TheLastBell.Player
             if (animator != null) animator.SetTrigger(HashImpactFlinch);
         }
 
-        public void TriggerFall(float duration = 2.0f)
+        public void TriggerStumble(float duration = 1.35f)
+        {
+            fullOverrideTimer = Mathf.Max(0.5f, duration);
+            if (animator != null) animator.SetTrigger(HashStumble);
+        }
+
+        public void TriggerFall(float duration = 1.5f)
         {
             fullOverrideTimer = Mathf.Max(0.5f, duration);
             if (animator != null) animator.SetTrigger(HashFall);
         }
 
-        public void TriggerGetUp(float duration = 1.6f)
+        public void TriggerGetUp(float duration = 2.5f)
         {
             fullOverrideTimer = Mathf.Max(0.5f, duration);
             if (animator != null) animator.SetTrigger(HashGetUp);
@@ -265,37 +359,121 @@ namespace TheLastBell.Player
             }
         }
 
-        private void leftArmInteractTargetSafe(Transform target)
+        public void ResetAnimationState()
         {
-            if (target != null) leftHandInteractTarget = target;
+            StopIsolatedPreview();
+            ClearManualLayerWeights();
+            leftArmTimer = 0f;
+            headLookTimer = 0f;
+            fullOverrideTimer = 0f;
+            isCinematicOverride = false;
+            fearLevel = 0f;
+            if (animator != null)
+            {
+                animator.Rebind();
+                animator.Update(0f);
+            }
         }
+
+        #region Isolated Animation Preview (PlayableGraph)
+        public void StartIsolatedPreview(AnimationClip clip, bool loop)
+        {
+            InitializeIfNeeded();
+            if (animator == null || clip == null) return;
+
+            StopIsolatedPreview();
+
+            currentPreviewClip = clip;
+            previewLoop = loop;
+            previewPlaying = true;
+            isIsolatedPreview = true;
+
+            previewGraph = PlayableGraph.Create("TLB_IsolatedPreview");
+            previewGraph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
+            var output = AnimationPlayableOutput.Create(previewGraph, "PreviewOutput", animator);
+            previewClipPlayable = AnimationClipPlayable.Create(previewGraph, clip);
+            previewClipPlayable.SetApplyFootIK(true);
+            previewClipPlayable.SetApplyPlayableIK(false);
+            output.SetSourcePlayable(previewClipPlayable);
+            previewGraph.Play();
+            previewClipPlayable.SetTime(0.0);
+            previewGraph.Evaluate(0f);
+        }
+
+        public void StepIsolatedPreview(float dt)
+        {
+            if (!isIsolatedPreview || !previewGraph.IsValid() || currentPreviewClip == null) return;
+            float dur = Mathf.Max(0.01f, currentPreviewClip.length);
+
+            if (previewPlaying)
+            {
+                double nextTime = previewClipPlayable.GetTime() + dt * previewSpeed;
+                if (nextTime >= dur)
+                {
+                    if (previewLoop) nextTime %= dur;
+                    else
+                    {
+                        nextTime = dur;
+                        previewPlaying = false;
+                    }
+                }
+                previewClipPlayable.SetTime(nextTime);
+            }
+            previewGraph.Evaluate(0f);
+        }
+
+        public void SetPreviewPlaying(bool playing) => previewPlaying = playing;
+        public void SetPreviewLoop(bool loop) => previewLoop = loop;
+        public void SetPreviewSpeed(float speed) => previewSpeed = Mathf.Clamp(speed, 0.25f, 2.0f);
+
+        public float GetPreviewNormalizedTime()
+        {
+            if (!isIsolatedPreview || !previewGraph.IsValid() || currentPreviewClip == null || currentPreviewClip.length <= 0.001f)
+                return 0f;
+            return Mathf.Clamp01((float)(previewClipPlayable.GetTime() / currentPreviewClip.length));
+        }
+
+        public void SetPreviewNormalizedTime(float normalized01)
+        {
+            if (!isIsolatedPreview || !previewGraph.IsValid() || currentPreviewClip == null) return;
+            double t = Mathf.Clamp01(normalized01) * currentPreviewClip.length;
+            previewClipPlayable.SetTime(t);
+            previewGraph.Evaluate(0f);
+        }
+
+        public void StopIsolatedPreview()
+        {
+            if (previewGraph.IsValid())
+            {
+                previewGraph.Destroy();
+            }
+            isIsolatedPreview = false;
+            previewPlaying = false;
+            currentPreviewClip = null;
+        }
+        #endregion
 
         private void OnAnimatorIK(int layerIndex)
         {
-            if (animator == null || !animator.isHuman || IsFullBodyOverrideActive) return;
+            if (animator == null || !animator.isHuman || isIsolatedPreview) return;
 
-            // Katman 4: Head_Look -> Kamera veya hedef takibi
-            if (layerIndex == idxHeadLook || (idxHeadLook < 0 && layerIndex == 0))
+            // Layer 0: Foot IK (yalnızca yerdeyken ve tam gövde override yokken)
+            if (layerIndex == 0 && enableFootIK && isGroundedCached && !IsFullBodyOverrideActive)
             {
-                Vector3 lookPos;
-                if (lookTargetOverride != null)
-                {
-                    lookPos = lookTargetOverride.position;
-                }
-                else if (cameraTransform != null)
-                {
-                    lookPos = cameraTransform.position + cameraTransform.forward * 6f;
-                }
-                else
-                {
-                    lookPos = transform.position + transform.forward * 6f + Vector3.up * 1.65f;
-                }
-
-                animator.SetLookAtWeight(headLookAtWeight, 0.15f, 0.75f, 0.9f, 0.5f);
-                animator.SetLookAtPosition(lookPos);
+                ApplyFootIK(AvatarIKGoal.LeftFoot);
+                ApplyFootIK(AvatarIKGoal.RightFoot);
             }
 
-            // Katman 2: RightArm_Flashlight -> Fener tutuş desteği
+            if (IsFullBodyOverrideActive) return;
+
+            // Layer 4: Head_Look -> Kamera veya hedef takibi
+            if (layerIndex == idxHeadLook && lookTargetOverride != null)
+            {
+                animator.SetLookAtWeight(headLookAtWeight, 0.1f, 0.7f, 0.9f, 0.5f);
+                animator.SetLookAtPosition(lookTargetOverride.position);
+            }
+
+            // Layer 2: RightArm_Flashlight -> Opsiyonel ince el hedefi
             if (layerIndex == idxRightArm && flashlightEquipped && cameraTransform != null && rightHandIkWeight > 0.01f)
             {
                 Vector3 targetHandPos = cameraTransform.position + cameraTransform.right * 0.20f - cameraTransform.up * 0.18f + cameraTransform.forward * 0.32f;
@@ -303,13 +481,42 @@ namespace TheLastBell.Player
                 animator.SetIKPosition(AvatarIKGoal.RightHand, targetHandPos);
             }
 
-            // Katman 3: LeftArm_Interaction -> Etkileşim hedefi varsa uzanma
+            // Layer 3: LeftArm_Interaction -> Kapı/nesne kolu hedefi
             if (layerIndex == idxLeftArm && leftArmTimer > 0f && leftHandInteractTarget != null)
             {
-                float w = Mathf.Clamp01(leftArmTimer * 2f) * 0.7f;
+                float w = Mathf.Clamp01(leftArmTimer * 2f) * 0.65f;
                 animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, w);
                 animator.SetIKPosition(AvatarIKGoal.LeftHand, leftHandInteractTarget.position);
             }
+        }
+
+        private void ApplyFootIK(AvatarIKGoal footGoal)
+        {
+            Vector3 footPos = animator.GetIKPosition(footGoal);
+            Vector3 rayOrigin = footPos + Vector3.up * footRayHeight;
+
+            if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, footRayHeight + footRayDistance, groundLayers, QueryTriggerInteraction.Ignore))
+            {
+                if (hit.collider != null && !hit.collider.transform.IsChildOf(transform.root))
+                {
+                    float targetY = hit.point.y + footSoleOffset;
+                    // Yalnızca ayak zemine yakınsa (adım atarken havadaki ayağı aşağı çekme)
+                    if (footPos.y <= targetY + 0.08f)
+                    {
+                        Vector3 newPos = new Vector3(footPos.x, Mathf.Max(footPos.y, targetY), footPos.z);
+                        animator.SetIKPositionWeight(footGoal, 0.85f);
+                        animator.SetIKPosition(footGoal, newPos);
+
+                        Quaternion footRot = Quaternion.FromToRotation(Vector3.up, hit.normal) * animator.GetIKRotation(footGoal);
+                        animator.SetIKRotationWeight(footGoal, 0.6f);
+                        animator.SetIKRotation(footGoal, footRot);
+                        return;
+                    }
+                }
+            }
+
+            animator.SetIKPositionWeight(footGoal, 0f);
+            animator.SetIKRotationWeight(footGoal, 0f);
         }
 
         #region Unity Animation Event Callbacks

@@ -36,6 +36,7 @@ namespace TheLastBell.Player
         private PlayerInventory playerInventory;
         private float flickerTimer = 0f;
         private bool isPhysicsDropped = false;
+        private bool isAttachedToHand = false;
 
         public event Action<float> OnBatteryChanged;
         public event Action<bool> OnFlashlightToggled;
@@ -47,6 +48,11 @@ namespace TheLastBell.Player
         public void SetPhysicsDropped(bool dropped)
         {
             isPhysicsDropped = dropped;
+        }
+
+        public void SetAttachedToHand(bool attachedToHand)
+        {
+            isAttachedToHand = attachedToHand;
         }
 
         private void Awake()
@@ -92,7 +98,6 @@ namespace TheLastBell.Player
                 flashlightLight.cookie = spotCookie;
             }
 
-            // Işığın duvar içinden sızmasını önlemek için kapsül yarıçapı içinde tut
             flashlightLight.transform.localPosition = new Vector3(0f, 0f, 0.02f);
             flashlightLight.transform.localRotation = Quaternion.identity;
         }
@@ -103,13 +108,11 @@ namespace TheLastBell.Player
             {
                 HandleSway();
 
-                // PC Girdi: 'F' feneri açar/kapatır
                 if (Input.GetKeyDown(KeyCode.F))
                 {
                     ToggleFlashlight();
                 }
 
-                // PC Girdi: 'R' pil değiştir
                 if (Input.GetKeyDown(KeyCode.R))
                 {
                     ReloadBattery();
@@ -123,7 +126,26 @@ namespace TheLastBell.Player
         {
             if (transform.parent == null) return;
 
+            if (isAttachedToHand)
+            {
+                // Sağ el soketine bağlıyken pozisyon el kemiğini takip eder, ışık kameranın baktığı hedefe yönelir
+                transform.localPosition = Vector3.zero;
+                if (cameraTarget != null && flashlightLight != null)
+                {
+                    Vector3 aimPoint = cameraTarget.position + cameraTarget.forward * 10.0f;
+                    Vector3 toAim = aimPoint - flashlightLight.transform.position;
+                    if (toAim.sqrMagnitude > 0.01f)
+                    {
+                        Quaternion targetRot = Quaternion.LookRotation(toAim.normalized, Vector3.up);
+                        flashlightLight.transform.rotation = Quaternion.Slerp(
+                            flashlightLight.transform.rotation, targetRot, 1f - Mathf.Exp(-swaySmoothSpeed * Mathf.Max(0.0001f, Time.deltaTime)));
+                    }
+                }
+                return;
+            }
+
             transform.localPosition = mountOffset;
+            if (flashlightLight != null) flashlightLight.transform.localRotation = Quaternion.identity;
 
             Quaternion targetWorldRot = transform.parent.rotation;
             if (cameraTarget != null)

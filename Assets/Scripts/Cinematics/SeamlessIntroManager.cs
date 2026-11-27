@@ -216,8 +216,15 @@ namespace TheLastBell.Cinematics
                 mainCamera.nearClipPlane = 0.01f;
             }
 
-            // Standart Cast Shadows = On modunu koru (aynalarda kafa tam görünsün)
-            SetHeadPartsShadowOnly(false);
+            // 1P modunda kamera tıkanmasını önle, 3P modunda tam vücudu göster
+            if (CameraModeController.Instance != null)
+            {
+                CameraModeController.Instance.ApplyMeshVisibility(CameraModeController.Instance.IsThirdPerson);
+            }
+            else
+            {
+                SetHeadPartsShadowOnly(true);
+            }
 
             // Kontrolleri ve etkileşimi aç
             if (playerController != null)

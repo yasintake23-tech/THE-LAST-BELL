@@ -8,43 +8,84 @@ using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using TheLastBell.Player;
 using TheLastBell.Interaction;
+using TheLastBell.UI;
 
 namespace TheLastBell.Editor
 {
     /// <summary>
-    /// THE LAST BELL - Modüler 7 Katmanlı Karakter Animasyon & Fiziksel Fener Kurulum Aracı.
-    /// Walk_Forward_unity.fbx klibini Humanoid olarak içe aktarır, AvatarMask'ları üretir,
-    /// Protagonist_AnimatorController.controller'ı (GUID korunarak) 7 katmanlı mimariye yükseltir
-    /// ve AbandonedSchool.unity içindeki karakter ile fener referanslarını bağlar.
+    /// THE LAST BELL - Tam 23 Klipli Modüler 7 Katmanlı Karakter Animasyon, 3P Kamera ve Debug Panel Kurulum Aracı.
+    /// - Tüm 23 animasyon FBX dosyasını Humanoid + doğru zemin hizalaması (Feet vs Original Y) + Animation Events ile içe aktarır.
+    /// - AnimationLibraryRegistry.asset oluşturur/günceller.
+    /// - Protagonist_AnimatorController.controller'ı (GUID korunarak) 7 katmanlı mimariyle yeniden kurar.
+    /// - AbandonedSchool.unity içinde ProtagonistAnimationController, CameraModeController, FlashlightPhysicalItem ve AnimationDebugPanel'i bağlar.
     /// </summary>
     public static class ProtagonistAnimationSetup
     {
-        public const string WALK_FBX_PATH = "Assets/Animations/Locomotion/Walk_Forward_unity.fbx";
+        public const string LOCOMOTION_DIR = "Assets/Animations/Locomotion";
         public const string CONTROLLER_PATH = "Assets/Characters/Protagonist/Protagonist_AnimatorController.controller";
+        public const string REGISTRY_PATH = "Assets/Animations/Controllers/AnimationLibraryRegistry.asset";
         public const string MASKS_DIR = "Assets/Animations/Masks";
+        public const string PROTAGONIST_LEGACY_FBX = "Assets/Characters/Protagonist/Protagonist_Character.fbx";
+
+        public struct ClipSpec
+        {
+            public string id;
+            public string fileName;
+            public AnimationClipCategory category;
+            public string targetLayer;
+            public string notes;
+        }
+
+        public static readonly ClipSpec[] AllClipSpecs = new[]
+        {
+            // Base Locomotion
+            new ClipSpec { id = "Idle_Breathing", fileName = "Idle_Breathing.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "Ayakta nefes alma (Feet grounded, Loop)" },
+            new ClipSpec { id = "Walk_Slow_unity", fileName = "Walk_Slow_unity.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "Temkinli yavaş yürüyüş (Feet grounded, Loop)" },
+            new ClipSpec { id = "Walk_Forward_unity", fileName = "Walk_Forward_unity.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "İleri yürüyüş (Feet grounded, Loop)" },
+            new ClipSpec { id = "Walk_Reverse_unity", fileName = "Walk_Reverse_unity.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "Geri yürüyüş (Feet grounded, Loop)" },
+            new ClipSpec { id = "Strafe_Left", fileName = "Strafe_Left.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "Sola yan yürüyüş (Feet grounded, Loop)" },
+            new ClipSpec { id = "Strafe_Right", fileName = "Strafe_Right.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "Sağa yan yürüyüş (Feet grounded, Loop)" },
+            new ClipSpec { id = "Run_Forward", fileName = "Run_Forward.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "İleri koşu (Feet grounded, Loop)" },
+            new ClipSpec { id = "Crouch_Enter", fileName = "Crouch_Enter.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "Çömelmeye giriş (Original Y, One-shot)" },
+            new ClipSpec { id = "Flashlight_CrouchWalk", fileName = "Flashlight_CrouchWalk.fbx", category = AnimationClipCategory.Locomotion, targetLayer = ProtagonistAnimationController.LAYER_BASE, notes = "Fenerle çömelerek yürüyüş (Original Y, Loop)" },
+
+            // Upper Body & Head
+            new ClipSpec { id = "Flashlight_Fear", fileName = "Flashlight_Fear.fbx", category = AnimationClipCategory.UpperBody, targetLayer = ProtagonistAnimationController.LAYER_UPPER_BODY, notes = "Korku/gerilim üst gövde duruşu (Feet grounded, Loop)" },
+            new ClipSpec { id = "Look_Right", fileName = "Look_Right.fbx", category = AnimationClipCategory.UpperBody, targetLayer = ProtagonistAnimationController.LAYER_HEAD_LOOK, notes = "Sağa bakış (Feet grounded, One-shot)" },
+
+            // Right Arm Flashlight
+            new ClipSpec { id = "Flashlight_Hold", fileName = "Flashlight_Hold.fbx", category = AnimationClipCategory.Flashlight, targetLayer = ProtagonistAnimationController.LAYER_RIGHT_ARM, notes = "Fener tutma duruşu (Loop)" },
+            new ClipSpec { id = "Flashlight_Slow", fileName = "Flashlight_Slow.fbx", category = AnimationClipCategory.Flashlight, targetLayer = ProtagonistAnimationController.LAYER_RIGHT_ARM, notes = "Fenerle yavaş yürüyüş kol salınımı (Loop)" },
+            new ClipSpec { id = "Flashlight_Walk", fileName = "Flashlight_Walk.fbx", category = AnimationClipCategory.Flashlight, targetLayer = ProtagonistAnimationController.LAYER_RIGHT_ARM, notes = "Fenerle yürüyüş kol salınımı (Loop)" },
+            new ClipSpec { id = "Flashlight_Run", fileName = "Flashlight_Run.fbx", category = AnimationClipCategory.Flashlight, targetLayer = ProtagonistAnimationController.LAYER_RIGHT_ARM, notes = "Fenerle koşu kol salınımı (Loop)" },
+            new ClipSpec { id = "Flashlight_Raise", fileName = "Flashlight_Raise.fbx", category = AnimationClipCategory.Flashlight, targetLayer = ProtagonistAnimationController.LAYER_RIGHT_ARM, notes = "Feneri kaldırma (One-shot)" },
+            new ClipSpec { id = "Flashlight_Lower", fileName = "Flashlight_Lower.fbx", category = AnimationClipCategory.Flashlight, targetLayer = ProtagonistAnimationController.LAYER_RIGHT_ARM, notes = "Feneri indirme (One-shot)" },
+            new ClipSpec { id = "Flashlight_Release", fileName = "Flashlight_Release.fbx", category = AnimationClipCategory.Flashlight, targetLayer = ProtagonistAnimationController.LAYER_RIGHT_ARM, notes = "Feneri bırakma - %55 event (One-shot)" },
+
+            // Left Arm Interaction
+            new ClipSpec { id = "Door_Open_Left", fileName = "Door_Open_Left.fbx", category = AnimationClipCategory.Interaction, targetLayer = ProtagonistAnimationController.LAYER_LEFT_ARM, notes = "Sol elle kapı açma - %45 event (One-shot)" },
+
+            // Full Body Actions / Overrides
+            new ClipSpec { id = "Flashlight_Pickup", fileName = "Flashlight_Pickup.fbx", category = AnimationClipCategory.FullBodyAction, targetLayer = ProtagonistAnimationController.LAYER_FULL_OVERRIDE, notes = "Yerden fener alma - %55 event (Original Y, One-shot)" },
+            new ClipSpec { id = "Stumble_Recover", fileName = "Stumble_Recover.fbx", category = AnimationClipCategory.FullBodyAction, targetLayer = ProtagonistAnimationController.LAYER_FULL_OVERRIDE, notes = "Sendeleme ve toparlanma (Original Y, One-shot)" },
+            new ClipSpec { id = "Fall_Forward", fileName = "Fall_Forward.fbx", category = AnimationClipCategory.FullBodyAction, targetLayer = ProtagonistAnimationController.LAYER_FULL_OVERRIDE, notes = "Öne düşme - %70 darbe event (Original Y, One-shot)" },
+            new ClipSpec { id = "Get_Up", fileName = "Get_Up.fbx", category = AnimationClipCategory.FullBodyAction, targetLayer = ProtagonistAnimationController.LAYER_FULL_OVERRIDE, notes = "Yerden kalkma (Original Y, One-shot)" }
+        };
 
         [MenuItem("The Last Bell/Animasyon/Modüler 7 Katmanlı Animasyon Sistemini Kur", false, 21)]
         public static void SetupAllMenu()
         {
             SetupAll();
             EditorUtility.DisplayDialog("Animasyon Sistemi Güncellendi",
-                "Walk_Forward_unity.fbx, 4 AvatarMask, 7 katmanlı Protagonist_AnimatorController ve FlashlightPhysicalItem başarıyla yapılandırıldı.",
+                "Tüm 23 animasyon klibi, 7 katmanlı Protagonist_AnimatorController, CameraModeController ve AnimationDebugPanel başarıyla yapılandırıldı.",
                 "Tamam");
         }
 
         public static void SetupAll()
         {
-            EnsureWalkForwardImportSettings();
-
-            AnimationClip walkForwardClip = LoadPrimaryClip(WALK_FBX_PATH);
-            if (walkForwardClip == null)
-            {
-                Debug.LogError($"[ProtagonistAnimationSetup] Walk_Forward_unity AnimationClip yüklenemedi: {WALK_FBX_PATH}");
-            }
-            else
-            {
-                Debug.Log($"[ProtagonistAnimationSetup] Walk_Forward_unity yüklendi: {walkForwardClip.name}, len={walkForwardClip.length:F2}s, loop={walkForwardClip.isLooping}, humanMotion={walkForwardClip.humanMotion}");
-            }
+            FixLegacyProtagonistFbxGrounding();
+            Dictionary<string, AnimationClip> clipMap = ImportAndLoadAllClips();
+            AnimationLibraryRegistry registry = CreateOrUpdateRegistry(clipMap);
 
             if (!Directory.Exists(MASKS_DIR)) Directory.CreateDirectory(MASKS_DIR);
 
@@ -91,82 +132,142 @@ namespace TheLastBell.Editor
             }
 
             EnsureParameters(controller);
-            UpgradeBaseLocomotionLayer(controller, walkForwardClip);
-            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_UPPER_BODY, upperMask, AnimatorLayerBlendingMode.Override, 0.25f, false, BuildUpperBodyStates);
-            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_RIGHT_ARM, rightArmMask, AnimatorLayerBlendingMode.Override, 1.0f, true, BuildRightArmStates);
-            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_LEFT_ARM, leftArmMask, AnimatorLayerBlendingMode.Override, 0.0f, true, BuildLeftArmStates);
-            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_HEAD_LOOK, headMask, AnimatorLayerBlendingMode.Override, 1.0f, true, BuildHeadLookStates);
-            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_ADDITIVE, upperMask, AnimatorLayerBlendingMode.Additive, 0.35f, false, BuildAdditiveStates);
-            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_FULL_OVERRIDE, null, AnimatorLayerBlendingMode.Override, 0.0f, true, BuildFullOverrideStates);
+            RebuildBaseLocomotionLayer(controller, clipMap);
+
+            // Varsayılan ağırlıklar: yalnızca Base Layer (1.0) ve RightArm_Flashlight (1.0) aktif; diğerleri 0.0 (T-pose/boş state çakışması yok)
+            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_UPPER_BODY, upperMask, AnimatorLayerBlendingMode.Override, 0.0f, false, sm => BuildUpperBodyStates(sm, clipMap));
+            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_RIGHT_ARM, rightArmMask, AnimatorLayerBlendingMode.Override, 1.0f, true, sm => BuildRightArmStates(sm, clipMap, controller));
+            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_LEFT_ARM, leftArmMask, AnimatorLayerBlendingMode.Override, 0.0f, true, sm => BuildLeftArmStates(sm, clipMap));
+            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_HEAD_LOOK, headMask, AnimatorLayerBlendingMode.Override, 0.0f, true, sm => BuildHeadLookStates(sm, clipMap));
+            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_ADDITIVE, upperMask, AnimatorLayerBlendingMode.Additive, 0.0f, false, sm => BuildAdditiveStates(sm, clipMap));
+            EnsureModularLayer(controller, ProtagonistAnimationController.LAYER_FULL_OVERRIDE, null, AnimatorLayerBlendingMode.Override, 0.0f, true, sm => BuildFullOverrideStates(sm, clipMap));
 
             EditorUtility.SetDirty(controller);
             AssetDatabase.SaveAssets();
 
-            WireSceneComponents(controller);
+            WireSceneComponents(controller, registry);
         }
 
-        private static void EnsureWalkForwardImportSettings()
+        private static void FixLegacyProtagonistFbxGrounding()
         {
-            if (!File.Exists(WALK_FBX_PATH))
-            {
-                Debug.LogError($"[ProtagonistAnimationSetup] FBX bulunamadı: {WALK_FBX_PATH}");
-                return;
-            }
-
-            var importer = AssetImporter.GetAtPath(WALK_FBX_PATH) as ModelImporter;
-            if (importer == null)
-            {
-                AssetDatabase.ImportAsset(WALK_FBX_PATH, ImportAssetOptions.ForceSynchronousImport);
-                importer = AssetImporter.GetAtPath(WALK_FBX_PATH) as ModelImporter;
-            }
+            if (!File.Exists(PROTAGONIST_LEGACY_FBX)) return;
+            var importer = AssetImporter.GetAtPath(PROTAGONIST_LEGACY_FBX) as ModelImporter;
             if (importer == null) return;
-
-            bool needsReimport = false;
-            if (importer.animationType != ModelImporterAnimationType.Human)
-            {
-                importer.animationType = ModelImporterAnimationType.Human;
-                needsReimport = true;
-            }
-            if (importer.avatarSetup != ModelImporterAvatarSetup.CreateFromThisModel)
-            {
-                importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
-                needsReimport = true;
-            }
-            if (importer.materialImportMode != ModelImporterMaterialImportMode.None)
-            {
-                importer.materialImportMode = ModelImporterMaterialImportMode.None;
-                needsReimport = true;
-            }
 
             var clips = importer.clipAnimations;
             if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
-            if (clips != null && clips.Length > 0)
+            if (clips == null || clips.Length == 0) return;
+
+            bool changed = false;
+            for (int i = 0; i < clips.Length; i++)
             {
-                for (int i = 0; i < clips.Length; i++)
+                var c = clips[i];
+                if (!c.heightFromFeet || !c.lockRootHeightY)
                 {
-                    var c = clips[i];
-                    if (!c.loopTime || !c.loopPose || !c.lockRootRotation || !c.lockRootHeightY || !c.lockRootPositionXZ)
-                    {
-                        c.loopTime = true;
-                        c.loopPose = true;
-                        c.lockRootRotation = true;
-                        c.keepOriginalOrientation = true;
-                        c.lockRootHeightY = true;
-                        c.keepOriginalPositionY = true;
-                        c.lockRootPositionXZ = true;
-                        c.keepOriginalPositionXZ = true;
-                        clips[i] = c;
-                        needsReimport = true;
-                    }
+                    c.lockRootHeightY = true;
+                    c.heightFromFeet = true;
+                    c.keepOriginalPositionY = false;
+                    clips[i] = c;
+                    changed = true;
                 }
+            }
+            if (changed)
+            {
                 importer.clipAnimations = clips;
+                importer.SaveAndReimport();
+                Debug.Log("[ProtagonistAnimationSetup] Legacy Protagonist_Character.fbx klipleri heightFromFeet=true olarak düzeltildi.");
+            }
+        }
+
+        private static Dictionary<string, AnimationClip> ImportAndLoadAllClips()
+        {
+            var result = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var spec in AllClipSpecs)
+            {
+                string fbxPath = $"{LOCOMOTION_DIR}/{spec.fileName}";
+                if (!File.Exists(fbxPath))
+                {
+                    Debug.LogError($"[ProtagonistAnimationSetup] Eksik animasyon FBX: {fbxPath}");
+                    continue;
+                }
+
+                var importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
+                if (importer == null)
+                {
+                    AssetDatabase.ImportAsset(fbxPath, ImportAssetOptions.ForceSynchronousImport);
+                    importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
+                }
+
+                if (importer != null)
+                {
+                    importer.materialImportMode = ModelImporterMaterialImportMode.None;
+                    importer.importAnimation = true;
+                    importer.animationType = ModelImporterAnimationType.Human;
+                    importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                    importer.autoGenerateAvatarMappingIfUnspecified = true;
+                    importer.animationCompression = ModelImporterAnimationCompression.Optimal;
+
+                    var clips = importer.clipAnimations;
+                    if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
+                    if (clips != null && clips.Length > 0)
+                    {
+                        for (int i = 0; i < clips.Length; i++)
+                        {
+                            clips[i] = AnimationImportPipeline.ConfigureClipSettings(spec.id, fbxPath, clips[i]);
+                        }
+                        importer.clipAnimations = clips;
+                    }
+                    importer.SaveAndReimport();
+                }
+
+                AnimationClip clip = LoadPrimaryClip(fbxPath);
+                if (clip != null)
+                {
+                    result[spec.id] = clip;
+                }
+                else
+                {
+                    Debug.LogError($"[ProtagonistAnimationSetup] AnimationClip yüklenemedi: {fbxPath}");
+                }
             }
 
-            if (needsReimport)
+            Debug.Log($"[ProtagonistAnimationSetup] {result.Count}/{AllClipSpecs.Length} animasyon klibi başarıyla içe aktarıldı.");
+            return result;
+        }
+
+        private static AnimationLibraryRegistry CreateOrUpdateRegistry(Dictionary<string, AnimationClip> clipMap)
+        {
+            string dir = Path.GetDirectoryName(REGISTRY_PATH);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(REGISTRY_PATH);
+            bool isNew = (registry == null);
+            if (isNew) registry = ScriptableObject.CreateInstance<AnimationLibraryRegistry>();
+
+            var entries = new List<RegisteredAnimationEntry>();
+            foreach (var spec in AllClipSpecs)
             {
-                importer.SaveAndReimport();
-                Debug.Log("[ProtagonistAnimationSetup] Walk_Forward_unity.fbx Humanoid + Loop + RootBake olarak içe aktarıldı.");
+                clipMap.TryGetValue(spec.id, out AnimationClip clip);
+                entries.Add(new RegisteredAnimationEntry
+                {
+                    id = spec.id,
+                    displayName = spec.id.Replace("_unity", "").Replace("_", " "),
+                    category = spec.category,
+                    targetLayer = spec.targetLayer,
+                    defaultLoop = AnimationImportPipeline.ShouldLoop(spec.id, $"{LOCOMOTION_DIR}/{spec.fileName}"),
+                    usesRootHeightBakeFromFeet = AnimationImportPipeline.UsesHeightFromFeet(spec.id),
+                    notes = spec.notes,
+                    clip = clip
+                });
             }
+
+            registry.SetEntries(entries);
+            if (isNew) AssetDatabase.CreateAsset(registry, REGISTRY_PATH);
+            else EditorUtility.SetDirty(registry);
+
+            AssetDatabase.SaveAssets();
+            return registry;
         }
 
         private static AnimationClip LoadPrimaryClip(string fbxPath)
@@ -176,6 +277,13 @@ namespace TheLastBell.Editor
             return assets
                 .OfType<AnimationClip>()
                 .FirstOrDefault(c => !c.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static AnimationClip GetClip(Dictionary<string, AnimationClip> map, string id, string fallbackId = "Idle_Breathing")
+        {
+            if (map.TryGetValue(id, out var c) && c != null) return c;
+            if (!string.IsNullOrEmpty(fallbackId) && map.TryGetValue(fallbackId, out var fb)) return fb;
+            return null;
         }
 
         private static void SetAllBodyParts(AvatarMask mask, bool active)
@@ -224,6 +332,12 @@ namespace TheLastBell.Editor
             EnsureParam(controller, "LayToIdle", AnimatorControllerParameterType.Trigger, false);
             EnsureParam(controller, "Fall", AnimatorControllerParameterType.Trigger, false);
             EnsureParam(controller, "GetUp", AnimatorControllerParameterType.Trigger, false);
+            EnsureParam(controller, "Stumble", AnimatorControllerParameterType.Trigger, false);
+            EnsureParam(controller, "FlashlightRaise", AnimatorControllerParameterType.Trigger, false);
+            EnsureParam(controller, "FlashlightLower", AnimatorControllerParameterType.Trigger, false);
+            EnsureParam(controller, "FlashlightRelease", AnimatorControllerParameterType.Trigger, false);
+            EnsureParam(controller, "FlashlightPickup", AnimatorControllerParameterType.Trigger, false);
+            EnsureParam(controller, "LookRight", AnimatorControllerParameterType.Trigger, false);
         }
 
         private static void EnsureParam(AnimatorController controller, string name, AnimatorControllerParameterType type, object defaultVal)
@@ -235,51 +349,79 @@ namespace TheLastBell.Editor
             controller.AddParameter(p);
         }
 
-        private static void UpgradeBaseLocomotionLayer(AnimatorController controller, AnimationClip walkForwardClip)
+        private static void ClearStateMachine(AnimatorStateMachine sm)
+        {
+            foreach (var t in sm.anyStateTransitions.ToArray()) sm.RemoveAnyStateTransition(t);
+            foreach (var s in sm.states.ToArray()) sm.RemoveState(s.state);
+            foreach (var sub in sm.stateMachines.ToArray()) sm.RemoveStateMachine(sub.stateMachine);
+        }
+
+        private static void RebuildBaseLocomotionLayer(AnimatorController controller, Dictionary<string, AnimationClip> clips)
         {
             var layers = controller.layers;
             if (layers == null || layers.Length == 0) return;
 
             layers[0].iKPass = true;
             var sm = layers[0].stateMachine;
-            if (sm != null)
-            {
-                foreach (var childState in sm.states)
-                {
-                    var st = childState.state;
-                    if (st.name == "Locomotion")
-                    {
-                        st.speedParameterActive = true;
-                        st.speedParameter = "LocomotionSpeedMultiplier";
+            ClearStateMachine(sm);
 
-                        if (st.motion is BlendTree bt && walkForwardClip != null)
-                        {
-                            var children = bt.children;
-                            bool replaced = false;
-                            for (int i = 0; i < children.Length; i++)
-                            {
-                                // Sadece İleri Yürüme yuvasını (x≈0, y≈1) Walk_Forward_unity ile değiştir
-                                if (Mathf.Abs(children[i].position.x) < 0.05f &&
-                                    Mathf.Abs(children[i].position.y - 1.0f) < 0.05f)
-                                {
-                                    children[i].motion = walkForwardClip;
-                                    children[i].timeScale = 1.0f;
-                                    replaced = true;
-                                }
-                            }
-                            if (!replaced)
-                            {
-                                bt.AddChild(walkForwardClip, new Vector2(0f, 1f));
-                            }
-                            else
-                            {
-                                bt.children = children;
-                            }
-                            EditorUtility.SetDirty(bt);
-                        }
-                    }
-                }
-            }
+            // 1. 2D Freeform Directional BlendTree (Idle_Breathing merkezde, tüm yönler kendi gerçek klibiyle)
+            var locoTree = new BlendTree
+            {
+                name = "Locomotion_2D_BlendTree",
+                blendType = BlendTreeType.FreeformDirectional2D,
+                blendParameter = "Strafe",
+                blendParameterY = "Speed",
+                useAutomaticThresholds = false
+            };
+            AssetDatabase.AddObjectToAsset(locoTree, controller);
+
+            locoTree.AddChild(GetClip(clips, "Idle_Breathing"), new Vector2(0f, 0f));
+            locoTree.AddChild(GetClip(clips, "Walk_Slow_unity"), new Vector2(0f, 0.45f));
+            locoTree.AddChild(GetClip(clips, "Walk_Forward_unity"), new Vector2(0f, 1.0f));
+            locoTree.AddChild(GetClip(clips, "Run_Forward"), new Vector2(0f, 2.0f));
+            locoTree.AddChild(GetClip(clips, "Walk_Reverse_unity"), new Vector2(0f, -1.0f));
+            locoTree.AddChild(GetClip(clips, "Strafe_Left"), new Vector2(-1.0f, 0f));
+            locoTree.AddChild(GetClip(clips, "Strafe_Right"), new Vector2(1.0f, 0f));
+
+            var locoState = sm.AddState("Locomotion", new Vector3(260f, 80f, 0f));
+            locoState.motion = locoTree;
+            locoState.iKOnFeet = true;
+            locoState.speedParameterActive = true;
+            locoState.speedParameter = "LocomotionSpeedMultiplier";
+            sm.defaultState = locoState;
+
+            // 2. Çömelme giriş ve çömelme hareketi
+            var crouchEnter = sm.AddState("Crouch_Enter", new Vector3(260f, 210f, 0f));
+            crouchEnter.motion = GetClip(clips, "Crouch_Enter");
+            crouchEnter.iKOnFeet = true;
+
+            var crouchWalk = sm.AddState("Crouch_Locomotion", new Vector3(520f, 210f, 0f));
+            crouchWalk.motion = GetClip(clips, "Flashlight_CrouchWalk");
+            crouchWalk.iKOnFeet = true;
+            crouchWalk.speedParameterActive = true;
+            crouchWalk.speedParameter = "LocomotionSpeedMultiplier";
+
+            var toCrouch = locoState.AddTransition(crouchEnter);
+            toCrouch.AddCondition(AnimatorConditionMode.If, 0f, "IsCrouching");
+            toCrouch.hasExitTime = false;
+            toCrouch.duration = 0.16f;
+
+            var enterToWalk = crouchEnter.AddTransition(crouchWalk);
+            enterToWalk.hasExitTime = true;
+            enterToWalk.exitTime = 0.80f;
+            enterToWalk.duration = 0.15f;
+
+            var enterToStand = crouchEnter.AddTransition(locoState);
+            enterToStand.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsCrouching");
+            enterToStand.hasExitTime = false;
+            enterToStand.duration = 0.18f;
+
+            var crouchToStand = crouchWalk.AddTransition(locoState);
+            crouchToStand.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsCrouching");
+            crouchToStand.hasExitTime = false;
+            crouchToStand.duration = 0.20f;
+
             controller.layers = layers;
         }
 
@@ -290,24 +432,15 @@ namespace TheLastBell.Editor
             AnimatorLayerBlendingMode blendingMode,
             float defaultWeight,
             bool ikPass,
-            Action<AnimatorStateMachine> populateStates)
+            Action<AnimatorStateMachine> buildStates)
         {
             var layers = controller.layers.ToList();
-            int existingIdx = layers.FindIndex(l => l.name == layerName);
+            int idx = layers.FindIndex(l => l.name == layerName);
 
             AnimatorControllerLayer layer;
-            if (existingIdx >= 0)
+            if (idx < 0)
             {
-                layer = layers[existingIdx];
-                layer.avatarMask = mask;
-                layer.blendingMode = blendingMode;
-                layer.defaultWeight = defaultWeight;
-                layer.iKPass = ikPass;
-                layers[existingIdx] = layer;
-            }
-            else
-            {
-                var sm = new AnimatorStateMachine { name = layerName, hideFlags = HideFlags.HideInHierarchy };
+                var sm = new AnimatorStateMachine { name = $"{layerName}_SM", hideFlags = HideFlags.HideInHierarchy };
                 AssetDatabase.AddObjectToAsset(sm, controller);
 
                 layer = new AnimatorControllerLayer
@@ -321,108 +454,150 @@ namespace TheLastBell.Editor
                 };
                 layers.Add(layer);
             }
-
-            if (layer.stateMachine.states.Length == 0)
+            else
             {
-                populateStates(layer.stateMachine);
+                layer = layers[idx];
+                layer.avatarMask = mask;
+                layer.blendingMode = blendingMode;
+                layer.defaultWeight = defaultWeight;
+                layer.iKPass = ikPass;
+                layers[idx] = layer;
             }
 
+            ClearStateMachine(layer.stateMachine);
+            buildStates?.Invoke(layer.stateMachine);
             controller.layers = layers.ToArray();
         }
 
-        private static void BuildUpperBodyStates(AnimatorStateMachine sm)
+        private static void BuildUpperBodyStates(AnimatorStateMachine sm, Dictionary<string, AnimationClip> clips)
         {
-            var idle = sm.AddState("UpperBody_Idle");
-            var alert = sm.AddState("UpperBody_Alert");
+            var idle = sm.AddState("Idle_Upper", new Vector3(240f, 80f, 0f));
+            idle.motion = GetClip(clips, "Idle_Breathing");
+            var fear = sm.AddState("Flashlight_Fear", new Vector3(500f, 80f, 0f));
+            fear.motion = GetClip(clips, "Flashlight_Fear");
             sm.defaultState = idle;
 
-            var toAlert = idle.AddTransition(alert);
-            toAlert.AddCondition(AnimatorConditionMode.Greater, 0.5f, "FearLevel");
-            toAlert.duration = 0.25f;
-            toAlert.hasExitTime = false;
+            var toFear = idle.AddTransition(fear);
+            toFear.AddCondition(AnimatorConditionMode.Greater, 0.35f, "FearLevel");
+            toFear.hasExitTime = false;
+            toFear.duration = 0.25f;
 
-            var toIdle = alert.AddTransition(idle);
-            toIdle.AddCondition(AnimatorConditionMode.Less, 0.4f, "FearLevel");
-            toIdle.duration = 0.25f;
+            var toIdle = fear.AddTransition(idle);
+            toIdle.AddCondition(AnimatorConditionMode.Less, 0.25f, "FearLevel");
             toIdle.hasExitTime = false;
+            toIdle.duration = 0.25f;
         }
 
-        private static void BuildRightArmStates(AnimatorStateMachine sm)
+        private static void BuildRightArmStates(AnimatorStateMachine sm, Dictionary<string, AnimationClip> clips, AnimatorController controller)
         {
-            var hold = sm.AddState("Flashlight_Hold");
-            var aim = sm.AddState("Flashlight_Aim");
-            var empty = sm.AddState("Flashlight_Empty");
+            var flashTree = new BlendTree
+            {
+                name = "Flashlight_RightArm_BlendTree",
+                blendType = BlendTreeType.Simple1D,
+                blendParameter = "Speed",
+                useAutomaticThresholds = false
+            };
+            AssetDatabase.AddObjectToAsset(flashTree, controller);
+            flashTree.AddChild(GetClip(clips, "Flashlight_Hold"), 0.0f);
+            flashTree.AddChild(GetClip(clips, "Flashlight_Slow"), 0.45f);
+            flashTree.AddChild(GetClip(clips, "Flashlight_Walk"), 1.0f);
+            flashTree.AddChild(GetClip(clips, "Flashlight_Run"), 2.0f);
+
+            var hold = sm.AddState("Flashlight_Locomotion", new Vector3(260f, 80f, 0f));
+            hold.motion = flashTree;
             sm.defaultState = hold;
 
-            var holdToEmpty = hold.AddTransition(empty);
-            holdToEmpty.AddCondition(AnimatorConditionMode.IfNot, 0f, "FlashlightHeld");
-            holdToEmpty.duration = 0.18f;
-            holdToEmpty.hasExitTime = false;
+            var empty = sm.AddState("Flashlight_Empty", new Vector3(540f, 80f, 0f));
+            empty.motion = GetClip(clips, "Idle_Breathing");
 
-            var emptyToHold = empty.AddTransition(hold);
-            emptyToHold.AddCondition(AnimatorConditionMode.If, 0f, "FlashlightHeld");
-            emptyToHold.duration = 0.18f;
-            emptyToHold.hasExitTime = false;
+            var raise = sm.AddState("Flashlight_Raise", new Vector3(260f, 200f, 0f));
+            raise.motion = GetClip(clips, "Flashlight_Raise");
 
-            var holdToAim = hold.AddTransition(aim);
-            holdToAim.AddCondition(AnimatorConditionMode.If, 0f, "FlashlightAim");
-            holdToAim.duration = 0.15f;
-            holdToAim.hasExitTime = false;
+            var lower = sm.AddState("Flashlight_Lower", new Vector3(540f, 200f, 0f));
+            lower.motion = GetClip(clips, "Flashlight_Lower");
 
-            var aimToHold = aim.AddTransition(hold);
-            aimToHold.AddCondition(AnimatorConditionMode.IfNot, 0f, "FlashlightAim");
-            aimToHold.duration = 0.15f;
-            aimToHold.hasExitTime = false;
+            var release = sm.AddState("Flashlight_Release", new Vector3(540f, 300f, 0f));
+            release.motion = GetClip(clips, "Flashlight_Release");
+
+            var toEmpty = hold.AddTransition(empty);
+            toEmpty.AddCondition(AnimatorConditionMode.IfNot, 0f, "FlashlightHeld");
+            toEmpty.hasExitTime = false;
+            toEmpty.duration = 0.18f;
+
+            var toHold = empty.AddTransition(hold);
+            toHold.AddCondition(AnimatorConditionMode.If, 0f, "FlashlightHeld");
+            toHold.hasExitTime = false;
+            toHold.duration = 0.18f;
+
+            AddTriggerState(sm, hold, raise, "FlashlightRaise");
+            AddTriggerState(sm, empty, lower, "FlashlightLower");
+            AddTriggerState(sm, empty, release, "FlashlightRelease");
         }
 
-        private static void BuildLeftArmStates(AnimatorStateMachine sm)
+        private static void BuildLeftArmStates(AnimatorStateMachine sm, Dictionary<string, AnimationClip> clips)
         {
-            var empty = sm.AddState("LeftArm_Empty");
-            var doorOpen = sm.AddState("Door_Open");
-            var pickUp = sm.AddState("Item_PickUp");
-            var envInteract = sm.AddState("Env_Interact");
-            sm.defaultState = empty;
+            var idle = sm.AddState("LeftArm_Idle", new Vector3(240f, 80f, 0f));
+            idle.motion = GetClip(clips, "Idle_Breathing");
+            var doorOpen = sm.AddState("Door_Open", new Vector3(500f, 80f, 0f));
+            doorOpen.motion = GetClip(clips, "Door_Open_Left");
+            sm.defaultState = idle;
 
-            AddTriggerState(sm, empty, doorOpen, "DoorOpen");
-            AddTriggerState(sm, empty, pickUp, "PickUp");
-            AddTriggerState(sm, empty, envInteract, "Interact");
+            AddTriggerState(sm, idle, doorOpen, "DoorOpen");
+            AddTriggerState(sm, idle, doorOpen, "Interact");
         }
 
-        private static void BuildHeadLookStates(AnimatorStateMachine sm)
+        private static void BuildHeadLookStates(AnimatorStateMachine sm, Dictionary<string, AnimationClip> clips)
         {
-            var neutral = sm.AddState("Look_Neutral");
+            var neutral = sm.AddState("Look_Neutral", new Vector3(240f, 80f, 0f));
+            neutral.motion = GetClip(clips, "Idle_Breathing");
+            var lookRight = sm.AddState("Look_Right", new Vector3(500f, 80f, 0f));
+            lookRight.motion = GetClip(clips, "Look_Right");
             sm.defaultState = neutral;
+
+            AddTriggerState(sm, neutral, lookRight, "LookRight");
         }
 
-        private static void BuildAdditiveStates(AnimatorStateMachine sm)
+        private static void BuildAdditiveStates(AnimatorStateMachine sm, Dictionary<string, AnimationClip> clips)
         {
-            var breath = sm.AddState("Breathing_Idle");
-            var flinch = sm.AddState("Impact_Flinch");
-            sm.defaultState = breath;
-            AddTriggerState(sm, breath, flinch, "ImpactFlinch");
+            var breathing = sm.AddState("Breathing_Additive", new Vector3(240f, 80f, 0f));
+            breathing.motion = GetClip(clips, "Idle_Breathing");
+            var flinch = sm.AddState("Impact_Flinch", new Vector3(500f, 80f, 0f));
+            flinch.motion = GetClip(clips, "Stumble_Recover");
+            sm.defaultState = breathing;
+
+            AddTriggerState(sm, breathing, flinch, "ImpactFlinch");
         }
 
-        private static void BuildFullOverrideStates(AnimatorStateMachine sm)
+        private static void BuildFullOverrideStates(AnimatorStateMachine sm, Dictionary<string, AnimationClip> clips)
         {
-            var none = sm.AddState("None");
-            var fall = sm.AddState("Fall");
-            var getUp = sm.AddState("GetUp");
-            var cinematic = sm.AddState("Cinematic_Override");
+            var none = sm.AddState("None", new Vector3(240f, 80f, 0f));
+            none.motion = GetClip(clips, "Idle_Breathing");
             sm.defaultState = none;
 
-            var anyToFall = sm.AddAnyStateTransition(fall);
-            anyToFall.AddCondition(AnimatorConditionMode.If, 0f, "Fall");
-            anyToFall.duration = 0.12f;
+            var fall = sm.AddState("Fall", new Vector3(520f, 40f, 0f));
+            fall.motion = GetClip(clips, "Fall_Forward");
+
+            var getUp = sm.AddState("GetUp", new Vector3(520f, 130f, 0f));
+            getUp.motion = GetClip(clips, "Get_Up");
+
+            var stumble = sm.AddState("Stumble", new Vector3(520f, 220f, 0f));
+            stumble.motion = GetClip(clips, "Stumble_Recover");
+
+            var pickup = sm.AddState("Flashlight_Pickup", new Vector3(520f, 310f, 0f));
+            pickup.motion = GetClip(clips, "Flashlight_Pickup");
+
+            var cinematic = sm.AddState("Cinematic_Override", new Vector3(240f, 220f, 0f));
+            cinematic.motion = GetClip(clips, "Idle_Breathing");
+
+            AddTriggerState(sm, none, fall, "Fall");
+            AddTriggerState(sm, none, getUp, "GetUp");
+            AddTriggerState(sm, none, stumble, "Stumble");
+            AddTriggerState(sm, none, pickup, "FlashlightPickup");
 
             var fallToGetUp = fall.AddTransition(getUp);
             fallToGetUp.AddCondition(AnimatorConditionMode.If, 0f, "GetUp");
-            fallToGetUp.duration = 0.25f;
+            fallToGetUp.duration = 0.18f;
             fallToGetUp.hasExitTime = false;
-
-            var getUpToNone = getUp.AddTransition(none);
-            getUpToNone.hasExitTime = true;
-            getUpToNone.exitTime = 0.95f;
-            getUpToNone.duration = 0.2f;
 
             var toCine = none.AddTransition(cinematic);
             toCine.AddCondition(AnimatorConditionMode.If, 0f, "CinematicActive");
@@ -435,31 +610,46 @@ namespace TheLastBell.Editor
             fromCine.hasExitTime = false;
         }
 
-        private static void AddTriggerState(AnimatorStateMachine sm, AnimatorState idleState, AnimatorState actionState, string triggerName)
+        private static void AddTriggerState(AnimatorStateMachine sm, AnimatorState returnState, AnimatorState actionState, string triggerName)
         {
             var toAct = sm.AddAnyStateTransition(actionState);
             toAct.AddCondition(AnimatorConditionMode.If, 0f, triggerName);
             toAct.duration = 0.12f;
 
-            var back = actionState.AddTransition(idleState);
+            var back = actionState.AddTransition(returnState);
             back.hasExitTime = true;
-            back.exitTime = 0.9f;
-            back.duration = 0.18f;
+            back.exitTime = 0.92f;
+            back.duration = 0.16f;
         }
 
-        private static void WireSceneComponents(AnimatorController controller)
+        private static void WireSceneComponents(AnimatorController controller, AnimationLibraryRegistry registry)
         {
             string scenePath = "Assets/Scenes/AbandonedSchool.unity";
             if (!File.Exists(scenePath)) return;
 
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
             var player = GameObject.Find("Player_Protagonist");
+            ProtagonistAnimationController animCtrl = null;
+            CameraModeController camModeCtrl = null;
+            FirstPersonController fpc = null;
+            FlashlightPhysicalItem physItem = null;
+
             if (player != null)
             {
-                var fpc = player.GetComponent<FirstPersonController>();
+                fpc = player.GetComponent<FirstPersonController>();
+                var charModel = player.transform.Find("Character_Model");
+                if (charModel != null)
+                {
+                    // Karakter modeli kök hizalaması: CharacterController tabanı (y=0) ile birebir hizalı
+                    charModel.localPosition = Vector3.zero;
+                    charModel.localRotation = Quaternion.identity;
+                    charModel.localScale = Vector3.one;
+                }
+
                 var anim = player.GetComponentInChildren<Animator>(true);
-                var cam = player.transform.Find("Camera_Pivot/Main Camera");
-                var flashRig = player.transform.Find("Camera_Pivot/Flashlight_Rig");
+                var camPivot = player.transform.Find("Camera_Pivot");
+                var cam = camPivot != null ? camPivot.Find("Main Camera") : null;
+                var flashRig = camPivot != null ? camPivot.Find("Flashlight_Rig") : null;
                 var flashCtrl = flashRig != null ? flashRig.GetComponent<FlashlightController>() : null;
 
                 if (anim != null)
@@ -467,7 +657,7 @@ namespace TheLastBell.Editor
                     anim.runtimeAnimatorController = controller;
                     anim.applyRootMotion = false;
 
-                    var animCtrl = anim.GetComponent<ProtagonistAnimationController>();
+                    animCtrl = anim.GetComponent<ProtagonistAnimationController>();
                     if (animCtrl == null) animCtrl = anim.gameObject.AddComponent<ProtagonistAnimationController>();
 
                     var soAnim = new SerializedObject(animCtrl);
@@ -491,7 +681,7 @@ namespace TheLastBell.Editor
 
                     if (flashRig != null)
                     {
-                        var physItem = flashRig.GetComponent<FlashlightPhysicalItem>();
+                        physItem = flashRig.GetComponent<FlashlightPhysicalItem>();
                         if (physItem == null) physItem = flashRig.gameObject.AddComponent<FlashlightPhysicalItem>();
 
                         var soPhys = new SerializedObject(physItem);
@@ -506,12 +696,63 @@ namespace TheLastBell.Editor
                         soPhys.ApplyModifiedProperties();
                     }
                 }
+
+                camModeCtrl = player.GetComponent<CameraModeController>();
+                if (camModeCtrl == null) camModeCtrl = player.AddComponent<CameraModeController>();
+                var soCam = new SerializedObject(camModeCtrl);
+                if (cam != null)
+                {
+                    var pMainCam = soCam.FindProperty("mainCamera");
+                    if (pMainCam != null) pMainCam.objectReferenceValue = cam.GetComponent<Camera>();
+                }
+                if (camPivot != null)
+                {
+                    var pPivot = soCam.FindProperty("cameraPivot");
+                    if (pPivot != null) pPivot.objectReferenceValue = camPivot;
+                }
+                if (charModel != null)
+                {
+                    var pCharModel = soCam.FindProperty("characterModelRoot");
+                    if (pCharModel != null) pCharModel.objectReferenceValue = charModel;
+                }
+                if (physItem != null)
+                {
+                    var pFlashPhys = soCam.FindProperty("flashlightPhysical");
+                    if (pFlashPhys != null) pFlashPhys.objectReferenceValue = physItem;
+                }
+                if (fpc != null)
+                {
+                    var pFpc = soCam.FindProperty("playerController");
+                    if (pFpc != null) pFpc.objectReferenceValue = fpc;
+                }
+                soCam.ApplyModifiedProperties();
+            }
+
+            // AnimationDebugPanel'i Gameplay_HUD_Canvas üzerine bağla
+            var hudCanvas = GameObject.Find("Gameplay_HUD_Canvas");
+            if (hudCanvas != null)
+            {
+                var debugPanel = hudCanvas.GetComponent<AnimationDebugPanel>();
+                if (debugPanel == null) debugPanel = hudCanvas.AddComponent<AnimationDebugPanel>();
+
+                var soPanel = new SerializedObject(debugPanel);
+                var pReg = soPanel.FindProperty("libraryRegistry");
+                if (pReg != null) pReg.objectReferenceValue = registry;
+                var pAc = soPanel.FindProperty("animController");
+                if (pAc != null) pAc.objectReferenceValue = animCtrl;
+                var pCm = soPanel.FindProperty("cameraModeController");
+                if (pCm != null) pCm.objectReferenceValue = camModeCtrl;
+                var pFpc = soPanel.FindProperty("playerController");
+                if (pFpc != null) pFpc.objectReferenceValue = fpc;
+                var pFp = soPanel.FindProperty("flashlightPhysical");
+                if (pFp != null) pFp.objectReferenceValue = physItem;
+                soPanel.ApplyModifiedProperties();
             }
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
-            Debug.Log("[ProtagonistAnimationSetup] AbandonedSchool.unity animasyon & fiziksel fener bağlantıları kaydedildi.");
+            Debug.Log("[ProtagonistAnimationSetup] AbandonedSchool.unity 23-klip animasyon, 3P kamera ve debug panel bağlantıları kaydedildi.");
         }
     }
 }

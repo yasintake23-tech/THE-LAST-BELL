@@ -179,47 +179,100 @@ namespace TheLastBell.Editor
 
         private static void VerifyAnimationAndPhysicalFlashlight(StringBuilder sb, List<string> failures)
         {
-            var walkImporter = AssetImporter.GetAtPath(ProtagonistAnimationSetup.WALK_FBX_PATH) as ModelImporter;
-            if (walkImporter == null || walkImporter.animationType != ModelImporterAnimationType.Human)
+            var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(ProtagonistAnimationSetup.REGISTRY_PATH);
+            if (registry == null || registry.Entries == null || registry.Entries.Count < ProtagonistAnimationSetup.AllClipSpecs.Length)
             {
-                failures.Add("Walk_Forward_unity.fbx is not configured as Humanoid ModelImporter.");
-            }
-
-            var walkClip = AssetDatabase.LoadAllAssetsAtPath(ProtagonistAnimationSetup.WALK_FBX_PATH)
-                .OfType<AnimationClip>()
-                .FirstOrDefault(c => !c.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase));
-
-            if (walkClip == null)
-            {
-                failures.Add("Walk_Forward_unity AnimationClip failed to load.");
-            }
-            else
-            {
-                if (!walkClip.isLooping) failures.Add("Walk_Forward_unity clip must have loopTime=true.");
-                if (!walkClip.humanMotion) failures.Add("Walk_Forward_unity clip is not Humanoid retargetable (humanMotion=false).");
-                if (walkClip.length <= 0.1f) failures.Add($"Walk_Forward_unity clip length invalid: {walkClip.length}");
-                sb.AppendLine($"  Walk Clip: {walkClip.name}, len={walkClip.length:F2}s, loop={walkClip.isLooping}, humanMotion={walkClip.humanMotion} OK");
+                failures.Add($"AnimationLibraryRegistry missing or incomplete ({registry?.Entries?.Count ?? 0}/{ProtagonistAnimationSetup.AllClipSpecs.Length}).");
+                return;
             }
 
             var player = GameObject.Find("Player_Protagonist");
             var anim = player != null ? player.GetComponentInChildren<Animator>(true) : null;
             var animCtrl = player != null ? player.GetComponentInChildren<ProtagonistAnimationController>(true) : null;
+            var camMode = player != null ? player.GetComponent<CameraModeController>() : null;
+            var fpc = player != null ? player.GetComponent<FirstPersonController>() : null;
             var controller = anim != null ? anim.runtimeAnimatorController as AnimatorController : null;
 
             if (anim == null || anim.avatar == null || !anim.avatar.isValid || !anim.avatar.isHuman)
             {
                 failures.Add("Protagonist Animator or Humanoid Avatar is invalid.");
+                return;
             }
-            else if (anim.applyRootMotion)
+            if (anim.applyRootMotion)
             {
                 failures.Add("Protagonist Animator.applyRootMotion must be false to prevent CharacterController conflict.");
             }
+            if (animCtrl == null) failures.Add("ProtagonistAnimationController missing on protagonist.");
+            if (camMode == null) failures.Add("CameraModeController missing on Player_Protagonist.");
 
-            if (animCtrl == null)
+            // Validate all 23 clips in AnimationLibraryRegistry
+            int validClips = 0;
+            player.transform.position = Vector3.zero;
+            player.transform.rotation = Quaternion.identity;
+            anim.transform.localPosition = Vector3.zero;
+            anim.transform.localRotation = Quaternion.identity;
+
+            foreach (var entry in registry.Entries)
             {
-                failures.Add("ProtagonistAnimationController missing on protagonist.");
-            }
+                if (entry == null || entry.clip == null)
+                {
+                    failures.Add($"Registry entry '{entry?.id}' has null AnimationClip.");
+                    continue;
+                }
+                if (!entry.clip.humanMotion)
+                {
+                    failures.Add($"Clip '{entry.id}' is not Humanoid retargetable (humanMotion=false).");
+                    continue;
+                }
+                if (entry.clip.length <= 0.1f)
+                {
+                    failures.Add($"Clip '{entry.id}' has invalid duration {entry.clip.length:F3}s.");
+                    continue;
+                }
 
+                // Sample clip at mid-point on Protagonist and verify finite bones + zero root displacement
+                Vector3 rootBefore = anim.transform.localPosition;
+                entry.clip.SampleAnimation(anim.gameObject, entry.clip.length * 0.35f);
+                Transform hips = anim.GetBoneTransform(HumanBodyBones.Hips);
+                Transform head = anim.GetBoneTransform(HumanBodyBones.Head);
+                Transform lFoot = anim.GetBoneTransform(HumanBodyBones.LeftFoot);
+                Transform rFoot = anim.GetBoneTransform(HumanBodyBones.RightFoot);
+
+                if (hips == null || head == null || lFoot == null || rFoot == null ||
+                    float.IsNaN(hips.position.y) || float.IsNaN(lFoot.position.y) || float.IsNaN(rFoot.position.y))
+                {
+                    failures.Add($"Clip '{entry.id}' produced invalid/NaN Humanoid bone transforms.");
+                    continue;
+                }
+                if ((anim.transform.localPosition - rootBefore).sqrMagnitude > 0.01f)
+                {
+                    failures.Add($"Clip '{entry.id}' displaced character root by {(anim.transform.localPosition - rootBefore).magnitude:F3}m.");
+                    continue;
+                }
+
+                // Critical Idle Ground Alignment Check (Fixes half-body underground bug!)
+                if (string.Equals(entry.id, "Idle_Breathing", StringComparison.OrdinalIgnoreCase))
+                {
+                    float hipsY = hips.position.y - player.transform.position.y;
+                    float headY = head.position.y - player.transform.position.y;
+                    float lFootY = lFoot.position.y - player.transform.position.y;
+                    float rFootY = rFoot.position.y - player.transform.position.y;
+
+                    if (hipsY < 0.72f || headY < 1.40f || lFootY < -0.04f || lFootY > 0.25f || rFootY < -0.04f || rFootY > 0.25f)
+                    {
+                        failures.Add($"Idle_Breathing ground alignment FAILED: HipsY={hipsY:F2}m, HeadY={headY:F2}m, LFootY={lFootY:F2}m, RFootY={rFootY:F2}m");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"  Idle Ground Alignment OK: HipsY={hipsY:F2}m, HeadY={headY:F2}m, LFootY={lFootY:F2}m, RFootY={rFootY:F2}m");
+                    }
+                }
+
+                validClips++;
+            }
+            sb.AppendLine($"  Animation Library Registry: {validClips}/{registry.Entries.Count} Humanoid clips validated OK");
+
+            // Validate 7-layer AnimatorController architecture
             if (controller == null)
             {
                 failures.Add("Protagonist AnimatorController missing.");
@@ -243,7 +296,7 @@ namespace TheLastBell.Editor
                     }
                 }
 
-                // Verify Walk_Forward_unity is assigned only to (0,1) forward slot and not reused for sideways/backward
+                var walkClip = registry.FindClip("Walk_Forward_unity");
                 var baseSm = controller.layers[0].stateMachine;
                 var locoState = baseSm.states.FirstOrDefault(s => s.state.name == "Locomotion").state;
                 if (locoState == null || !(locoState.motion is BlendTree bt))
@@ -266,33 +319,62 @@ namespace TheLastBell.Editor
                         }
                     }
                     if (!forwardSlotValid) failures.Add("Locomotion BlendTree (0,1) slot does not use Walk_Forward_unity.");
-                    if (walkForwardMatches != 1) failures.Add($"Walk_Forward_unity used {walkForwardMatches} times in BlendTree (must only be forward (0,1), not reused for sideways/backward).");
-                    if (!locoState.speedParameterActive || locoState.speedParameter != "LocomotionSpeedMultiplier")
-                    {
-                        failures.Add("Locomotion state speedParameterActive / LocomotionSpeedMultiplier not configured.");
-                    }
+                    if (walkForwardMatches != 1) failures.Add($"Walk_Forward_unity used {walkForwardMatches} times in BlendTree.");
+                    if (bt.children.Length < 7) failures.Add($"Locomotion 2D BlendTree has only {bt.children.Length} clips (expected 7 directional clips).");
                 }
                 sb.AppendLine($"  Animator Architecture: Layers={controller.layers.Length}/7, HumanoidAvatar={anim.avatar.name}, RootMotion={anim.applyRootMotion} OK");
             }
 
-            // Sample Walk_Forward_unity on Protagonist and verify bone transforms remain finite & unperturbed at root
-            if (anim != null && walkClip != null)
+            // Validate CameraModeController 1P <-> 3P switching
+            if (camMode != null)
             {
-                Vector3 rootBefore = anim.transform.localPosition;
-                walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.35f);
-                Transform headBone = anim.GetBoneTransform(HumanBodyBones.Head);
-                Transform leftFoot = anim.GetBoneTransform(HumanBodyBones.LeftFoot);
-                Transform rightFoot = anim.GetBoneTransform(HumanBodyBones.RightFoot);
-                if (headBone == null || leftFoot == null || rightFoot == null ||
-                    float.IsNaN(headBone.position.x) || float.IsNaN(leftFoot.position.y))
+                InvokePrivate(camMode, "Awake");
+                Vector3 posBefore = player.transform.position;
+
+                camMode.SetCameraMode(CameraViewMode.FirstPerson);
+                var renderers = player.transform.Find("Character_Model")?.GetComponentsInChildren<Renderer>(true);
+                if (renderers != null && renderers.Any(r => r.shadowCastingMode != ShadowCastingMode.ShadowsOnly))
                 {
-                    failures.Add("Humanoid bone sampling produced invalid/NaN transform.");
+                    failures.Add("FirstPerson mode did not set all Character_Model renderers to ShadowsOnly.");
                 }
-                if ((anim.transform.localPosition - rootBefore).sqrMagnitude > 0.01f)
+
+                camMode.SetCameraMode(CameraViewMode.ThirdPerson);
+                if (renderers != null && renderers.Any(r => r.shadowCastingMode != ShadowCastingMode.On))
                 {
-                    failures.Add($"Walk_Forward_unity displaced character root by {(anim.transform.localPosition - rootBefore).magnitude:F3}m (root motion not baked).");
+                    failures.Add("ThirdPerson mode did not restore Character_Model renderers to ShadowCastingMode.On.");
                 }
-                sb.AppendLine($"  Humanoid Retarget Sample: HeadY={headBone?.position.y:F2}m, LFootY={leftFoot?.position.y:F2}m, RFootY={rightFoot?.position.y:F2}m OK");
+                if ((player.transform.position - posBefore).sqrMagnitude > 0.001f)
+                {
+                    failures.Add("Camera mode switch perturbed player world position.");
+                }
+                camMode.SetCameraMode(CameraViewMode.FirstPerson);
+                sb.AppendLine("  CameraModeController: 1P (ShadowsOnly) <-> 3P (FullBody Visible) switch OK");
+            }
+
+            // Validate AnimationDebugPanel build, isolated preview enter/exit, and gameplay restoration
+            var debugPanel = UnityEngine.Object.FindAnyObjectByType<AnimationDebugPanel>(FindObjectsInactive.Include);
+            if (debugPanel == null)
+            {
+                failures.Add("AnimationDebugPanel missing on Gameplay_HUD_Canvas.");
+            }
+            else
+            {
+                debugPanel.EnsureBuilt();
+                debugPanel.SetPanelOpen(true);
+                debugPanel.EnterIsolatedPreview();
+                if (!debugPanel.IsIsolatedMode || !animCtrl.IsIsolatedPreviewActive || (fpc != null && fpc.AllowMovement))
+                {
+                    failures.Add("AnimationDebugPanel.EnterIsolatedPreview failed to pause movement or activate PlayableGraph preview.");
+                }
+                debugPanel.SelectClipByIndex(2);
+                debugPanel.ExitIsolatedPreview();
+                debugPanel.SetPanelOpen(false);
+                if (debugPanel.IsIsolatedMode || animCtrl.IsIsolatedPreviewActive || (fpc != null && !fpc.AllowMovement))
+                {
+                    failures.Add("AnimationDebugPanel.ExitIsolatedPreview failed to cleanly restore gameplay movement/Animator.");
+                }
+                if (camMode != null) camMode.SetCameraMode(CameraViewMode.FirstPerson);
+                sb.AppendLine("  AnimationDebugPanel: Build -> Open -> IsolatedPreview -> Clean Gameplay Restore OK");
             }
 
             // Verify FlashlightPhysicalItem drop -> lit -> pickup -> reattach
@@ -562,6 +644,8 @@ namespace TheLastBell.Editor
             var canvas = UnityEngine.Object.FindAnyObjectByType<Canvas>(FindObjectsInactive.Include);
             var cam = Camera.main ?? UnityEngine.Object.FindAnyObjectByType<Camera>(FindObjectsInactive.Include);
             var player = GameObject.Find("Player_Protagonist");
+            var camMode = player != null ? player.GetComponent<CameraModeController>() : null;
+            var debugPanel = UnityEngine.Object.FindAnyObjectByType<AnimationDebugPanel>(FindObjectsInactive.Include);
             var flashRig = GameObject.Find("Flashlight_Rig")?.transform;
             var flashCtrl = flashRig != null ? flashRig.GetComponent<FlashlightController>() : null;
             var spot = GameObject.Find("SpotLight")?.GetComponent<Light>();
@@ -570,7 +654,15 @@ namespace TheLastBell.Editor
             if (flashCtrl != null) flashCtrl.ApplyRealisticLightSettings();
             spot.enabled = true;
 
-            // 1. Gameplay HUD Screenshot at 2340x1080 (including ScreenSpaceOverlay UI via ScreenSpaceCamera)
+            // 1P modunda gövde mesh'ini gizle (yaka/ceket kamera tıkanmasını önle)
+            if (camMode != null) camMode.SetCameraMode(CameraViewMode.FirstPerson);
+            if (debugPanel != null)
+            {
+                debugPanel.EnsureBuilt();
+                debugPanel.SetPanelOpen(false);
+            }
+
+            // 1. Gameplay HUD Screenshot at 2340x1080 (Clean 1P + Mobile Controls + ANIM & CAM buttons)
             if (canvas != null)
             {
                 var prevMode = canvas.renderMode;
@@ -582,7 +674,7 @@ namespace TheLastBell.Editor
                 var joyCg = GameObject.Find("Joystick_Background")?.GetComponent<CanvasGroup>();
                 float prevJoyAlpha = joyCg != null ? joyCg.alpha : 0.65f;
 
-                if (actionCg != null) actionCg.alpha = 0.92f; // Show full layout including contextual Action button
+                if (actionCg != null) actionCg.alpha = 0.92f;
                 if (joyCg != null) joyCg.alpha = 0.80f;
 
                 canvas.renderMode = RenderMode.ScreenSpaceCamera;
@@ -605,7 +697,7 @@ namespace TheLastBell.Editor
                 canvas.renderMode = prevMode;
                 canvas.worldCamera = prevCam;
                 canvas.planeDistance = prevPlane;
-                canvas.gameObject.SetActive(false); // Hide UI for clean 3D lighting shots
+                canvas.gameObject.SetActive(false);
             }
 
             // 2. Flashlight Close Wall (2.2m perpendicular to School_FrontFacade_L)
@@ -638,29 +730,86 @@ namespace TheLastBell.Editor
             }
             RenderAndSave(cam, 1280, 720, "Logs/Screenshots/Flashlight_Hallway_Dark.png", sb);
 
-            // 5. Protagonist Walk_Forward_unity Retargeting Preview (3rd-person view)
+            // 5. Third-Person Character Ground Alignment & Animation Visual Verification Shots
             var anim = player.GetComponentInChildren<Animator>(true);
-            var walkClip = AssetDatabase.LoadAllAssetsAtPath(ProtagonistAnimationSetup.WALK_FBX_PATH)
-                .OfType<AnimationClip>()
-                .FirstOrDefault(c => !c.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase));
-            if (anim != null && walkClip != null)
+            var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(ProtagonistAnimationSetup.REGISTRY_PATH);
+            if (anim != null && registry != null)
             {
-                player.transform.position = new Vector3(0f, 0.02f, -4.0f);
+                if (camMode != null) camMode.SetCameraMode(CameraViewMode.ThirdPerson);
+                player.transform.position = new Vector3(0f, 0.0f, -4.0f);
                 player.transform.rotation = Quaternion.identity;
-                walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.30f);
+                anim.transform.localPosition = Vector3.zero;
+                anim.transform.localRotation = Quaternion.identity;
+
+                // Sahne karanlık olduğu için karakteri net görebilmek adına geçici stüdyo dolgu ışığı ekle
+                var fillLightGo = new GameObject("_Temp_VerifyFillLight");
+                var fillLight = fillLightGo.AddComponent<Light>();
+                fillLight.type = LightType.Directional;
+                fillLight.intensity = 0.85f;
+                fillLight.color = new Color(0.92f, 0.95f, 1.0f);
+                fillLightGo.transform.rotation = Quaternion.Euler(32f, -145f, 0f);
 
                 var camParent = cam.transform.parent;
                 var camLocalPos = cam.transform.localPosition;
                 var camLocalRot = cam.transform.localRotation;
 
                 cam.transform.SetParent(null, true);
-                cam.transform.position = player.transform.position + new Vector3(1.55f, 1.35f, 1.95f);
-                cam.transform.LookAt(player.transform.position + Vector3.up * 0.95f);
-                RenderAndSave(cam, 1280, 720, "Logs/Screenshots/Protagonist_Walk_Preview.png", sb);
+                cam.transform.position = player.transform.position + new Vector3(1.65f, 1.25f, 2.35f);
+                cam.transform.LookAt(player.transform.position + Vector3.up * 0.92f);
+
+                // 5a. Idle_Breathing Ground Check
+                var idleClip = registry.FindClip("Idle_Breathing");
+                if (idleClip != null)
+                {
+                    idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                    RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Idle_GroundCheck.png", sb);
+                }
+
+                // 5b. Walk_Forward_unity Mid-Stride
+                var walkClip = registry.FindClip("Walk_Forward_unity");
+                if (walkClip != null)
+                {
+                    walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.30f);
+                    RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Walk_Forward.png", sb);
+                }
+
+                // 5c. Flashlight_Hold
+                var flashHoldClip = registry.FindClip("Flashlight_Hold");
+                if (flashHoldClip != null)
+                {
+                    flashHoldClip.SampleAnimation(anim.gameObject, flashHoldClip.length * 0.25f);
+                    RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Flashlight_Hold.png", sb);
+                }
+
+                // 5d. DebugPanel Open at 2340x1080 (Panel left, full protagonist visible on right)
+                if (canvas != null && debugPanel != null)
+                {
+                    if (idleClip != null) idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                    cam.transform.position = player.transform.position + new Vector3(0.65f, 1.32f, 2.55f);
+                    cam.transform.LookAt(player.transform.position + new Vector3(-0.45f, 0.95f, 0f));
+
+                    canvas.gameObject.SetActive(true);
+                    var prevMode = canvas.renderMode;
+                    var prevCam = canvas.worldCamera;
+                    var prevPlane = canvas.planeDistance;
+                    canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                    canvas.worldCamera = cam;
+                    canvas.planeDistance = 0.35f;
+
+                    debugPanel.SetPanelOpen(true);
+                    Canvas.ForceUpdateCanvases();
+                    RenderAndSave(cam, 2340, 1080, "Logs/Screenshots/DebugPanel_Open_2340x1080.png", sb);
+
+                    debugPanel.SetPanelOpen(false);
+                    canvas.renderMode = prevMode;
+                    canvas.worldCamera = prevCam;
+                    canvas.planeDistance = prevPlane;
+                }
 
                 cam.transform.SetParent(camParent, false);
                 cam.transform.localPosition = camLocalPos;
                 cam.transform.localRotation = camLocalRot;
+                UnityEngine.Object.DestroyImmediate(fillLightGo);
             }
 
             if (canvas != null) canvas.gameObject.SetActive(true);

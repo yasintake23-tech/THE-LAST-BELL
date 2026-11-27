@@ -111,11 +111,14 @@ namespace TheLastBell.Player
         public Vector2 MobileLookInput { get; set; }
         public bool MobileSprintInput { get; set; }
         public bool MobileCrouchInput { get; set; }
+        public bool AllowMovement { get; set; } = true;
 
         public float StaminaPercent => currentStamina / maxStamina;
         public bool IsCrouching => isCrouching;
         public bool IsSprinting => isSprinting;
         public bool IsExhausted => isExhausted;
+        public bool IsGrounded => controller != null && controller.isGrounded;
+        public Vector3 CurrentVelocity => controller != null ? controller.velocity : moveVelocity;
 
         public event Action<float> OnStaminaChanged;
 
@@ -191,19 +194,19 @@ namespace TheLastBell.Player
 
         public void ApplyTrueFPSHeadMeshCulling()
         {
-            string[] headPartNames = new string[] {
-                "AvatarHead", "AvatarEyelashes", "AvatarLeftEyeball", "AvatarRightEyeball", "AvatarTeethLower", "AvatarTeethUpper"
-            };
-            foreach (var partName in headPartNames)
+            var camMode = GetComponent<CameraModeController>();
+            if (camMode != null)
             {
-                Transform t = transform.Find("Character_Model/" + partName);
-                if (t != null)
+                camMode.ApplyMeshVisibility(camMode.IsThirdPerson);
+                return;
+            }
+
+            Transform modelRoot = transform.Find("Character_Model");
+            if (modelRoot != null)
+            {
+                foreach (var r in modelRoot.GetComponentsInChildren<Renderer>(true))
                 {
-                    Renderer r = t.GetComponent<Renderer>();
-                    if (r != null)
-                    {
-                        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
-                    }
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
                 }
             }
         }
@@ -217,6 +220,7 @@ namespace TheLastBell.Player
         {
             float dt = Mathf.Max(0.0001f, deltaTime);
             HandleLook();
+            if (!AllowMovement) return;
             HandleCrouch(dt);
             HandleStamina(dt);
             HandleMovement(dt);
@@ -567,7 +571,7 @@ namespace TheLastBell.Player
 
             if (inputMag > 0.05f || actualHorizSpeed > 0.1f)
             {
-                float speedScale = isSprinting ? 3.0f : 1.0f;
+                float speedScale = isSprinting ? 2.0f : 1.0f;
                 targetSpeed = vertical * speedScale;
                 targetStrafe = horizontal;
             }
