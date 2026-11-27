@@ -195,7 +195,6 @@ jobs:
             Bee-Android-6000.6.7f1-
 
       - name: Validate Unity project (compile, mobile setup, video & scene check)
-        if: ${{ inputs.build_mode == 'validate-only' }}
         id: unity-validate
         continue-on-error: true
         uses: game-ci/unity-builder@v6
@@ -214,6 +213,24 @@ jobs:
           allowDirtyBuild: true
           unityLicensingServer: ${{ secrets.UNITY_LICENSING_SERVER }}
 
+      - name: Publish & enforce validation report
+        if: always()
+        run: |
+          if [[ ! -f Logs/ci-validation-report.txt ]]; then
+            echo "::error::Unity validation did not produce Logs/ci-validation-report.txt."
+            exit 1
+          fi
+          {
+            echo "### Unity Pre-Build Validation Report"
+            echo '```text'
+            cat Logs/ci-validation-report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -q "Validation FAILED" Logs/ci-validation-report.txt; then
+            echo "::error::Unity validation failed (see Logs/ci-validation-report.txt)."
+            exit 1
+          fi
+
       - name: Build Android APK (Unity 6000.6.7f1 + IL2CPP + ARM64)
         if: ${{ inputs.build_mode != 'validate-only' }}
         id: unity-build
@@ -231,7 +248,6 @@ jobs:
           androidExportType: androidPackage
           buildName: TheLastBell
           buildsPath: build
-          buildMethod: TheLastBell.Editor.AndroidBuildHelper.BuildAndroidAPKBatch
           androidSymbolType: ${{ inputs.android_symbol_type || 'none' }}
           androidKeystoreName: ${{ secrets.ANDROID_KEYSTORE_NAME }}
           androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -240,22 +256,6 @@ jobs:
           androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
           allowDirtyBuild: true
           unityLicensingServer: ${{ secrets.UNITY_LICENSING_SERVER }}
-
-      - name: Publish validation report to summary
-        if: always()
-        run: |
-          if [[ -f Logs/ci-validation-report.txt ]]; then
-            {
-              echo "### Unity Pre-Build Validation Report"
-              echo '```text'
-              cat Logs/ci-validation-report.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            if grep -q "Validation FAILED" Logs/ci-validation-report.txt; then
-              echo "::error::Unity validation failed (see Logs/ci-validation-report.txt)."
-              exit 1
-            fi
-          fi
 
       - name: Verify APK output & write summary
         if: ${{ inputs.build_mode != 'validate-only' }}
