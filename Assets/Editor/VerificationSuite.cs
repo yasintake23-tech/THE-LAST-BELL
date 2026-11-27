@@ -214,9 +214,20 @@ namespace TheLastBell.Editor
                 fpc.enabled = true;
                 cc.enabled = true;
 
-                // Determine joystick center in screen coordinates (2340x1080 RT camera)
                 Vector2 joyCenterScreen = RectTransformUtility.WorldToScreenPoint(cam, joyBgRT.position);
                 var eventSys = UnityEngine.Object.FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include);
+                var raycaster = canvas.GetComponent<GraphicRaycaster>();
+                PointerEventData MakePointer(int pid, Vector2 pos, GameObject hitGo)
+                {
+                    var rr = new RaycastResult { gameObject = hitGo, module = raycaster };
+                    return new PointerEventData(eventSys)
+                    {
+                        pointerId = pid,
+                        position = pos,
+                        pointerPressRaycast = rr,
+                        pointerCurrentRaycast = rr
+                    };
+                }
 
                 // --- Test 1: 8-Direction Analog Joystick Vectors ---
                 (string name, Vector2 dir)[] dirs8 = {
@@ -233,11 +244,8 @@ namespace TheLastBell.Editor
                 float dragDist = 115f;
                 foreach (var d in dirs8)
                 {
-                    var pdDown = new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen, pressEventCamera = cam };
-                    mcUI.OnPointerDown(pdDown);
-
-                    var pdDrag = new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen + d.dir * dragDist, pressEventCamera = cam };
-                    mcUI.OnDrag(pdDrag);
+                    mcUI.OnPointerDown(MakePointer(-1, joyCenterScreen, mcUI.gameObject));
+                    mcUI.OnDrag(MakePointer(-1, joyCenterScreen + d.dir * dragDist, mcUI.gameObject));
 
                     for (int s = 0; s < 15; s++) mcUI.StepMovement(0.02f);
 
@@ -254,8 +262,7 @@ namespace TheLastBell.Editor
                         sb.AppendLine($"  Joystick 8-Dir [{d.name}]: input=({got.x:F2}, {got.y:F2}), mag={mag:F2}, dot={dot:F3} OK");
                     }
 
-                    var pdUp = new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen };
-                    mcUI.OnPointerUp(pdUp);
+                    mcUI.OnPointerUp(MakePointer(-1, joyCenterScreen, mcUI.gameObject));
                     if (mcUI.MovementInput != Vector2.zero || fpc.MobileMoveInput != Vector2.zero)
                     {
                         failures.Add($"Joystick release did not immediately zero input after '{d.name}'.");
@@ -263,14 +270,14 @@ namespace TheLastBell.Editor
                 }
 
                 // --- Test 2: Deadzone Check ---
-                mcUI.OnPointerDown(new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen, pressEventCamera = cam });
-                mcUI.OnDrag(new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen + new Vector2(4f, 4f), pressEventCamera = cam });
+                mcUI.OnPointerDown(MakePointer(-1, joyCenterScreen, mcUI.gameObject));
+                mcUI.OnDrag(MakePointer(-1, joyCenterScreen + new Vector2(4f, 4f), mcUI.gameObject));
                 for (int s = 0; s < 10; s++) mcUI.StepMovement(0.02f);
                 if (mcUI.MovementInput != Vector2.zero)
                 {
                     failures.Add($"Deadzone check failed: expected (0,0), got {mcUI.MovementInput}");
                 }
-                mcUI.OnPointerUp(new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen });
+                mcUI.OnPointerUp(MakePointer(-1, joyCenterScreen, mcUI.gameObject));
 
                 // --- Test 3: Camera-Relative Movement at 0, 90, 180 deg Yaw ---
                 player.transform.position = new Vector3(0f, 0.05f, -15.5f);
@@ -326,12 +333,10 @@ namespace TheLastBell.Editor
                 float startYaw = player.transform.eulerAngles.y;
 
                 Vector2 lookStart = new Vector2(1600f, 540f);
-                var tlzSimDown = new PointerEventData(eventSys) { pointerId = -2, position = lookStart, pressEventCamera = cam };
-                tlzSimDown.pointerCurrentRaycast = new RaycastResult { gameObject = tlz.gameObject };
-                mcUI.OnPointerDown(new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen, pressEventCamera = cam });
-                mcUI.OnDrag(new PointerEventData(eventSys) { pointerId = -1, position = joyCenterScreen + new Vector2(85f, 85f), pressEventCamera = cam });
-                tlz.OnPointerDown(tlzSimDown);
-                tlz.OnDrag(new PointerEventData(eventSys) { pointerId = -2, position = lookStart + new Vector2(110f, 0f), pressEventCamera = cam });
+                mcUI.OnPointerDown(MakePointer(-1, joyCenterScreen, mcUI.gameObject));
+                mcUI.OnDrag(MakePointer(-1, joyCenterScreen + new Vector2(85f, 85f), mcUI.gameObject));
+                tlz.OnPointerDown(MakePointer(-2, lookStart, tlz.gameObject));
+                tlz.OnDrag(MakePointer(-2, lookStart + new Vector2(110f, 0f), tlz.gameObject));
 
                 Vector3 simPosStart = player.transform.position;
                 for (int i = 0; i < 8; i++)
