@@ -13,7 +13,7 @@ namespace TheLastBell.Player
         [Header("--- Işık Kaynağı (Spot Light) ---")]
         [SerializeField] private Light flashlightLight;
         [SerializeField] private Texture spotCookie;
-        [SerializeField] private float baseIntensity = 3.2f;
+        [SerializeField] private float baseIntensity = 4.2f;
         [SerializeField] private bool isOn = true;
 
         [Header("--- Montaj & Kamera Takibi (Sway) ---")]
@@ -70,9 +70,9 @@ namespace TheLastBell.Player
 
             flashlightLight.type = LightType.Spot;
             flashlightLight.renderMode = LightRenderMode.ForcePixel;
-            flashlightLight.range = 20f;
-            flashlightLight.spotAngle = 42f;
-            flashlightLight.innerSpotAngle = 14f;
+            flashlightLight.range = 26f;
+            flashlightLight.spotAngle = 45f;
+            flashlightLight.innerSpotAngle = 15f;
             flashlightLight.intensity = baseIntensity;
             flashlightLight.shadows = LightShadows.Soft;
             flashlightLight.shadowResolution = UnityEngine.Rendering.LightShadowResolution.High;

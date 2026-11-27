@@ -173,10 +173,10 @@ namespace TheLastBell.Editor
 
                 spotLight.type = LightType.Spot;
                 spotLight.renderMode = LightRenderMode.ForcePixel;
-                spotLight.range = 20f;
-                spotLight.spotAngle = 42f;
-                spotLight.innerSpotAngle = 14f;
-                spotLight.intensity = 3.2f;
+                spotLight.range = 26f;
+                spotLight.spotAngle = 45f;
+                spotLight.innerSpotAngle = 15f;
+                spotLight.intensity = 4.2f;
                 spotLight.color = new Color(1.0f, 0.96f, 0.88f, 1.0f);
                 spotLight.cullingMask = ~0;
                 spotLight.shadows = LightShadows.Soft;
@@ -193,7 +193,7 @@ namespace TheLastBell.Editor
                     SafeSetObject(soFc, "flashlightLight", spotLight);
                     SafeSetObject(soFc, "spotCookie", flashlightCookie);
                     SafeSetObject(soFc, "cameraTarget", camT);
-                    SafeSetFloat(soFc, "baseIntensity", 3.2f);
+                    SafeSetFloat(soFc, "baseIntensity", 4.2f);
                     var moProp = soFc.FindProperty("mountOffset");
                     if (moProp != null) moProp.vector3Value = new Vector3(0.18f, -0.16f, 0.16f);
                     SafeSetFloat(soFc, "swaySmoothSpeed", 14f);
@@ -223,6 +223,20 @@ namespace TheLastBell.Editor
             {
                 porchLight.intensity = 0.95f;
                 porchLight.range = 9.5f;
+            }
+
+            var hallGO = GameObject.Find("Light_Entrance_Hallway");
+            if (hallGO != null && hallGO.TryGetComponent<Light>(out var hallLight))
+            {
+                hallLight.intensity = 0.65f;
+                hallLight.range = 6.5f;
+            }
+
+            var midHallGO = GameObject.Find("Light_Mid_Corridor");
+            if (midHallGO != null && midHallGO.TryGetComponent<Light>(out var midHallLight))
+            {
+                midHallLight.intensity = 0.55f;
+                midHallLight.range = 7.0f;
             }
 
             // =================================================================
@@ -257,6 +271,33 @@ namespace TheLastBell.Editor
                     }
                 }
 
+                // Prompt_Text pozisyonunu sıfırla ve başlangıçta gizli tut
+                var promptPanel = FindChildRecursive(canvasGO.transform, "Interaction_Prompt_Panel");
+                if (promptPanel != null)
+                {
+                    var pTxt = FindChildRecursive(promptPanel, "Prompt_Text");
+                    if (pTxt != null && pTxt is RectTransform pTxtRt)
+                    {
+                        pTxtRt.anchorMin = Vector2.zero;
+                        pTxtRt.anchorMax = Vector2.one;
+                        pTxtRt.anchoredPosition = Vector2.zero;
+                        pTxtRt.sizeDelta = Vector2.zero;
+                    }
+                    promptPanel.gameObject.SetActive(false);
+                }
+
+                // Status_Message_Banner başlangıçta görünmez olsun
+                var statusBannerT = FindChildRecursive(canvasGO.transform, "Status_Message_Banner");
+                if (statusBannerT != null)
+                {
+                    var bannerCg = statusBannerT.GetComponent<CanvasGroup>();
+                    if (bannerCg != null)
+                    {
+                        bannerCg.alpha = 0f;
+                        bannerCg.blocksRaycasts = false;
+                    }
+                }
+
                 // Stamina barını sol alt joystick ile çakışmayacak şekilde sol üste al
                 var staminaT = canvasGO.transform.Find("Stamina_Bar_Container");
                 if (staminaT != null && staminaT is RectTransform stRt)
@@ -273,8 +314,7 @@ namespace TheLastBell.Editor
                 {
                     var soHud = new SerializedObject(hud);
                     SafeSetObject(soHud, "playerController", fpc);
-                    var statusBanner = GameObject.Find("Status_Message_Banner");
-                    if (statusBanner != null) SafeSetObject(soHud, "statusContainer", statusBanner);
+                    if (statusBannerT != null) SafeSetObject(soHud, "statusContainer", statusBannerT.gameObject);
                     var noteModal = canvasGO.transform.Find("Note_Inspection_Modal")?.gameObject;
                     if (noteModal != null) SafeSetObject(soHud, "notePanelRoot", noteModal);
                     soHud.ApplyModifiedProperties();
