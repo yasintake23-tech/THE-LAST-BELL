@@ -762,30 +762,30 @@ namespace TheLastBell.Editor
                 cam.transform.position = player.transform.position + new Vector3(1.65f, 1.25f, 2.35f);
                 cam.transform.LookAt(player.transform.position + Vector3.up * 0.92f);
 
-                // 5a. Idle_Breathing Ground Check (via true Humanoid PlayableGraph)
+                // 5a. Idle_Breathing Ground Check
                 var idleClip = registry.FindClip("Idle_Breathing");
                 if (idleClip != null)
                 {
-                    animCtrl.StartIsolatedPreview(idleClip, true);
-                    animCtrl.SetPreviewNormalizedTime(0.25f);
+                    anim.Rebind();
+                    idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Idle_GroundCheck.png", sb);
                 }
 
-                // 5b. Walk_Forward_unity Mid-Stride (via true Humanoid PlayableGraph)
+                // 5b. Walk_Forward_unity Mid-Stride
                 var walkClip = registry.FindClip("Walk_Forward_unity");
                 if (walkClip != null)
                 {
-                    animCtrl.StartIsolatedPreview(walkClip, true);
-                    animCtrl.SetPreviewNormalizedTime(0.30f);
+                    anim.Rebind();
+                    walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.30f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Walk_Forward.png", sb);
                 }
 
-                // 5c. Flashlight_Hold (via true Humanoid PlayableGraph)
+                // 5c. Flashlight_Hold
                 var flashHoldClip = registry.FindClip("Flashlight_Hold");
                 if (flashHoldClip != null)
                 {
-                    animCtrl.StartIsolatedPreview(flashHoldClip, true);
-                    animCtrl.SetPreviewNormalizedTime(0.25f);
+                    anim.Rebind();
+                    flashHoldClip.SampleAnimation(anim.gameObject, flashHoldClip.length * 0.25f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Flashlight_Hold.png", sb);
                 }
 
@@ -794,8 +794,8 @@ namespace TheLastBell.Editor
                 {
                     if (idleClip != null)
                     {
-                        animCtrl.StartIsolatedPreview(idleClip, true);
-                        animCtrl.SetPreviewNormalizedTime(0.25f);
+                        anim.Rebind();
+                        idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
                     }
                     cam.transform.position = player.transform.position + new Vector3(0.65f, 1.32f, 2.55f);
                     cam.transform.LookAt(player.transform.position + new Vector3(-0.45f, 0.95f, 0f));

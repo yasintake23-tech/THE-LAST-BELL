@@ -762,7 +762,9 @@ namespace TheLastBell.UI
             var handle = new GameObject("Handle", typeof(RectTransform), typeof(Image));
             handle.transform.SetParent(handleArea.transform, false);
             var hRt = handle.GetComponent<RectTransform>();
-            hRt.sizeDelta = new Vector2(22f, 22f);
+            hRt.anchorMin = new Vector2(0.5f, 0.5f);
+            hRt.anchorMax = new Vector2(0.5f, 0.5f);
+            hRt.sizeDelta = new Vector2(18f, 18f);
             handle.GetComponent<Image>().color = Color.white;
 
             var slider = go.GetComponent<Slider>();

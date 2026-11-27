@@ -219,6 +219,38 @@ namespace TheLastBell.Editor
                         importer.clipAnimations = clips;
                     }
                     importer.SaveAndReimport();
+
+                    // Kaynak FBX'ler yürüyüş ortası (mid-walk) rest pose ile dışa aktarılmış;
+                    // bacak/ayak kemiklerini temiz dik T-Pose'a hizalayarak retargeting ayak/bilek bükülmesini gider.
+                    HumanDescription hd = importer.humanDescription;
+                    if (hd.skeleton != null && hd.skeleton.Length > 0)
+                    {
+                        bool poseFixed = false;
+                        for (int b = 0; b < hd.skeleton.Length; b++)
+                        {
+                            string bn = hd.skeleton[b].name;
+                            if (bn == "LeftUpperLeg" || bn == "RightUpperLeg")
+                            {
+                                hd.skeleton[b].rotation = Quaternion.Euler(180f, 0f, 0f);
+                                poseFixed = true;
+                            }
+                            else if (bn == "LeftLowerLeg" || bn == "RightLowerLeg")
+                            {
+                                hd.skeleton[b].rotation = Quaternion.identity;
+                                poseFixed = true;
+                            }
+                            else if (bn == "LeftFoot" || bn == "RightFoot")
+                            {
+                                hd.skeleton[b].rotation = Quaternion.Euler(-90f, 0f, 0f);
+                                poseFixed = true;
+                            }
+                        }
+                        if (poseFixed)
+                        {
+                            importer.humanDescription = hd;
+                            importer.SaveAndReimport();
+                        }
+                    }
                 }
 
                 AnimationClip clip = LoadPrimaryClip(fbxPath);
