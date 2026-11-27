@@ -469,13 +469,23 @@ namespace TheLastBell.UI
             CreateRowButton(actionRow1, "FENER BIRAK", 0f, new Color(0.32f, 0.24f, 0.14f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
-                if (flashlightPhysical != null) flashlightPhysical.DropFlashlight();
+                if (flashlightPhysical != null)
+                {
+                    Vector3 impulse = playerController != null
+                        ? playerController.transform.forward * 1.4f + Vector3.up * 0.35f
+                        : Vector3.forward;
+                    flashlightPhysical.DropWithPhysics(impulse);
+                }
                 else if (animController != null) animController.TriggerFlashlightRelease();
             });
             CreateRowButton(actionRow1, "FENER AL", 0f, new Color(0.20f, 0.32f, 0.18f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
-                if (flashlightPhysical != null) flashlightPhysical.PickUpFlashlight();
+                if (flashlightPhysical != null)
+                {
+                    bool toHand = cameraModeController != null && cameraModeController.IsThirdPerson;
+                    flashlightPhysical.PickupAndReattach(toHand);
+                }
                 else if (animController != null) animController.TriggerFlashlightPickup();
             });
             CreateRowButton(actionRow1, "KAPI AÇ", 0f, new Color(0.18f, 0.26f, 0.34f, 0.95f), () =>
