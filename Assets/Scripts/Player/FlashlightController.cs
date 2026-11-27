@@ -35,12 +35,19 @@ namespace TheLastBell.Player
 
         private PlayerInventory playerInventory;
         private float flickerTimer = 0f;
+        private bool isPhysicsDropped = false;
 
         public event Action<float> OnBatteryChanged;
         public event Action<bool> OnFlashlightToggled;
 
         public bool IsOn => isOn;
         public float BatteryPercent => currentBattery / maxBattery;
+        public bool IsPhysicsDropped => isPhysicsDropped;
+
+        public void SetPhysicsDropped(bool dropped)
+        {
+            isPhysicsDropped = dropped;
+        }
 
         private void Awake()
         {
@@ -92,18 +99,21 @@ namespace TheLastBell.Player
 
         private void Update()
         {
-            HandleSway();
-
-            // PC Girdi: 'F' feneri açar/kapatır
-            if (Input.GetKeyDown(KeyCode.F))
+            if (!isPhysicsDropped)
             {
-                ToggleFlashlight();
-            }
+                HandleSway();
 
-            // PC Girdi: 'R' pil değiştir
-            if (Input.GetKeyDown(KeyCode.R))
-            {
-                ReloadBattery();
+                // PC Girdi: 'F' feneri açar/kapatır
+                if (Input.GetKeyDown(KeyCode.F))
+                {
+                    ToggleFlashlight();
+                }
+
+                // PC Girdi: 'R' pil değiştir
+                if (Input.GetKeyDown(KeyCode.R))
+                {
+                    ReloadBattery();
+                }
             }
 
             HandleBattery();

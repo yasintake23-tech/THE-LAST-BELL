@@ -83,8 +83,9 @@ namespace TheLastBell.Player
         [SerializeField] private AudioClip[] metalSteps;
         [SerializeField] private AudioClip exhaustedBreathingClip;
 
-        [Header("--- Karakter Animator Kontrolcs ---")]
+        [Header("--- Karakter Animator Kontrolcüsü ---")]
         [SerializeField] private Animator characterAnimator;
+        [SerializeField] private ProtagonistAnimationController animController;
         [SerializeField] private float animDampTime = 0.15f;
 
         private CharacterController controller;
@@ -105,7 +106,7 @@ namespace TheLastBell.Player
         private float currentAnimSpeed = 0f;
         private float currentAnimStrafe = 0f;
 
-        // Mobil Girdiler (MobileControlsUI tarafndan set edilir)
+        // Mobil Girdiler (MobileControlsUI tarafından set edilir)
         public Vector2 MobileMoveInput { get; set; }
         public Vector2 MobileLookInput { get; set; }
         public bool MobileSprintInput { get; set; }
@@ -160,8 +161,17 @@ namespace TheLastBell.Player
             {
                 characterAnimator = GetComponentInChildren<Animator>();
             }
+            if (animController == null)
+            {
+                animController = GetComponentInChildren<ProtagonistAnimationController>(true);
+            }
+            if (animController == null && characterAnimator != null)
+            {
+                animController = characterAnimator.gameObject.AddComponent<ProtagonistAnimationController>();
+            }
+            animController?.InitializeIfNeeded();
 
-            // Root Motion' CharacterController ile akmamas iin devre d brak
+            // Root Motion'ı CharacterController ile çakışmaması için devre dışı bırak
             if (characterAnimator != null)
             {
                 characterAnimator.applyRootMotion = false;
@@ -545,61 +555,78 @@ namespace TheLastBell.Player
             if (characterAnimator == null) return;
 
             GetCombinedMoveInput(out float horizontal, out float vertical);
+            float inputMag = Mathf.Clamp01(Mathf.Sqrt(horizontal * horizontal + vertical * vertical));
+
+            // Karakterin gerçek yatay hızını hesapla (CharacterController veya moveVelocity üzerinden)
+            float actualHorizSpeed = Mathf.Max(
+                new Vector2(controller.velocity.x, controller.velocity.z).magnitude,
+                new Vector2(moveVelocity.x, moveVelocity.z).magnitude);
 
             float targetSpeed = 0f;
-            float horizontalSpeed = new Vector2(controller.velocity.x, controller.velocity.z).magnitude;
-
-            if (horizontalSpeed > 0.15f)
-            {
-                if (vertical < -0.1f && Mathf.Abs(horizontal) < 0.5f)
-                {
-                    targetSpeed = -1.0f; // Walk Backwards
-                }
-                else if (isSprinting)
-                {
-                    targetSpeed = 3.0f; // Sprint
-                }
-                else
-                {
-                    targetSpeed = 1.0f; // Walk / Jog blend
-                }
-            }
-
             float targetStrafe = 0f;
-            if (Mathf.Abs(horizontal) > 0.1f)
+
+            if (inputMag > 0.05f || actualHorizSpeed > 0.1f)
             {
-                targetStrafe = Mathf.Sign(horizontal);
+                float speedScale = isSprinting ? 3.0f : 1.0f;
+                targetSpeed = vertical * speedScale;
+                targetStrafe = horizontal;
             }
 
-            currentAnimSpeed = Mathf.MoveTowards(currentAnimSpeed, targetSpeed, dt * 6f);
-            currentAnimStrafe = Mathf.MoveTowards(currentAnimStrafe, targetStrafe, dt * 6f);
+            currentAnimSpeed = Mathf.MoveTowards(currentAnimSpeed, targetSpeed, dt * 8f);
+            currentAnimStrafe = Mathf.MoveTowards(currentAnimStrafe, targetStrafe, dt * 8f);
 
-            characterAnimator.SetFloat("Speed", currentAnimSpeed);
-            characterAnimator.SetFloat("Strafe", currentAnimStrafe);
-            characterAnimator.SetBool("IsCrouching", isCrouching);
-            characterAnimator.SetBool("IsGrounded", controller.isGrounded);
-            characterAnimator.SetBool("IsExhausted", isExhausted);
+            // Animasyon oynatma hızını gerçek yürüme hızına oranla (kaymayı engeller)
+            float playbackMult = 1.0f;
+            if (actualHorizSpeed > 0.1f && walkSpeed > 0.01f)
+            {
+                float refSpeed = isCrouching ? crouchSpeed : (isSprinting ? sprintSpeed : walkSpeed);
+                playbackMult = Mathf.Clamp(actualHorizSpeed / Mathf.Max(0.5f, refSpeed), 0.7f, 1.35f);
+            }
+
+            if (animController != null)
+            {
+                animController.UpdateLocomotionParameters(
+                    currentAnimSpeed,
+                    currentAnimStrafe,
+                    inputMag,
+                    playbackMult,
+                    isCrouching,
+                    controller.isGrounded,
+                    isExhausted);
+            }
+            else
+            {
+                characterAnimator.SetFloat("Speed", currentAnimSpeed);
+                characterAnimator.SetFloat("Strafe", currentAnimStrafe);
+                characterAnimator.SetBool("IsCrouching", isCrouching);
+                characterAnimator.SetBool("IsGrounded", controller.isGrounded);
+                characterAnimator.SetBool("IsExhausted", isExhausted);
+            }
         }
 
         #region Animasyon Tetikleyicileri
         public void PlayInteractAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("Interact");
+            if (animController != null) animController.TriggerDoorInteract();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("Interact");
         }
 
         public void PlayPickupAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("PickUp");
+            if (animController != null) animController.TriggerItemPickup();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("PickUp");
         }
 
         public void PlayHitAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("Hit");
+            if (animController != null) animController.TriggerImpactFlinch();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("Hit");
         }
 
         public void PlayDeathAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("Die");
+            if (animController != null) animController.TriggerFall();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("Die");
         }
         #endregion
 

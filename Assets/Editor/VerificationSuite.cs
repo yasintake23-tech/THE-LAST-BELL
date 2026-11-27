@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using UnityEngine;
@@ -8,8 +9,10 @@ using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using TheLastBell.Player;
+using TheLastBell.Interaction;
 using TheLastBell.UI;
 
 namespace TheLastBell.Editor
@@ -18,7 +21,8 @@ namespace TheLastBell.Editor
     /// THE LAST BELL - Automated Functional & Visual Verification Suite (EditMode / BatchMode).
     /// Runs 8-direction analog joystick tests, camera-relative movement at 0/90/180 deg yaw,
     /// simultaneous multi-touch move+look, release stop, resolution dp layout checks (2340x1080),
-    /// and captures rendered Gameplay HUD + Flashlight lighting screenshots.
+    /// 7-layer Humanoid animation & physical flashlight verification,
+    /// and captures rendered Gameplay HUD + Flashlight + Protagonist Walk screenshots.
     /// </summary>
     public static class VerificationSuite
     {
@@ -41,6 +45,7 @@ namespace TheLastBell.Editor
 
                 VerifyLayoutAcrossResolutions(sb, failures);
                 VerifyLightingAndFlashlightConfig(sb, failures);
+                VerifyAnimationAndPhysicalFlashlight(sb, failures);
                 RunFunctionalMovementAndJoystickTests(sb, failures);
                 CaptureVisualScreenshots(sb);
             }
@@ -170,6 +175,148 @@ namespace TheLastBell.Editor
             if (QualitySettings.pixelLightCount < 4) failures.Add($"QualitySettings.pixelLightCount={QualitySettings.pixelLightCount}, expected >= 4.");
 
             sb.AppendLine($"  Flashlight Config: Type={spot.type}, RenderMode={spot.renderMode}, Angle={spot.spotAngle}, Inner={spot.innerSpotAngle}, Range={spot.range}, Intensity={spot.intensity}, Shadows={spot.shadows}, Cookie={(spot.cookie != null ? spot.cookie.name : "NULL")}, PixelLightCount={QualitySettings.pixelLightCount}");
+        }
+
+        private static void VerifyAnimationAndPhysicalFlashlight(StringBuilder sb, List<string> failures)
+        {
+            var walkImporter = AssetImporter.GetAtPath(ProtagonistAnimationSetup.WALK_FBX_PATH) as ModelImporter;
+            if (walkImporter == null || walkImporter.animationType != ModelImporterAnimationType.Human)
+            {
+                failures.Add("Walk_Forward_unity.fbx is not configured as Humanoid ModelImporter.");
+            }
+
+            var walkClip = AssetDatabase.LoadAllAssetsAtPath(ProtagonistAnimationSetup.WALK_FBX_PATH)
+                .OfType<AnimationClip>()
+                .FirstOrDefault(c => !c.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase));
+
+            if (walkClip == null)
+            {
+                failures.Add("Walk_Forward_unity AnimationClip failed to load.");
+            }
+            else
+            {
+                if (!walkClip.isLooping) failures.Add("Walk_Forward_unity clip must have loopTime=true.");
+                if (!walkClip.humanMotion) failures.Add("Walk_Forward_unity clip is not Humanoid retargetable (humanMotion=false).");
+                if (walkClip.length <= 0.1f) failures.Add($"Walk_Forward_unity clip length invalid: {walkClip.length}");
+                sb.AppendLine($"  Walk Clip: {walkClip.name}, len={walkClip.length:F2}s, loop={walkClip.isLooping}, humanMotion={walkClip.humanMotion} OK");
+            }
+
+            var player = GameObject.Find("Player_Protagonist");
+            var anim = player != null ? player.GetComponentInChildren<Animator>(true) : null;
+            var animCtrl = player != null ? player.GetComponentInChildren<ProtagonistAnimationController>(true) : null;
+            var controller = anim != null ? anim.runtimeAnimatorController as AnimatorController : null;
+
+            if (anim == null || anim.avatar == null || !anim.avatar.isValid || !anim.avatar.isHuman)
+            {
+                failures.Add("Protagonist Animator or Humanoid Avatar is invalid.");
+            }
+            else if (anim.applyRootMotion)
+            {
+                failures.Add("Protagonist Animator.applyRootMotion must be false to prevent CharacterController conflict.");
+            }
+
+            if (animCtrl == null)
+            {
+                failures.Add("ProtagonistAnimationController missing on protagonist.");
+            }
+
+            if (controller == null)
+            {
+                failures.Add("Protagonist AnimatorController missing.");
+            }
+            else
+            {
+                string[] expectedLayers = {
+                    ProtagonistAnimationController.LAYER_BASE,
+                    ProtagonistAnimationController.LAYER_UPPER_BODY,
+                    ProtagonistAnimationController.LAYER_RIGHT_ARM,
+                    ProtagonistAnimationController.LAYER_LEFT_ARM,
+                    ProtagonistAnimationController.LAYER_HEAD_LOOK,
+                    ProtagonistAnimationController.LAYER_ADDITIVE,
+                    ProtagonistAnimationController.LAYER_FULL_OVERRIDE
+                };
+                foreach (var lName in expectedLayers)
+                {
+                    if (!controller.layers.Any(l => l.name == lName))
+                    {
+                        failures.Add($"AnimatorController missing modular layer '{lName}'.");
+                    }
+                }
+
+                // Verify Walk_Forward_unity is assigned only to (0,1) forward slot and not reused for sideways/backward
+                var baseSm = controller.layers[0].stateMachine;
+                var locoState = baseSm.states.FirstOrDefault(s => s.state.name == "Locomotion").state;
+                if (locoState == null || !(locoState.motion is BlendTree bt))
+                {
+                    failures.Add("Base Layer missing Locomotion BlendTree.");
+                }
+                else
+                {
+                    int walkForwardMatches = 0;
+                    bool forwardSlotValid = false;
+                    foreach (var ch in bt.children)
+                    {
+                        if (ch.motion == walkClip)
+                        {
+                            walkForwardMatches++;
+                            if (Mathf.Abs(ch.position.x) < 0.05f && Mathf.Abs(ch.position.y - 1.0f) < 0.05f)
+                            {
+                                forwardSlotValid = true;
+                            }
+                        }
+                    }
+                    if (!forwardSlotValid) failures.Add("Locomotion BlendTree (0,1) slot does not use Walk_Forward_unity.");
+                    if (walkForwardMatches != 1) failures.Add($"Walk_Forward_unity used {walkForwardMatches} times in BlendTree (must only be forward (0,1), not reused for sideways/backward).");
+                    if (!locoState.speedParameterActive || locoState.speedParameter != "LocomotionSpeedMultiplier")
+                    {
+                        failures.Add("Locomotion state speedParameterActive / LocomotionSpeedMultiplier not configured.");
+                    }
+                }
+                sb.AppendLine($"  Animator Architecture: Layers={controller.layers.Length}/7, HumanoidAvatar={anim.avatar.name}, RootMotion={anim.applyRootMotion} OK");
+            }
+
+            // Sample Walk_Forward_unity on Protagonist and verify bone transforms remain finite & unperturbed at root
+            if (anim != null && walkClip != null)
+            {
+                Vector3 rootBefore = anim.transform.localPosition;
+                walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.35f);
+                Transform headBone = anim.GetBoneTransform(HumanBodyBones.Head);
+                Transform leftFoot = anim.GetBoneTransform(HumanBodyBones.LeftFoot);
+                Transform rightFoot = anim.GetBoneTransform(HumanBodyBones.RightFoot);
+                if (headBone == null || leftFoot == null || rightFoot == null ||
+                    float.IsNaN(headBone.position.x) || float.IsNaN(leftFoot.position.y))
+                {
+                    failures.Add("Humanoid bone sampling produced invalid/NaN transform.");
+                }
+                if ((anim.transform.localPosition - rootBefore).sqrMagnitude > 0.01f)
+                {
+                    failures.Add($"Walk_Forward_unity displaced character root by {(anim.transform.localPosition - rootBefore).magnitude:F3}m (root motion not baked).");
+                }
+                sb.AppendLine($"  Humanoid Retarget Sample: HeadY={headBone?.position.y:F2}m, LFootY={leftFoot?.position.y:F2}m, RFootY={rightFoot?.position.y:F2}m OK");
+            }
+
+            // Verify FlashlightPhysicalItem drop -> lit -> pickup -> reattach
+            var physItem = UnityEngine.Object.FindAnyObjectByType<FlashlightPhysicalItem>(FindObjectsInactive.Include);
+            var spot = GameObject.Find("SpotLight")?.GetComponent<Light>();
+            if (physItem == null)
+            {
+                failures.Add("FlashlightPhysicalItem missing on Flashlight_Rig.");
+            }
+            else
+            {
+                InvokePrivate(physItem, "Awake");
+                physItem.DropWithPhysics(new Vector3(0.5f, 0.2f, 1.0f));
+                if (physItem.CurrentState != FlashlightPhysicalState.DroppedPhysics || (spot != null && !spot.enabled))
+                {
+                    failures.Add("FlashlightPhysicalItem.DropWithPhysics failed or turned off light.");
+                }
+                physItem.PickupAndReattach(false);
+                if (physItem.CurrentState != FlashlightPhysicalState.HeldInRig)
+                {
+                    failures.Add("FlashlightPhysicalItem.PickupAndReattach failed to return to HeldInRig.");
+                }
+                sb.AppendLine("  Physical Flashlight: Rig -> DroppedPhysics (Light ON) -> PickupAndReattach OK");
+            }
         }
 
         private static void RunFunctionalMovementAndJoystickTests(StringBuilder sb, List<string> failures)
@@ -490,6 +637,31 @@ namespace TheLastBell.Editor
                 flashRig.LookAt(cam.transform.position + cam.transform.forward * 8f);
             }
             RenderAndSave(cam, 1280, 720, "Logs/Screenshots/Flashlight_Hallway_Dark.png", sb);
+
+            // 5. Protagonist Walk_Forward_unity Retargeting Preview (3rd-person view)
+            var anim = player.GetComponentInChildren<Animator>(true);
+            var walkClip = AssetDatabase.LoadAllAssetsAtPath(ProtagonistAnimationSetup.WALK_FBX_PATH)
+                .OfType<AnimationClip>()
+                .FirstOrDefault(c => !c.name.StartsWith("__preview__", StringComparison.OrdinalIgnoreCase));
+            if (anim != null && walkClip != null)
+            {
+                player.transform.position = new Vector3(0f, 0.02f, -4.0f);
+                player.transform.rotation = Quaternion.identity;
+                walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.30f);
+
+                var camParent = cam.transform.parent;
+                var camLocalPos = cam.transform.localPosition;
+                var camLocalRot = cam.transform.localRotation;
+
+                cam.transform.SetParent(null, true);
+                cam.transform.position = player.transform.position + new Vector3(1.55f, 1.35f, 1.95f);
+                cam.transform.LookAt(player.transform.position + Vector3.up * 0.95f);
+                RenderAndSave(cam, 1280, 720, "Logs/Screenshots/Protagonist_Walk_Preview.png", sb);
+
+                cam.transform.SetParent(camParent, false);
+                cam.transform.localPosition = camLocalPos;
+                cam.transform.localRotation = camLocalRot;
+            }
 
             if (canvas != null) canvas.gameObject.SetActive(true);
         }
