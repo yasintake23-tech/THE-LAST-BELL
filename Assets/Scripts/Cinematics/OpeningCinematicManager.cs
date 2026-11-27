@@ -50,6 +50,7 @@ namespace TheLastBell.Cinematics
         [SerializeField] private float titleFadeOutDuration = 1.2f;
 
         [Header("--- Teşhis ve Zaman Aşımı ---")]
+        [SerializeField] private string streamingAssetsFileName = "OpeningCinematicVideo.mp4";
         [SerializeField] private float prepareTimeoutSeconds = 8.0f;
 
         private bool isTransitioning = false;
@@ -108,6 +109,13 @@ namespace TheLastBell.Cinematics
         {
             if (videoPlayer != null)
             {
+                if (videoPlayer.clip == null && string.IsNullOrEmpty(videoPlayer.url) && !string.IsNullOrEmpty(streamingAssetsFileName))
+                {
+                    videoPlayer.source = VideoSource.Url;
+                    videoPlayer.url = System.IO.Path.Combine(Application.streamingAssetsPath, streamingAssetsFileName);
+                    Debug.Log($"[OpeningCinematic] VideoClip null -> StreamingAssets URL kullanılıyor: {videoPlayer.url}");
+                }
+
                 if (videoPlayer.clip == null && string.IsNullOrEmpty(videoPlayer.url))
                 {
                     Debug.LogError("[OpeningCinematic] VideoClip veya URL atanmamış!");
@@ -115,7 +123,7 @@ namespace TheLastBell.Cinematics
                     return;
                 }
 
-                Debug.Log($"[OpeningCinematic] Hazırlanıyor -> Clip={videoPlayer.clip?.name}, RenderMode={videoPlayer.renderMode}, TargetRT={videoPlayer.targetTexture?.name}, AudioMode={videoPlayer.audioOutputMode}, GraphicsAPI={SystemInfo.graphicsDeviceType}");
+                Debug.Log($"[OpeningCinematic] Hazırlanıyor -> Source={videoPlayer.source}, Clip={videoPlayer.clip?.name}, Url={videoPlayer.url}, RenderMode={videoPlayer.renderMode}, TargetRT={videoPlayer.targetTexture?.name}, AudioMode={videoPlayer.audioOutputMode}, GraphicsAPI={SystemInfo.graphicsDeviceType}");
                 videoPlayer.Stop();
                 videoPlayer.Prepare();
                 StartCoroutine(PrepareWatchdogRoutine());

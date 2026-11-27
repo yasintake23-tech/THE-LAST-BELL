@@ -510,7 +510,14 @@ namespace TheLastBell.Editor
                     issues.Add($"[{scenePath}] Missing VideoPlayer component.");
                     return;
                 }
-                if (vp.clip == null) issues.Add($"[{scenePath}] VideoPlayer.clip is null.");
+                string expectedStreamingFile = scenePath.EndsWith("MainMenu.unity", StringComparison.OrdinalIgnoreCase)
+                    ? "Assets/StreamingAssets/MainMenuBackground.mp4"
+                    : "Assets/StreamingAssets/OpeningCinematicVideo.mp4";
+                bool hasStreamingMp4 = File.Exists(expectedStreamingFile) && new FileInfo(expectedStreamingFile).Length > 1024;
+                if (vp.clip == null && !hasStreamingMp4)
+                {
+                    issues.Add($"[{scenePath}] VideoPlayer.clip is null and fallback {expectedStreamingFile} is missing.");
+                }
                 if (vp.renderMode != VideoRenderMode.RenderTexture) issues.Add($"[{scenePath}] VideoPlayer.renderMode is {vp.renderMode}, expected RenderTexture.");
                 if (vp.targetTexture == null) issues.Add($"[{scenePath}] VideoPlayer.targetTexture is null.");
                 if (vp.playOnAwake) issues.Add($"[{scenePath}] VideoPlayer.playOnAwake should be false to avoid prepareCompleted race.");
@@ -530,7 +537,7 @@ namespace TheLastBell.Editor
                     }
                 }
 
-                sb.AppendLine($"  VideoPlayer [{scene.name}]: clip={(vp.clip != null ? vp.clip.name : "NULL")}, RT={(vp.targetTexture != null ? $"{vp.targetTexture.width}x{vp.targetTexture.height}" : "NULL")}, playOnAwake={vp.playOnAwake}, RawImageMatch={hasMatchingRawImage}");
+                sb.AppendLine($"  VideoPlayer [{scene.name}]: clip={(vp.clip != null ? vp.clip.name : "NULL")}, streamingFallback={hasStreamingMp4}, RT={(vp.targetTexture != null ? $"{vp.targetTexture.width}x{vp.targetTexture.height}" : "NULL")}, playOnAwake={vp.playOnAwake}, RawImageMatch={hasMatchingRawImage}");
             }
             else if (scenePath.EndsWith("AbandonedSchool.unity", StringComparison.OrdinalIgnoreCase))
             {

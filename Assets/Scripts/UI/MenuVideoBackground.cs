@@ -19,6 +19,7 @@ namespace TheLastBell.UI
         [SerializeField] private GameObject fallbackBackground;
 
         [Header("Ayarlar")]
+        [SerializeField] private string streamingAssetsFileName = "MainMenuBackground.mp4";
         [SerializeField] private float fadeInDuration = 0.6f;
         [SerializeField] private bool maintain16x9 = true;
         [SerializeField] private float prepareTimeoutSeconds = 6.0f;
@@ -74,13 +75,20 @@ namespace TheLastBell.UI
                 return;
             }
 
+            if (videoPlayer.clip == null && string.IsNullOrEmpty(videoPlayer.url) && !string.IsNullOrEmpty(streamingAssetsFileName))
+            {
+                videoPlayer.source = VideoSource.Url;
+                videoPlayer.url = System.IO.Path.Combine(Application.streamingAssetsPath, streamingAssetsFileName);
+                Debug.Log($"[MenuVideoBackground] VideoClip null -> StreamingAssets URL kullanılıyor: {videoPlayer.url}");
+            }
+
             if (videoPlayer.clip == null && string.IsNullOrEmpty(videoPlayer.url))
             {
                 Debug.LogError("[MenuVideoBackground] VideoClip veya URL atanmamış!");
                 return;
             }
 
-            Debug.Log($"[MenuVideoBackground] Hazırlanıyor -> Clip={videoPlayer.clip?.name}, RenderMode={videoPlayer.renderMode}, TargetRT={videoPlayer.targetTexture?.name}, GraphicsAPI={SystemInfo.graphicsDeviceType}");
+            Debug.Log($"[MenuVideoBackground] Hazırlanıyor -> Source={videoPlayer.source}, Clip={videoPlayer.clip?.name}, Url={videoPlayer.url}, RenderMode={videoPlayer.renderMode}, TargetRT={videoPlayer.targetTexture?.name}, GraphicsAPI={SystemInfo.graphicsDeviceType}");
 
             videoPlayer.Stop();
             videoPlayer.Prepare();
