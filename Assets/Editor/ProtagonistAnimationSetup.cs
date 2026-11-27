@@ -57,8 +57,8 @@ namespace TheLastBell.Editor
                 mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArm, true);
                 mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftFingers, true);
                 mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightFingers, true);
-                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftArmIK, true);
-                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArmIK, true);
+                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftHandIK, true);
+                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightHandIK, true);
             });
 
             AvatarMask rightArmMask = CreateOrUpdateMask($"{MASKS_DIR}/RightArm_Mask.mask", mask =>
@@ -66,7 +66,7 @@ namespace TheLastBell.Editor
                 SetAllBodyParts(mask, false);
                 mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArm, true);
                 mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightFingers, true);
-                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArmIK, true);
+                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightHandIK, true);
             });
 
             AvatarMask leftArmMask = CreateOrUpdateMask($"{MASKS_DIR}/LeftArm_Mask.mask", mask =>
@@ -74,7 +74,7 @@ namespace TheLastBell.Editor
                 SetAllBodyParts(mask, false);
                 mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftArm, true);
                 mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftFingers, true);
-                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftArmIK, true);
+                mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftHandIK, true);
             });
 
             AvatarMask headMask = CreateOrUpdateMask($"{MASKS_DIR}/HeadNeck_Mask.mask", mask =>
