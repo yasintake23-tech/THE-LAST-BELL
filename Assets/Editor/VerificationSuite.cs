@@ -230,9 +230,10 @@ namespace TheLastBell.Editor
                     continue;
                 }
 
-                // Sample clip at mid-point on Protagonist and verify finite bones + zero root displacement
+                // Sample clip at mid-point using true Humanoid PlayableGraph solver (not legacy SampleAnimation)
                 Vector3 rootBefore = anim.transform.localPosition;
-                entry.clip.SampleAnimation(anim.gameObject, entry.clip.length * 0.35f);
+                animCtrl.StartIsolatedPreview(entry.clip, true);
+                animCtrl.SetPreviewNormalizedTime(0.35f);
                 Transform hips = anim.GetBoneTransform(HumanBodyBones.Hips);
                 Transform head = anim.GetBoneTransform(HumanBodyBones.Head);
                 Transform lFoot = anim.GetBoneTransform(HumanBodyBones.LeftFoot);
@@ -242,11 +243,13 @@ namespace TheLastBell.Editor
                     float.IsNaN(hips.position.y) || float.IsNaN(lFoot.position.y) || float.IsNaN(rFoot.position.y))
                 {
                     failures.Add($"Clip '{entry.id}' produced invalid/NaN Humanoid bone transforms.");
+                    animCtrl.StopIsolatedPreview();
                     continue;
                 }
                 if ((anim.transform.localPosition - rootBefore).sqrMagnitude > 0.01f)
                 {
                     failures.Add($"Clip '{entry.id}' displaced character root by {(anim.transform.localPosition - rootBefore).magnitude:F3}m.");
+                    animCtrl.StopIsolatedPreview();
                     continue;
                 }
 
@@ -268,6 +271,7 @@ namespace TheLastBell.Editor
                     }
                 }
 
+                animCtrl.StopIsolatedPreview();
                 validClips++;
             }
             sb.AppendLine($"  Animation Library Registry: {validClips}/{registry.Entries.Count} Humanoid clips validated OK");
@@ -732,8 +736,9 @@ namespace TheLastBell.Editor
 
             // 5. Third-Person Character Ground Alignment & Animation Visual Verification Shots
             var anim = player.GetComponentInChildren<Animator>(true);
+            var animCtrl = player.GetComponentInChildren<ProtagonistAnimationController>(true);
             var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(ProtagonistAnimationSetup.REGISTRY_PATH);
-            if (anim != null && registry != null)
+            if (anim != null && animCtrl != null && registry != null)
             {
                 if (camMode != null) camMode.SetCameraMode(CameraViewMode.ThirdPerson);
                 player.transform.position = new Vector3(0f, 0.0f, -4.0f);
@@ -757,34 +762,41 @@ namespace TheLastBell.Editor
                 cam.transform.position = player.transform.position + new Vector3(1.65f, 1.25f, 2.35f);
                 cam.transform.LookAt(player.transform.position + Vector3.up * 0.92f);
 
-                // 5a. Idle_Breathing Ground Check
+                // 5a. Idle_Breathing Ground Check (via true Humanoid PlayableGraph)
                 var idleClip = registry.FindClip("Idle_Breathing");
                 if (idleClip != null)
                 {
-                    idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                    animCtrl.StartIsolatedPreview(idleClip, true);
+                    animCtrl.SetPreviewNormalizedTime(0.25f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Idle_GroundCheck.png", sb);
                 }
 
-                // 5b. Walk_Forward_unity Mid-Stride
+                // 5b. Walk_Forward_unity Mid-Stride (via true Humanoid PlayableGraph)
                 var walkClip = registry.FindClip("Walk_Forward_unity");
                 if (walkClip != null)
                 {
-                    walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.30f);
+                    animCtrl.StartIsolatedPreview(walkClip, true);
+                    animCtrl.SetPreviewNormalizedTime(0.30f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Walk_Forward.png", sb);
                 }
 
-                // 5c. Flashlight_Hold
+                // 5c. Flashlight_Hold (via true Humanoid PlayableGraph)
                 var flashHoldClip = registry.FindClip("Flashlight_Hold");
                 if (flashHoldClip != null)
                 {
-                    flashHoldClip.SampleAnimation(anim.gameObject, flashHoldClip.length * 0.25f);
+                    animCtrl.StartIsolatedPreview(flashHoldClip, true);
+                    animCtrl.SetPreviewNormalizedTime(0.25f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Flashlight_Hold.png", sb);
                 }
 
                 // 5d. DebugPanel Open at 2340x1080 (Panel left, full protagonist visible on right)
                 if (canvas != null && debugPanel != null)
                 {
-                    if (idleClip != null) idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                    if (idleClip != null)
+                    {
+                        animCtrl.StartIsolatedPreview(idleClip, true);
+                        animCtrl.SetPreviewNormalizedTime(0.25f);
+                    }
                     cam.transform.position = player.transform.position + new Vector3(0.65f, 1.32f, 2.55f);
                     cam.transform.LookAt(player.transform.position + new Vector3(-0.45f, 0.95f, 0f));
 
@@ -806,6 +818,7 @@ namespace TheLastBell.Editor
                     canvas.planeDistance = prevPlane;
                 }
 
+                animCtrl.StopIsolatedPreview();
                 cam.transform.SetParent(camParent, false);
                 cam.transform.localPosition = camLocalPos;
                 cam.transform.localRotation = camLocalRot;

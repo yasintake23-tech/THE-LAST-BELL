@@ -99,6 +99,10 @@ namespace TheLastBell.UI
 
         private void ResolveReferences()
         {
+            if (libraryRegistry == null)
+            {
+                libraryRegistry = Resources.Load<AnimationLibraryRegistry>("AnimationLibraryRegistry");
+            }
             if (playerController == null) playerController = FindFirstObjectByType<FirstPersonController>();
             if (cameraModeController == null) cameraModeController = FindFirstObjectByType<CameraModeController>();
             if (animController == null) animController = FindFirstObjectByType<ProtagonistAnimationController>();
@@ -132,7 +136,14 @@ namespace TheLastBell.UI
             if (!isBuilt) EnsureBuilt();
             isPanelOpen = open;
             if (panelRoot != null) panelRoot.SetActive(open);
-            if (!open && isIsolatedMode)
+            if (open)
+            {
+                RefreshCameraToggleLabel();
+                RefreshModeBadge();
+                RefreshClipSelectionUI();
+                UpdateTelemetryAndTimeline();
+            }
+            else if (isIsolatedMode)
             {
                 ExitIsolatedPreview();
             }
@@ -364,26 +375,26 @@ namespace TheLastBell.UI
             AddBorderOutline(panelRoot, new Color(0.82f, 0.62f, 0.24f, 0.55f));
 
             var vLayout = panelRoot.AddComponent<VerticalLayoutGroup>();
-            vLayout.padding = new RectOffset(16, 16, 14, 14);
-            vLayout.spacing = 8f;
+            vLayout.padding = new RectOffset(14, 14, 10, 10);
+            vLayout.spacing = 6f;
             vLayout.childControlWidth = true;
             vLayout.childControlHeight = false;
             vLayout.childForceExpandWidth = true;
             vLayout.childForceExpandHeight = false;
 
             // Başlık & Kapatma Satırı
-            var headerRow = CreateHorizontalRow(panelRoot.transform, 48f, 8f);
-            modeBadgeText = CreateLabel(headerRow, "MOD: CANLI OYNANIŞ", 22, FontStyles.Bold, new Color(0.45f, 0.92f, 0.62f));
+            var headerRow = CreateHorizontalRow(panelRoot.transform, 42f, 8f);
+            modeBadgeText = CreateLabel(headerRow, "MOD: CANLI OYNANIŞ", 21, FontStyles.Bold, new Color(0.45f, 0.92f, 0.62f));
             var badgeLE = modeBadgeText.gameObject.AddComponent<LayoutElement>();
             badgeLE.flexibleWidth = 1f;
 
-            CreateRowButton(headerRow, "CANLI", 110f, new Color(0.14f, 0.34f, 0.22f, 0.9f), ExitIsolatedPreview);
-            CreateRowButton(headerRow, "ÖNİZLE", 120f, new Color(0.45f, 0.32f, 0.10f, 0.9f), EnterIsolatedPreview);
-            CreateRowButton(headerRow, "X", 56f, new Color(0.48f, 0.14f, 0.14f, 0.9f), () => SetPanelOpen(false));
+            CreateRowButton(headerRow, "CANLI", 105f, new Color(0.14f, 0.34f, 0.22f, 0.9f), ExitIsolatedPreview);
+            CreateRowButton(headerRow, "ÖNİZLE", 115f, new Color(0.45f, 0.32f, 0.10f, 0.9f), EnterIsolatedPreview);
+            CreateRowButton(headerRow, "X", 52f, new Color(0.48f, 0.14f, 0.14f, 0.9f), () => SetPanelOpen(false));
 
             // Kamera Mesafe & Yükseklik Satırı
-            var camRow = CreateHorizontalRow(panelRoot.transform, 46f, 10f);
-            CreateRowButton(camRow, "1P / 3P", 125f, new Color(0.16f, 0.28f, 0.42f, 0.9f), ToggleCameraMode);
+            var camRow = CreateHorizontalRow(panelRoot.transform, 40f, 10f);
+            CreateRowButton(camRow, "1P / 3P", 120f, new Color(0.16f, 0.28f, 0.42f, 0.9f), ToggleCameraMode);
             camDistSlider = CreateLabeledSlider(camRow, "Mesafe", 1.5f, 4.5f,
                 cameraModeController != null ? cameraModeController.ThirdPersonDistance : 2.65f,
                 v => { if (cameraModeController != null) cameraModeController.SetThirdPersonDistance(v); });
@@ -392,16 +403,16 @@ namespace TheLastBell.UI
                 v => { if (cameraModeController != null) cameraModeController.SetThirdPersonHeight(v); });
 
             // Seçili Klip Başlığı ve Önceki/Sonraki
-            var clipNavRow = CreateHorizontalRow(panelRoot.transform, 48f, 8f);
-            CreateRowButton(clipNavRow, "< ÖNCEKİ", 130f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectClipByIndex(selectedClipIndex - 1));
-            clipTitleText = CreateLabel(clipNavRow, "Klip Seçilmedi", 19, FontStyles.Bold, Color.white);
+            var clipNavRow = CreateHorizontalRow(panelRoot.transform, 42f, 8f);
+            CreateRowButton(clipNavRow, "< ÖNCEKİ", 125f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectClipByIndex(selectedClipIndex - 1));
+            clipTitleText = CreateLabel(clipNavRow, "Klip Seçilmedi", 18, FontStyles.Bold, Color.white);
             clipTitleText.alignment = TextAlignmentOptions.Center;
             clipTitleText.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-            CreateRowButton(clipNavRow, "SONRAKİ >", 135f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectClipByIndex(selectedClipIndex + 1));
+            CreateRowButton(clipNavRow, "SONRAKİ >", 130f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectClipByIndex(selectedClipIndex + 1));
 
             // Oynatma Kontrolleri Satırı
-            var playRow = CreateHorizontalRow(panelRoot.transform, 46f, 8f);
-            var playBtn = CreateRowButton(playRow, "OYNAT", 135f, new Color(0.16f, 0.36f, 0.24f, 0.95f), () =>
+            var playRow = CreateHorizontalRow(panelRoot.transform, 40f, 8f);
+            var playBtn = CreateRowButton(playRow, "OYNAT", 130f, new Color(0.16f, 0.36f, 0.24f, 0.95f), () =>
             {
                 if (!isIsolatedMode) EnterIsolatedPreview();
                 else if (animController != null)
@@ -412,7 +423,7 @@ namespace TheLastBell.UI
             });
             playPauseBtnLabel = playBtn.GetComponentInChildren<TextMeshProUGUI>();
 
-            CreateRowButton(playRow, "BAŞA SAR", 135f, new Color(0.20f, 0.24f, 0.30f, 0.95f), () =>
+            CreateRowButton(playRow, "BAŞA SAR", 130f, new Color(0.20f, 0.24f, 0.30f, 0.95f), () =>
             {
                 if (!isIsolatedMode) EnterIsolatedPreview();
                 else if (animController != null)
@@ -423,7 +434,7 @@ namespace TheLastBell.UI
                 }
             });
 
-            var loopBtn = CreateRowButton(playRow, "DÖNGÜ: AÇIK", 165f, new Color(0.24f, 0.22f, 0.34f, 0.95f), () =>
+            var loopBtn = CreateRowButton(playRow, "DÖNGÜ: AÇIK", 160f, new Color(0.24f, 0.22f, 0.34f, 0.95f), () =>
             {
                 if (animController != null)
                 {
@@ -433,13 +444,13 @@ namespace TheLastBell.UI
             });
             loopBtnLabel = loopBtn.GetComponentInChildren<TextMeshProUGUI>();
 
-            CreateRowButton(playRow, "DURDUR", 125f, new Color(0.42f, 0.16f, 0.16f, 0.95f), ExitIsolatedPreview);
+            CreateRowButton(playRow, "DURDUR", 120f, new Color(0.42f, 0.16f, 0.16f, 0.95f), ExitIsolatedPreview);
 
             // Zaman Çizelgesi & Hız Sliderları
-            var scrubRow = CreateHorizontalRow(panelRoot.transform, 44f, 10f);
-            timelineLabel = CreateLabel(scrubRow, "Zaman: 0.00s", 17, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
+            var scrubRow = CreateHorizontalRow(panelRoot.transform, 36f, 10f);
+            timelineLabel = CreateLabel(scrubRow, "Zaman: 0.00s", 16, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
             var tlLE = timelineLabel.gameObject.AddComponent<LayoutElement>();
-            tlLE.preferredWidth = 240f;
+            tlLE.preferredWidth = 235f;
             timelineSlider = CreateRawSlider(scrubRow, 0f, 1f, 0f, v =>
             {
                 if (isIsolatedMode && animController != null)
@@ -452,9 +463,9 @@ namespace TheLastBell.UI
                 }
             });
 
-            var speedRow = CreateHorizontalRow(panelRoot.transform, 42f, 10f);
-            speedLabel = CreateLabel(speedRow, "Hız: 1.00x", 17, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
-            speedLabel.gameObject.AddComponent<LayoutElement>().preferredWidth = 140f;
+            var speedRow = CreateHorizontalRow(panelRoot.transform, 36f, 10f);
+            speedLabel = CreateLabel(speedRow, "Hız: 1.00x", 16, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
+            speedLabel.gameObject.AddComponent<LayoutElement>().preferredWidth = 135f;
             speedSlider = CreateRawSlider(speedRow, 0.25f, 2.0f, 1.0f, v =>
             {
                 if (speedLabel != null) speedLabel.text = $"Hız: {v:F2}x";
@@ -462,10 +473,10 @@ namespace TheLastBell.UI
             });
 
             // Kaydırılabilir 23 Klip Listesi
-            BuildClipScrollList(panelRoot.transform, 275f);
+            BuildClipScrollList(panelRoot.transform, 220f);
 
             // Hızlı Canlı Olay Tetikleyicileri
-            var actionRow1 = CreateHorizontalRow(panelRoot.transform, 44f, 6f);
+            var actionRow1 = CreateHorizontalRow(panelRoot.transform, 38f, 6f);
             CreateRowButton(actionRow1, "FENER BIRAK", 0f, new Color(0.32f, 0.24f, 0.14f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
@@ -499,7 +510,7 @@ namespace TheLastBell.UI
                 animController?.TriggerLookRight();
             });
 
-            var actionRow2 = CreateHorizontalRow(panelRoot.transform, 44f, 6f);
+            var actionRow2 = CreateHorizontalRow(panelRoot.transform, 38f, 6f);
             CreateRowButton(actionRow2, "SENDELE", 0f, new Color(0.32f, 0.22f, 0.22f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
@@ -518,8 +529,8 @@ namespace TheLastBell.UI
             CreateRowButton(actionRow2, "SIFIRLA", 0f, new Color(0.26f, 0.26f, 0.28f, 0.95f), ResetCharacterAndAnimations);
 
             // Katman Ağırlıkları (1..6) + Otomatik Sıfırla
-            var layerRow = CreateHorizontalRow(panelRoot.transform, 42f, 6f);
-            CreateRowButton(layerRow, "OTO KATMAN", 135f, new Color(0.20f, 0.24f, 0.28f, 0.95f), () =>
+            var layerRow = CreateHorizontalRow(panelRoot.transform, 40f, 6f);
+            CreateRowButton(layerRow, "OTO KATMAN", 130f, new Color(0.20f, 0.24f, 0.28f, 0.95f), () =>
             {
                 animController?.ClearManualLayerWeights();
             });
@@ -536,9 +547,9 @@ namespace TheLastBell.UI
             telObj.transform.SetParent(panelRoot.transform, false);
             telObj.GetComponent<Image>().color = new Color(0.03f, 0.04f, 0.05f, 0.92f);
             var telLE = telObj.AddComponent<LayoutElement>();
-            telLE.preferredHeight = 96f;
+            telLE.preferredHeight = 82f;
 
-            telemetryText = CreateLabel(telObj.transform, "Telemetri hazırlanıyor...", 17, FontStyles.Normal, new Color(0.76f, 0.92f, 0.84f));
+            telemetryText = CreateLabel(telObj.transform, "Telemetri hazırlanıyor...", 16, FontStyles.Normal, new Color(0.76f, 0.92f, 0.84f));
             var telRt = telemetryText.GetComponent<RectTransform>();
             telRt.anchorMin = Vector2.zero;
             telRt.anchorMax = Vector2.one;

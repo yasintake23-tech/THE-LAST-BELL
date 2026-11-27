@@ -23,7 +23,7 @@ namespace TheLastBell.Editor
     {
         public const string LOCOMOTION_DIR = "Assets/Animations/Locomotion";
         public const string CONTROLLER_PATH = "Assets/Characters/Protagonist/Protagonist_AnimatorController.controller";
-        public const string REGISTRY_PATH = "Assets/Animations/Controllers/AnimationLibraryRegistry.asset";
+        public const string REGISTRY_PATH = "Assets/Resources/AnimationLibraryRegistry.asset";
         public const string MASKS_DIR = "Assets/Animations/Masks";
         public const string PROTAGONIST_LEGACY_FBX = "Assets/Characters/Protagonist/Protagonist_Character.fbx";
 
@@ -267,7 +267,8 @@ namespace TheLastBell.Editor
             else EditorUtility.SetDirty(registry);
 
             AssetDatabase.SaveAssets();
-            return registry;
+            AssetDatabase.Refresh();
+            return AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(REGISTRY_PATH);
         }
 
         private static AnimationClip LoadPrimaryClip(string fbxPath)
@@ -734,6 +735,7 @@ namespace TheLastBell.Editor
             {
                 var debugPanel = hudCanvas.GetComponent<AnimationDebugPanel>();
                 if (debugPanel == null) debugPanel = hudCanvas.AddComponent<AnimationDebugPanel>();
+                debugPanel.SetRegistry(registry);
 
                 var soPanel = new SerializedObject(debugPanel);
                 var pReg = soPanel.FindProperty("libraryRegistry");
@@ -747,6 +749,7 @@ namespace TheLastBell.Editor
                 var pFp = soPanel.FindProperty("flashlightPhysical");
                 if (pFp != null) pFp.objectReferenceValue = physItem;
                 soPanel.ApplyModifiedProperties();
+                EditorUtility.SetDirty(debugPanel);
             }
 
             EditorSceneManager.MarkSceneDirty(scene);
