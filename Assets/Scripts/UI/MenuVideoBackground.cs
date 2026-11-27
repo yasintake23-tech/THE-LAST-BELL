@@ -7,8 +7,8 @@ namespace TheLastBell.UI
 {
     /// <summary>
     /// THE LAST BELL - Sinematik Video Arka Plan Yöneticisi.
-    /// Siyah ekran oluşmasını önler, pürüzsüz geçiş (fade-in), otomatik döngü (loop)
-    /// ve Android/PC yaşam döngüsü (pause/resume) uyumluluğu sağlar.
+    /// Android & PC ortamlarında PlayOnAwake yarış durumlarını önler, RenderTexture'ı garanti altına alır,
+    /// pürüzsüz fade-in, otomatik döngü (loop) ve yaşam döngüsü (pause/resume) uyumluluğu sağlar.
     /// </summary>
     public class MenuVideoBackground : MonoBehaviour
     {
@@ -21,11 +21,20 @@ namespace TheLastBell.UI
         [Header("Ayarlar")]
         [SerializeField] private float fadeInDuration = 0.6f;
         [SerializeField] private bool maintain16x9 = true;
+        [SerializeField] private float prepareTimeoutSeconds = 6.0f;
 
         private Coroutine fadeCoroutine;
+        private RenderTexture runtimeRT;
+        private bool hasRevealed = false;
+        private bool eventsSubscribed = false;
 
         private void Awake()
         {
+            if (videoPlayer == null)
+            {
+                videoPlayer = GetComponent<VideoPlayer>();
+            }
+
             if (videoCanvasGroup != null)
             {
                 videoCanvasGroup.alpha = 0f;
@@ -37,42 +46,125 @@ namespace TheLastBell.UI
             }
 
             SetupAspectRatio();
-        }
-
-        private void Start()
-        {
-            if (videoPlayer == null)
-            {
-                videoPlayer = GetComponent<VideoPlayer>();
-            }
 
             if (videoPlayer != null)
             {
-                // Sesi tamamen devre dışı bırak (Video sesi çalınmaz, ayrılmış müzik/SFX sistemine hazır)
+                // PlayOnAwake yarış durumunu önlemek için Awake'de kapat ve olayları erken bağla
+                videoPlayer.playOnAwake = false;
+                videoPlayer.waitForFirstFrame = true;
+                videoPlayer.isLooping = true;
+                videoPlayer.skipOnDrop = true;
                 videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
                 for (ushort i = 0; i < videoPlayer.controlledAudioTrackCount; i++)
                 {
                     videoPlayer.EnableAudioTrack(i, false);
                     videoPlayer.SetDirectAudioMute(i, true);
                 }
-                videoPlayer.isLooping = true;
-                videoPlayer.skipOnDrop = true;
 
-                // Olay dinleyicileri
-                videoPlayer.prepareCompleted += OnVideoPrepared;
-                videoPlayer.errorReceived += OnVideoError;
-
-                // Videoyu hazırla
-                videoPlayer.Prepare();
+                EnsureRenderTexture();
+                SubscribeEvents();
             }
+        }
+
+        private void Start()
+        {
+            if (videoPlayer == null)
+            {
+                Debug.LogError("[MenuVideoBackground] VideoPlayer bileşeni bulunamadı.");
+                return;
+            }
+
+            if (videoPlayer.clip == null && string.IsNullOrEmpty(videoPlayer.url))
+            {
+                Debug.LogError("[MenuVideoBackground] VideoClip veya URL atanmamış!");
+                return;
+            }
+
+            Debug.Log($"[MenuVideoBackground] Hazırlanıyor -> Clip={videoPlayer.clip?.name}, RenderMode={videoPlayer.renderMode}, TargetRT={videoPlayer.targetTexture?.name}, GraphicsAPI={SystemInfo.graphicsDeviceType}");
+
+            videoPlayer.Stop();
+            videoPlayer.Prepare();
+            StartCoroutine(PrepareWatchdogRoutine());
         }
 
         private void OnDestroy()
         {
-            if (videoPlayer != null)
+            UnsubscribeEvents();
+
+            if (runtimeRT != null)
             {
-                videoPlayer.prepareCompleted -= OnVideoPrepared;
-                videoPlayer.errorReceived -= OnVideoError;
+                if (videoPlayer != null && videoPlayer.targetTexture == runtimeRT)
+                {
+                    videoPlayer.targetTexture = null;
+                }
+                runtimeRT.Release();
+                Destroy(runtimeRT);
+                runtimeRT = null;
+            }
+        }
+
+        private void SubscribeEvents()
+        {
+            if (eventsSubscribed || videoPlayer == null) return;
+            videoPlayer.prepareCompleted += OnVideoPrepared;
+            videoPlayer.started += OnVideoStarted;
+            videoPlayer.errorReceived += OnVideoError;
+            eventsSubscribed = true;
+        }
+
+        private void UnsubscribeEvents()
+        {
+            if (!eventsSubscribed || videoPlayer == null) return;
+            videoPlayer.prepareCompleted -= OnVideoPrepared;
+            videoPlayer.started -= OnVideoStarted;
+            videoPlayer.errorReceived -= OnVideoError;
+            eventsSubscribed = false;
+        }
+
+        private void EnsureRenderTexture()
+        {
+            if (videoPlayer == null) return;
+
+            RenderTexture target = videoPlayer.targetTexture;
+            if (target == null)
+            {
+                int w = videoPlayer.clip != null && videoPlayer.clip.width > 0 ? (int)videoPlayer.clip.width : 1280;
+                int h = videoPlayer.clip != null && videoPlayer.clip.height > 0 ? (int)videoPlayer.clip.height : 720;
+                runtimeRT = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32)
+                {
+                    name = "MenuBackground_RuntimeRT",
+                    useMipMap = false,
+                    autoGenerateMips = false,
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp,
+                    anisoLevel = 0
+                };
+                target = runtimeRT;
+            }
+            else
+            {
+                target.anisoLevel = 0;
+            }
+
+            if (!target.IsCreated())
+            {
+                target.Create();
+            }
+
+            // Başlangıçta siyah/temiz doku garantisi
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = target;
+            GL.Clear(false, true, Color.black);
+            RenderTexture.active = prev;
+
+            videoPlayer.renderMode = VideoRenderMode.RenderTexture;
+            videoPlayer.targetTexture = target;
+
+            if (videoRawImage != null)
+            {
+                videoRawImage.texture = target;
+                videoRawImage.color = Color.white;
+                videoRawImage.enabled = true;
             }
         }
 
@@ -86,27 +178,67 @@ namespace TheLastBell.UI
                 fitter = videoRawImage.gameObject.AddComponent<AspectRatioFitter>();
             }
 
-            fitter.aspectRatio = 16f / 9f; // 1.777778f
-            // EnvelopeParent: 18:9, 19.5:9 veya 21:9 gibi farklı ekranlarda siyah bant bırakmadan tam ekran doldurur
+            fitter.aspectRatio = 16f / 9f;
             fitter.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
         }
 
         private void OnVideoPrepared(VideoPlayer source)
         {
+            Debug.Log($"[MenuVideoBackground] Video hazır! Boyut={source.width}x{source.height}, Süre={source.length:F2}s");
+            EnsureRenderTexture();
             source.Play();
+            RevealVideo();
+        }
 
-            // İlk kare hazır olunca pürüzsüz fade-in
-            if (fadeCoroutine != null) StopCoroutine(fadeCoroutine);
-            fadeCoroutine = StartCoroutine(FadeInVideo());
+        private void OnVideoStarted(VideoPlayer source)
+        {
+            Debug.Log("[MenuVideoBackground] Video oynatma başladı.");
+            RevealVideo();
         }
 
         private void OnVideoError(VideoPlayer source, string message)
         {
-            Debug.LogWarning($"[THE LAST BELL] Video yükleme uyarısı: {message}. Yedek karanlık arka plan devrede.");
+            Debug.LogError($"[MenuVideoBackground] VideoPlayer hatası: {message} (Clip={source?.clip?.name}, GraphicsAPI={SystemInfo.graphicsDeviceType})");
             if (fallbackBackground != null)
             {
                 fallbackBackground.SetActive(true);
             }
+        }
+
+        private IEnumerator PrepareWatchdogRoutine()
+        {
+            float elapsed = 0f;
+            while (!hasRevealed && elapsed < prepareTimeoutSeconds)
+            {
+                if (videoPlayer != null && videoPlayer.isPrepared)
+                {
+                    if (!videoPlayer.isPlaying)
+                    {
+                        videoPlayer.Play();
+                    }
+                    if (videoPlayer.frame > 0 || elapsed > 0.5f)
+                    {
+                        RevealVideo();
+                        yield break;
+                    }
+                }
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            if (!hasRevealed)
+            {
+                Debug.LogWarning($"[MenuVideoBackground] Video {prepareTimeoutSeconds:F1}s içinde hazırlanamadı (isPrepared={videoPlayer?.isPrepared}, isPlaying={videoPlayer?.isPlaying}). Yedek arka plan korunuyor.");
+            }
+        }
+
+        private void RevealVideo()
+        {
+            if (hasRevealed) return;
+            hasRevealed = true;
+
+            if (fadeCoroutine != null) StopCoroutine(fadeCoroutine);
+            fadeCoroutine = StartCoroutine(FadeInVideo());
         }
 
         private IEnumerator FadeInVideo()
@@ -125,7 +257,6 @@ namespace TheLastBell.UI
 
         private void OnApplicationPause(bool pauseStatus)
         {
-            // Android mobil cihazlarda uygulama arka plana atıldığında / geri gelindiğinde
             if (videoPlayer != null && videoPlayer.isPrepared)
             {
                 if (pauseStatus)

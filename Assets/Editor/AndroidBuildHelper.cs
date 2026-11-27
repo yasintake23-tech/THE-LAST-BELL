@@ -4,11 +4,18 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.Rendering;
+using UnityEngine.UI;
+using UnityEngine.Video;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine.SceneManagement;
+using TheLastBell.Player;
+using TheLastBell.Interaction;
+using TheLastBell.UI;
 
 namespace TheLastBell.Editor
 {
@@ -76,6 +83,8 @@ namespace TheLastBell.Editor
         public static void ValidateProjectBatch()
         {
             Debug.Log("[AndroidBuildHelper] Batchmode proje doğrulaması başlatılıyor...");
+            MobileSetupHelper.ApplyMobileFixes();
+            ConfigureAndroidSettings();
             bool ok = ValidateProject(checkScenesDeep: true, out string report);
             WriteReportFile("Logs/ci-validation-report.txt", report);
             Debug.Log("[AndroidBuildHelper] Batchmode proje doğrulama sonucu: " + ok);
@@ -313,6 +322,10 @@ namespace TheLastBell.Editor
             // 6. Google Play App Bundle (AAB) yerine doğrudan APK (.apk) çıktısı al
             EditorUserBuildSettings.buildAppBundle = false;
 
+            // 6b. VideoPlayer + RenderTexture Android uyumluluğu için OpenGLES3 kullan
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3 });
+
             // 7. Minimum & Target API Seviyeleri (Android 8.0+ Oreo ve üzeri)
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
@@ -433,7 +446,17 @@ namespace TheLastBell.Editor
             }
             sb.AppendLine($"Android Settings -> Package: {appId}, Backend: {backend}, Arch: {arch}, MinSDK: {PlayerSettings.Android.minSdkVersion}");
 
-            // 5. Optional deep scene check for missing scripts
+            // 4b. Android Graphics API check (OpenGLES3 required to avoid Vulkan VideoPlayer black screen)
+            bool useDefaultGfx = PlayerSettings.GetUseDefaultGraphicsAPIs(BuildTarget.Android);
+            GraphicsDeviceType[] androidGfx = PlayerSettings.GetGraphicsAPIs(BuildTarget.Android);
+            bool hasGles3 = androidGfx != null && androidGfx.Contains(GraphicsDeviceType.OpenGLES3);
+            if (useDefaultGfx || !hasGles3)
+            {
+                issues.Add($"Android Graphics APIs must explicitly include OpenGLES3 (useDefault={useDefaultGfx}, apis={string.Join(",", androidGfx ?? Array.Empty<GraphicsDeviceType>())}).");
+            }
+            sb.AppendLine($"Android Graphics APIs (useDefault={useDefaultGfx}): {string.Join(", ", androidGfx ?? Array.Empty<GraphicsDeviceType>())}");
+
+            // 5. Optional deep scene check for missing scripts, VideoPlayers, Mobile UI, and screenshots
             if (checkScenesDeep)
             {
                 int totalMissingScripts = 0;
@@ -452,6 +475,9 @@ namespace TheLastBell.Editor
                     {
                         issues.Add($"Scene '{scenePath}' has {sceneMissing} missing MonoBehaviour script reference(s).");
                     }
+
+                    ValidateSceneSpecifics(scenePath, opened, issues, sb);
+                    TryCaptureSceneScreenshot(opened, $"Logs/Screenshots/{Path.GetFileNameWithoutExtension(scenePath)}.png", sb);
                 }
             }
 
@@ -471,6 +497,167 @@ namespace TheLastBell.Editor
             summaryReport = sb.ToString();
             Debug.Log(summaryReport);
             return true;
+        }
+
+        private static void ValidateSceneSpecifics(string scenePath, Scene scene, List<string> issues, StringBuilder sb)
+        {
+            if (scenePath.EndsWith("MainMenu.unity", StringComparison.OrdinalIgnoreCase) ||
+                scenePath.EndsWith("OpeningCinematic.unity", StringComparison.OrdinalIgnoreCase))
+            {
+                var vp = UnityEngine.Object.FindAnyObjectByType<VideoPlayer>(FindObjectsInactive.Include);
+                if (vp == null)
+                {
+                    issues.Add($"[{scenePath}] Missing VideoPlayer component.");
+                    return;
+                }
+                if (vp.clip == null) issues.Add($"[{scenePath}] VideoPlayer.clip is null.");
+                if (vp.renderMode != VideoRenderMode.RenderTexture) issues.Add($"[{scenePath}] VideoPlayer.renderMode is {vp.renderMode}, expected RenderTexture.");
+                if (vp.targetTexture == null) issues.Add($"[{scenePath}] VideoPlayer.targetTexture is null.");
+                if (vp.playOnAwake) issues.Add($"[{scenePath}] VideoPlayer.playOnAwake should be false to avoid prepareCompleted race.");
+
+                var rawImgs = UnityEngine.Object.FindObjectsByType<RawImage>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                bool hasMatchingRawImage = vp.targetTexture != null && rawImgs.Any(r => r.texture == vp.targetTexture);
+                if (!hasMatchingRawImage)
+                {
+                    issues.Add($"[{scenePath}] No RawImage found displaying VideoPlayer.targetTexture.");
+                }
+
+                if (scenePath.EndsWith("OpeningCinematic.unity", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (vp.audioOutputMode != VideoAudioOutputMode.AudioSource || vp.GetTargetAudioSource(0) == null)
+                    {
+                        issues.Add($"[{scenePath}] OpeningCinematic VideoPlayer missing AudioSource target on track 0.");
+                    }
+                }
+
+                sb.AppendLine($"  VideoPlayer [{scene.name}]: clip={(vp.clip != null ? vp.clip.name : "NULL")}, RT={(vp.targetTexture != null ? $"{vp.targetTexture.width}x{vp.targetTexture.height}" : "NULL")}, playOnAwake={vp.playOnAwake}, RawImageMatch={hasMatchingRawImage}");
+            }
+            else if (scenePath.EndsWith("AbandonedSchool.unity", StringComparison.OrdinalIgnoreCase))
+            {
+                var es = UnityEngine.Object.FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include);
+                var sim = UnityEngine.Object.FindAnyObjectByType<StandaloneInputModule>(FindObjectsInactive.Include);
+                if (es == null || sim == null)
+                {
+                    issues.Add($"[{scenePath}] Missing EventSystem or StandaloneInputModule (touch/UI input will not work).");
+                }
+
+                var safeArea = UnityEngine.Object.FindAnyObjectByType<SafeAreaFitter>(FindObjectsInactive.Include);
+                if (safeArea == null)
+                {
+                    issues.Add($"[{scenePath}] Missing SafeAreaFitter on Mobile_Controls_Root.");
+                }
+
+                var mcUI = UnityEngine.Object.FindAnyObjectByType<MobileControlsUI>(FindObjectsInactive.Include);
+                if (mcUI == null)
+                {
+                    issues.Add($"[{scenePath}] Missing MobileControlsUI.");
+                }
+                else
+                {
+                    var so = new SerializedObject(mcUI);
+                    string[] reqFields = {
+                        "fpsController", "interactor", "flashlight",
+                        "joystickTouchArea", "joystickBackground", "joystickHandle",
+                        "actionButton", "sprintButton", "crouchButton", "flashlightButton", "pauseButton"
+                    };
+                    foreach (string f in reqFields)
+                    {
+                        var prop = so.FindProperty(f);
+                        if (prop == null || prop.objectReferenceValue == null)
+                        {
+                            issues.Add($"[{scenePath}] MobileControlsUI.{f} is null.");
+                        }
+                    }
+                }
+
+                var tlz = UnityEngine.Object.FindAnyObjectByType<TouchLookZone>(FindObjectsInactive.Include);
+                if (tlz == null)
+                {
+                    issues.Add($"[{scenePath}] Missing TouchLookZone.");
+                }
+                else
+                {
+                    var soTlz = new SerializedObject(tlz);
+                    if (soTlz.FindProperty("fpsController")?.objectReferenceValue == null)
+                    {
+                        issues.Add($"[{scenePath}] TouchLookZone.fpsController is null.");
+                    }
+                }
+
+                var holdBtn = UnityEngine.Object.FindAnyObjectByType<MobileHoldButton>(FindObjectsInactive.Include);
+                if (holdBtn == null)
+                {
+                    issues.Add($"[{scenePath}] Missing MobileHoldButton on Sprint button.");
+                }
+
+                var hud = UnityEngine.Object.FindAnyObjectByType<PlayerHUD>(FindObjectsInactive.Include);
+                if (hud == null)
+                {
+                    issues.Add($"[{scenePath}] Missing PlayerHUD.");
+                }
+                else
+                {
+                    var soHud = new SerializedObject(hud);
+                    if (soHud.FindProperty("playerController")?.objectReferenceValue == null) issues.Add($"[{scenePath}] PlayerHUD.playerController is null.");
+                    if (soHud.FindProperty("statusContainer")?.objectReferenceValue == null) issues.Add($"[{scenePath}] PlayerHUD.statusContainer is null.");
+                    if (soHud.FindProperty("notePanelRoot")?.objectReferenceValue == null) issues.Add($"[{scenePath}] PlayerHUD.notePanelRoot is null.");
+                }
+
+                sb.AppendLine($"  Mobile/HUD [{scene.name}]: EventSystem={(es != null)}, SafeArea={(safeArea != null)}, MobileControlsUI={(mcUI != null)}, TouchLookZone={(tlz != null)}, HoldBtn={(holdBtn != null)}, PlayerHUD={(hud != null)}");
+            }
+        }
+
+        private static void TryCaptureSceneScreenshot(Scene scene, string outputPngPath, StringBuilder sb)
+        {
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+            {
+                sb.AppendLine($"  Screenshot [{scene.name}]: skipped (GraphicsDeviceType.Null / -nographics)");
+                return;
+            }
+
+            try
+            {
+                Camera cam = Camera.main;
+                if (cam == null)
+                {
+                    cam = UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsInactive.Exclude, FindObjectsSortMode.None).FirstOrDefault(c => c.enabled);
+                }
+                if (cam == null)
+                {
+                    sb.AppendLine($"  Screenshot [{scene.name}]: skipped (no active Camera)");
+                    return;
+                }
+
+                int w = 1280;
+                int h = 720;
+                var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+                var prevTarget = cam.targetTexture;
+                var prevActive = RenderTexture.active;
+
+                cam.targetTexture = rt;
+                cam.Render();
+
+                RenderTexture.active = rt;
+                var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+
+                byte[] png = tex.EncodeToPNG();
+                string dir = Path.GetDirectoryName(outputPngPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllBytes(outputPngPath, png);
+
+                cam.targetTexture = prevTarget;
+                RenderTexture.active = prevActive;
+                UnityEngine.Object.DestroyImmediate(rt);
+                UnityEngine.Object.DestroyImmediate(tex);
+
+                sb.AppendLine($"  Screenshot [{scene.name}]: captured -> {outputPngPath} ({png.Length} bytes)");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine($"  Screenshot [{scene.name}]: failed ({ex.Message})");
+            }
         }
 
         private static int CountMissingScriptsRecursive(Transform t)

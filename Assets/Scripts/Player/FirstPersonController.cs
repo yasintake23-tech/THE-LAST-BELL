@@ -167,9 +167,11 @@ namespace TheLastBell.Player
                 characterAnimator.applyRootMotion = false;
             }
 
-            // Fare imlecini kilitle
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            if (!Application.isMobilePlatform)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
 
             if (isTrueFPS)
             {

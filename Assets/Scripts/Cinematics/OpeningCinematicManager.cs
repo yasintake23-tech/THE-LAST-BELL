@@ -49,9 +49,14 @@ namespace TheLastBell.Cinematics
         [SerializeField] private float titleDisplayDuration = 5.0f;
         [SerializeField] private float titleFadeOutDuration = 1.2f;
 
+        [Header("--- Teşhis ve Zaman Aşımı ---")]
+        [SerializeField] private float prepareTimeoutSeconds = 8.0f;
+
         private bool isTransitioning = false;
         private bool isVideoStarted = false;
         private float holdTimer = 0f;
+        private bool eventsSubscribed = false;
+        private RenderTexture runtimeRT;
 
         private void Awake()
         {
@@ -63,20 +68,57 @@ namespace TheLastBell.Cinematics
             if (skipRadialFillImage != null) skipRadialFillImage.fillAmount = 0f;
 
             if (videoPlayer == null) videoPlayer = GetComponent<VideoPlayer>();
-            if (horrorAudioSource == null) horrorAudioSource = GetComponent<AudioSource>();
+            if (horrorAudioSource == null)
+            {
+                var jingleT = transform.Find("HorrorJingle_AudioSource");
+                if (jingleT != null) horrorAudioSource = jingleT.GetComponent<AudioSource>();
+            }
+
+            if (videoPlayer != null)
+            {
+                videoPlayer.playOnAwake = false;
+                videoPlayer.isLooping = false;
+                videoPlayer.waitForFirstFrame = true;
+                videoPlayer.skipOnDrop = true;
+
+                // Video ses çıkışını garanti altına al
+                var videoAudio = GetComponent<AudioSource>();
+                if (videoAudio != null && videoAudio != horrorAudioSource)
+                {
+                    videoPlayer.audioOutputMode = VideoAudioOutputMode.AudioSource;
+                    videoPlayer.SetTargetAudioSource(0, videoAudio);
+                    videoPlayer.EnableAudioTrack(0, true);
+                    videoPlayer.SetDirectAudioMute(0, false);
+                    videoPlayer.SetDirectAudioVolume(0, 1.0f);
+                }
+                else
+                {
+                    videoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+                    videoPlayer.EnableAudioTrack(0, true);
+                    videoPlayer.SetDirectAudioMute(0, false);
+                    videoPlayer.SetDirectAudioVolume(0, 1.0f);
+                }
+
+                EnsureRenderTexture();
+                SubscribeEvents();
+            }
         }
 
         private void Start()
         {
             if (videoPlayer != null)
             {
-                videoPlayer.isLooping = false;
-                videoPlayer.playOnAwake = true;
-                videoPlayer.prepareCompleted += OnVideoPrepared;
-                videoPlayer.loopPointReached += OnVideoFinished;
-                videoPlayer.errorReceived += OnVideoError;
+                if (videoPlayer.clip == null && string.IsNullOrEmpty(videoPlayer.url))
+                {
+                    Debug.LogError("[OpeningCinematic] VideoClip veya URL atanmamış!");
+                    StartTransitionToTitle();
+                    return;
+                }
 
+                Debug.Log($"[OpeningCinematic] Hazırlanıyor -> Clip={videoPlayer.clip?.name}, RenderMode={videoPlayer.renderMode}, TargetRT={videoPlayer.targetTexture?.name}, AudioMode={videoPlayer.audioOutputMode}, GraphicsAPI={SystemInfo.graphicsDeviceType}");
+                videoPlayer.Stop();
                 videoPlayer.Prepare();
+                StartCoroutine(PrepareWatchdogRoutine());
             }
             else
             {
@@ -87,11 +129,10 @@ namespace TheLastBell.Cinematics
 
         private void Update()
         {
-            // Video oynatma takibi (loopPointReached bazen codec kaynaklı gecikirse güvenlik kontrolü)
+            // Video oynatma takibi (yalnızca aktif oynatma sırasında ve son karelere ulaşıldığında)
             if (videoPlayer != null && isVideoStarted && !isTransitioning)
             {
-                // Videonun son karesine ulaşıldıysa veya süre dolduysa
-                if (videoPlayer.frameCount > 0 && videoPlayer.frame >= (long)(videoPlayer.frameCount - 2))
+                if (videoPlayer.isPlaying && videoPlayer.frameCount > 10 && videoPlayer.frame >= (long)(videoPlayer.frameCount - 2))
                 {
                     OnVideoFinished(videoPlayer);
                 }
@@ -166,19 +207,124 @@ namespace TheLastBell.Cinematics
 
         private void OnDestroy()
         {
-            if (videoPlayer != null)
+            UnsubscribeEvents();
+
+            if (runtimeRT != null)
             {
-                videoPlayer.prepareCompleted -= OnVideoPrepared;
-                videoPlayer.loopPointReached -= OnVideoFinished;
-                videoPlayer.errorReceived -= OnVideoError;
+                if (videoPlayer != null && videoPlayer.targetTexture == runtimeRT)
+                {
+                    videoPlayer.targetTexture = null;
+                }
+                runtimeRT.Release();
+                Destroy(runtimeRT);
+                runtimeRT = null;
+            }
+        }
+
+        private void SubscribeEvents()
+        {
+            if (eventsSubscribed || videoPlayer == null) return;
+            videoPlayer.prepareCompleted += OnVideoPrepared;
+            videoPlayer.started += OnVideoStarted;
+            videoPlayer.loopPointReached += OnVideoFinished;
+            videoPlayer.errorReceived += OnVideoError;
+            eventsSubscribed = true;
+        }
+
+        private void UnsubscribeEvents()
+        {
+            if (!eventsSubscribed || videoPlayer == null) return;
+            videoPlayer.prepareCompleted -= OnVideoPrepared;
+            videoPlayer.started -= OnVideoStarted;
+            videoPlayer.loopPointReached -= OnVideoFinished;
+            videoPlayer.errorReceived -= OnVideoError;
+            eventsSubscribed = false;
+        }
+
+        private void EnsureRenderTexture()
+        {
+            if (videoPlayer == null) return;
+
+            RenderTexture target = videoPlayer.targetTexture;
+            if (target == null)
+            {
+                int w = videoPlayer.clip != null && videoPlayer.clip.width > 0 ? (int)videoPlayer.clip.width : 1280;
+                int h = videoPlayer.clip != null && videoPlayer.clip.height > 0 ? (int)videoPlayer.clip.height : 720;
+                runtimeRT = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32)
+                {
+                    name = "OpeningCinematic_RuntimeRT",
+                    useMipMap = false,
+                    autoGenerateMips = false,
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp,
+                    anisoLevel = 0
+                };
+                target = runtimeRT;
+            }
+            else
+            {
+                target.anisoLevel = 0;
+            }
+
+            if (!target.IsCreated())
+            {
+                target.Create();
+            }
+
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = target;
+            GL.Clear(false, true, Color.black);
+            RenderTexture.active = prev;
+
+            videoPlayer.renderMode = VideoRenderMode.RenderTexture;
+            videoPlayer.targetTexture = target;
+
+            if (videoDisplay != null)
+            {
+                videoDisplay.texture = target;
+                videoDisplay.color = Color.white;
+                videoDisplay.enabled = true;
+            }
+        }
+
+        private IEnumerator PrepareWatchdogRoutine()
+        {
+            float elapsed = 0f;
+            while (!isVideoStarted && !isTransitioning && elapsed < prepareTimeoutSeconds)
+            {
+                if (videoPlayer != null && videoPlayer.isPrepared)
+                {
+                    EnsureRenderTexture();
+                    if (!videoPlayer.isPlaying)
+                    {
+                        videoPlayer.Play();
+                    }
+                    isVideoStarted = true;
+                    Debug.Log("[OpeningCinematic] Watchdog videoyu başlattı.");
+                    yield break;
+                }
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            if (!isVideoStarted && !isTransitioning)
+            {
+                Debug.LogError($"[OpeningCinematic] Video {prepareTimeoutSeconds:F1}s içinde hazırlanamadı (isPrepared={videoPlayer?.isPrepared}). Başlık ekranına geçiliyor.");
+                StartTransitionToTitle();
             }
         }
 
         private void OnVideoPrepared(VideoPlayer vp)
         {
+            EnsureRenderTexture();
             vp.Play();
             isVideoStarted = true;
-            Debug.Log("[THE LAST BELL] Açılış videosu başarıyla başladı. Süre: " + vp.length + "s");
+            Debug.Log($"[THE LAST BELL] Açılış videosu başarıyla başladı. Boyut={vp.width}x{vp.height}, Süre={vp.length:F2}s");
+        }
+
+        private void OnVideoStarted(VideoPlayer vp)
+        {
+            isVideoStarted = true;
         }
 
         private void OnVideoFinished(VideoPlayer vp)
@@ -190,11 +336,18 @@ namespace TheLastBell.Cinematics
 
         private void OnVideoError(VideoPlayer vp, string message)
         {
-            Debug.LogWarning("[THE LAST BELL] Video oynatma uyarısı: " + message);
+            Debug.LogError($"[THE LAST BELL] VideoPlayer hatası: {message} (Clip={vp?.clip?.name}, GraphicsAPI={SystemInfo.graphicsDeviceType})");
             if (!isTransitioning)
             {
                 StartTransitionToTitle();
             }
+        }
+
+        private void OnApplicationPause(bool pauseStatus)
+        {
+            if (isTransitioning || videoPlayer == null || !videoPlayer.isPrepared) return;
+            if (pauseStatus) videoPlayer.Pause();
+            else videoPlayer.Play();
         }
 
         private void StartTransitionToTitle()

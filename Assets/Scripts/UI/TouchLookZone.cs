@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.UI;
 using TheLastBell.Player;
 
 namespace TheLastBell.UI
@@ -9,31 +7,48 @@ namespace TheLastBell.UI
     /// <summary>
     /// THE LAST BELL - Profesyonel Dokunmatik Bakış Alanı (Smooth Touch Look Zone).
     /// Ekranın sağ yarısındaki serbest alanda parmak sürüklemelerini algılar.
-    /// EventSystem ve IsPointerOverGameObject denetimiyle aksiyon butonlarına (Fener, Çömel, Koş)
-    /// veya Joystick'e basıldığında KESİNLİKLE bakış girdisi üretmez, kamera dönüşünü kilitler.
+    /// Multi-touch ile hareket joystick'i ve aksiyon butonlarından bağımsız çalışır.
+    /// Çözünürlük ve 60/120Hz yenileme hızından bağımsız, sıçramasız kamera dönüşü sağlar.
     /// </summary>
-    public class TouchLookZone : MonoBehaviour, IPointerDownHandler, IDragHandler, IPointerUpHandler
+    public class TouchLookZone : MonoBehaviour, IPointerDownHandler, IDragHandler, IPointerUpHandler, IEndDragHandler
     {
+        public const string PREF_LOOK_SENSITIVITY = "TLB_LookSensitivity";
+
         [Header("--- Referanslar ---")]
         [SerializeField] private FirstPersonController fpsController;
         [SerializeField] private MobileControlsUI mobileControls;
 
         [Header("--- Bakış Hassasiyeti & Yumuşatma ---")]
-        [Tooltip("Dokunmatik bakış hassasiyeti çarpanı")]
         [SerializeField] private float lookSensitivity = 0.18f;
+        [SerializeField] private float smoothingSpeed = 30f;
+        [SerializeField] private float maxDeltaPerFrame = 120f;
 
-        [Tooltip("Piksel atlamalarını ve titremeyi engelleyen yumuşatma oranı")]
-        [SerializeField] private float smoothingSpeed = 28f;
-
-        private int activePointerId = -1;
+        private int activePointerId = int.MinValue;
         private Vector2 previousTouchPos;
-        private Vector2 targetDelta = Vector2.zero;
+        private Vector2 pendingDelta = Vector2.zero;
         private Vector2 smoothedDelta = Vector2.zero;
+
+        public float LookSensitivity => lookSensitivity;
 
         private void Awake()
         {
             if (mobileControls == null) mobileControls = GetComponentInParent<MobileControlsUI>();
             if (fpsController == null) fpsController = FindAnyObjectByType<FirstPersonController>();
+
+            if (PlayerPrefs.HasKey(PREF_LOOK_SENSITIVITY))
+            {
+                lookSensitivity = Mathf.Clamp(PlayerPrefs.GetFloat(PREF_LOOK_SENSITIVITY, lookSensitivity), 0.05f, 0.50f);
+            }
+        }
+
+        private void OnDisable()
+        {
+            CancelLook();
+        }
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            if (!hasFocus) CancelLook();
         }
 
         private void Update()
@@ -44,23 +59,47 @@ namespace TheLastBell.UI
                 if (fpsController == null) return;
             }
 
-            // Aktif dokunma varsa ve bu dokunma bir UI butonunun/joystick'in üzerindeyse hemen iptal et
-            if (activePointerId != -1)
+            if (Time.timeScale <= 0.001f || !fpsController.enabled)
             {
-                if (IsTouchOverOtherUI(activePointerId))
+                if (activePointerId != int.MinValue) CancelLook();
+                return;
+            }
+
+            // Aktif dokunma parmağı kalktıysa güvenlik sıfırlaması (multi-touch / focus kaybı koruması)
+            if (activePointerId != int.MinValue && Input.touchCount > 0)
+            {
+                bool found = false;
+                for (int i = 0; i < Input.touchCount; i++)
+                {
+                    Touch t = Input.GetTouch(i);
+                    if (t.fingerId == activePointerId)
+                    {
+                        if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
+                        {
+                            CancelLook();
+                            return;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found && activePointerId >= 0)
                 {
                     CancelLook();
                     return;
                 }
             }
 
-            // Hafif yumuşatma (damping/smoothing) ile piksel atlamalarını engelle
-            smoothedDelta = Vector2.Lerp(smoothedDelta, targetDelta, Time.deltaTime * smoothingSpeed);
-            targetDelta = Vector2.zero; // Girdiyi tüket
+            float dt = Time.unscaledDeltaTime;
+            float lerpFactor = 1f - Mathf.Exp(-smoothingSpeed * dt);
+            smoothedDelta = Vector2.Lerp(smoothedDelta, pendingDelta, lerpFactor);
+            pendingDelta = Vector2.zero;
 
             if (smoothedDelta.sqrMagnitude > 0.0001f)
             {
-                Vector2 lookInput = smoothedDelta * lookSensitivity;
+                // 1080p referans yüksekliğine göre normalize et (Galaxy A56 5G vb. farklı ekranlarda tutarlı hız)
+                float resScale = 1080f / Mathf.Max(480f, Screen.height);
+                Vector2 lookInput = smoothedDelta * (lookSensitivity * resScale);
                 fpsController.MobileLookInput += lookInput;
             }
             else
@@ -71,39 +110,37 @@ namespace TheLastBell.UI
 
         public void OnPointerDown(PointerEventData eventData)
         {
-            // Ekranın sol yarısına dokunulduğunda TouchLookZone KESİNLİKLE devreye girmesin!
-            if (eventData.position.x < Screen.width * 0.5f) return;
+            if (Time.timeScale <= 0.001f) return;
 
-            // Kural: Eğer parmak herhangi bir UI butonuna veya Joystick'e basıyorsa yok say!
-            if (IsPointerOverOtherUI(eventData))
+            // Ekranın sol yarısına dokunulduğunda TouchLookZone devreye girmesin
+            if (eventData.position.x < Screen.width * 0.45f) return;
+
+            // Eğer EventSystem doğrudan bir butona veya joystick'e çarptıysa yok say
+            if (eventData.pointerCurrentRaycast.gameObject != null &&
+                eventData.pointerCurrentRaycast.gameObject != gameObject)
             {
                 return;
             }
 
-            // Sadece tek bir bakış parmağı kilitlenir (Multi-touch koruması)
-            if (activePointerId == -1)
+            if (activePointerId == int.MinValue)
             {
                 activePointerId = eventData.pointerId;
                 previousTouchPos = eventData.position;
-                targetDelta = Vector2.zero;
+                pendingDelta = Vector2.zero;
                 smoothedDelta = Vector2.zero;
             }
         }
 
         public void OnDrag(PointerEventData eventData)
         {
-            if (eventData.pointerId == activePointerId)
-            {
-                if (IsPointerOverOtherUI(eventData))
-                {
-                    CancelLook();
-                    return;
-                }
+            if (eventData.pointerId != activePointerId) return;
 
-                Vector2 delta = eventData.position - previousTouchPos;
-                previousTouchPos = eventData.position;
-                targetDelta += delta;
-            }
+            Vector2 delta = eventData.position - previousTouchPos;
+            previousTouchPos = eventData.position;
+
+            // Dokunmatik kare sıçramalarını önle
+            delta = Vector2.ClampMagnitude(delta, maxDeltaPerFrame);
+            pendingDelta += delta;
         }
 
         public void OnPointerUp(PointerEventData eventData)
@@ -114,93 +151,26 @@ namespace TheLastBell.UI
             }
         }
 
+        public void OnEndDrag(PointerEventData eventData)
+        {
+            if (eventData.pointerId == activePointerId)
+            {
+                CancelLook();
+            }
+        }
+
         private void CancelLook()
         {
-            activePointerId = -1;
-            targetDelta = Vector2.zero;
+            activePointerId = int.MinValue;
+            pendingDelta = Vector2.zero;
             smoothedDelta = Vector2.zero;
-        }
-
-        /// <summary>
-        /// Parmak bu TouchLookZone haricinde bir UI elemanına (Buton, Joystick vb.) değiyor mu kontrolü
-        /// </summary>
-        private bool IsPointerOverOtherUI(PointerEventData eventData)
-        {
-            if (eventData == null) return false;
-
-            // Eğer raycast bu objeden başka bir objeye çarptıysa (örneğin buton)
-            if (eventData.pointerCurrentRaycast.gameObject != null && eventData.pointerCurrentRaycast.gameObject != this.gameObject)
-            {
-                return true;
-            }
-
-            if (EventSystem.current != null)
-            {
-                // IsPointerOverGameObject kontrolü
-                if (EventSystem.current.IsPointerOverGameObject(eventData.pointerId))
-                {
-                    var results = new List<RaycastResult>();
-                    EventSystem.current.RaycastAll(eventData, results);
-                    foreach (var r in results)
-                    {
-                        if (r.gameObject != this.gameObject)
-                        {
-                            if (r.gameObject.GetComponentInParent<Button>() != null ||
-                                r.gameObject.name.Contains("Button") ||
-                                r.gameObject.name.Contains("Joystick"))
-                            {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        private bool IsTouchOverOtherUI(int fingerId)
-        {
-            if (EventSystem.current == null) return false;
-
-            if (fingerId >= 0 && EventSystem.current.IsPointerOverGameObject(fingerId))
-            {
-                PointerEventData ped = new PointerEventData(EventSystem.current)
-                {
-                    pointerId = fingerId
-                };
-
-                // Dokunma konumunu bul
-                for (int i = 0; i < Input.touchCount; i++)
-                {
-                    Touch t = Input.GetTouch(i);
-                    if (t.fingerId == fingerId)
-                    {
-                        ped.position = t.position;
-                        break;
-                    }
-                }
-
-                var results = new List<RaycastResult>();
-                EventSystem.current.RaycastAll(ped, results);
-                foreach (var r in results)
-                {
-                    if (r.gameObject != this.gameObject &&
-                        (r.gameObject.GetComponentInParent<Button>() != null ||
-                         r.gameObject.name.Contains("Button") ||
-                         r.gameObject.name.Contains("Joystick")))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
         }
 
         public void SetSensitivity(float sens)
         {
-            lookSensitivity = Mathf.Max(0.01f, sens);
+            lookSensitivity = Mathf.Clamp(sens, 0.05f, 0.50f);
+            PlayerPrefs.SetFloat(PREF_LOOK_SENSITIVITY, lookSensitivity);
+            PlayerPrefs.Save();
         }
     }
 }

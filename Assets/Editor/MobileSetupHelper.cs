@@ -54,17 +54,43 @@ namespace TheLastBell.Editor
                 "• Sahne ve varlıklar diske kaydedildi.", "Tamam");
         }
 
+        public static void ApplyMobileFixesBatch()
+        {
+            ApplyMobileFixes();
+            Debug.Log("[MobileSetupHelper] Batch mobile setup completed.");
+        }
+
         public static void ApplyMobileFixes()
         {
             string scenePath = "Assets/Scenes/AbandonedSchool.unity";
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
             Debug.Log("[MobileSetupHelper] Açılan sahne: " + scene.name);
 
-            // Sprite'ları hazırla / doğrula
-            UISpriteGenerator.GenerateAllSprites();
+            // Sadece sprite'lar eksikse üret (mevcut yüksek kaliteli sprite'ları ezme)
+            if (!System.IO.File.Exists("Assets/Textures/UI/circle_button.png") ||
+                !System.IO.File.Exists("Assets/Textures/UI/circle_joystick_bg.png") ||
+                !System.IO.File.Exists("Assets/Textures/UI/circle_joystick_handle.png"))
+            {
+                UISpriteGenerator.GenerateAllSprites();
+            }
+
             Sprite btnSprite = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/circle_button.png");
             Sprite joyBgSprite = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/circle_joystick_bg.png");
             Sprite joyHandleSprite = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/circle_joystick_handle.png");
+            Sprite iconSprint = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/icon_sprint.png");
+            Sprite iconCrouch = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/icon_crouch.png");
+            Sprite iconFlash = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/icon_flashlight.png");
+            Sprite iconInteract = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/icon_interact.png");
+            Sprite iconPause = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Textures/UI/icon_pause.png");
+
+            // =================================================================
+            // 0. EVENTSYSTEM GARANTİSİ (UI & DOKUNMATİK KONTROLLER İÇİN ZORUNLU)
+            // =================================================================
+            if (UnityEngine.Object.FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include) == null)
+            {
+                var esGO = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+                Debug.Log("[MobileSetupHelper] Eksik EventSystem sahneye eklendi.");
+            }
 
             var player = GameObject.Find("Player_Protagonist");
             if (player == null)
@@ -127,7 +153,7 @@ namespace TheLastBell.Editor
             }
 
             // =================================================================
-            // 2. CANVAS SCALER
+            // 2. CANVAS SCALER & PLAYER HUD BAĞLANTILARI
             // =================================================================
             var canvasGO = GameObject.Find("Gameplay_HUD_Canvas");
             if (canvasGO != null)
@@ -139,10 +165,22 @@ namespace TheLastBell.Editor
                 scaler.referenceResolution = new Vector2(1920f, 1080f);
                 scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
                 scaler.matchWidthOrHeight = 0.5f;
+
+                var hud = UnityEngine.Object.FindAnyObjectByType<PlayerHUD>(FindObjectsInactive.Include);
+                if (hud != null)
+                {
+                    var soHud = new SerializedObject(hud);
+                    SafeSetObject(soHud, "playerController", fpc);
+                    var statusBanner = GameObject.Find("Status_Message_Banner");
+                    if (statusBanner != null) SafeSetObject(soHud, "statusContainer", statusBanner);
+                    var noteModal = canvasGO.transform.Find("Note_Inspection_Modal")?.gameObject;
+                    if (noteModal != null) SafeSetObject(soHud, "notePanelRoot", noteModal);
+                    soHud.ApplyModifiedProperties();
+                }
             }
 
             // =================================================================
-            // 3. MOBİL KONTROL HİYERARŞİSİ VE ESTETİK DAİRE BUTONLAR
+            // 3. MOBİL KONTROL HİYERARŞİSİ VE MİNİMALİST İKONLU KORKU HUD'U
             // =================================================================
             var rootGO = GameObject.Find("Mobile_Controls_Root");
             if (rootGO != null)
@@ -156,6 +194,11 @@ namespace TheLastBell.Editor
                 rootRT.sizeDelta = Vector2.zero;
                 rootRT.pivot = new Vector2(0.5f, 0.5f);
 
+                if (rootGO.GetComponent<SafeAreaFitter>() == null)
+                {
+                    rootGO.AddComponent<SafeAreaFitter>();
+                }
+
                 // --- 1. ELEMAN: Touch_Look_Zone (EN ÜSTTE / Sibling 0 -> Arkada kalır) ---
                 var tlzT = rootRT.Find("Touch_Look_Zone");
                 if (tlzT == null)
@@ -165,14 +208,14 @@ namespace TheLastBell.Editor
                     tlzT = tlzGO.transform;
                 }
                 var tlzRT = tlzT.GetComponent<RectTransform>();
-                tlzRT.anchorMin = new Vector2(0.5f, 0f);
+                tlzRT.anchorMin = new Vector2(0.45f, 0f);
                 tlzRT.anchorMax = new Vector2(1f, 1f);
                 tlzRT.offsetMin = Vector2.zero;
                 tlzRT.offsetMax = Vector2.zero;
                 tlzRT.pivot = new Vector2(0.5f, 0.5f);
 
                 var tlzImg = tlzT.GetComponent<UnityEngine.UI.Image>();
-                tlzImg.color = new Color(0f, 0f, 0f, 0f); // Görünmez raycast alıcısı
+                tlzImg.color = new Color(0f, 0f, 0f, 0f);
                 tlzImg.raycastTarget = true;
 
                 var tlz = tlzT.GetComponent<TouchLookZone>();
@@ -188,7 +231,7 @@ namespace TheLastBell.Editor
                 }
                 var joyAreaRT = joyAreaT.GetComponent<RectTransform>();
                 joyAreaRT.anchorMin = new Vector2(0f, 0f);
-                joyAreaRT.anchorMax = new Vector2(0.5f, 1f);
+                joyAreaRT.anchorMax = new Vector2(0.45f, 1f);
                 joyAreaRT.offsetMin = Vector2.zero;
                 joyAreaRT.offsetMax = Vector2.zero;
                 joyAreaRT.pivot = new Vector2(0.5f, 0.5f);
@@ -200,7 +243,7 @@ namespace TheLastBell.Editor
                 var mcUI = joyAreaT.GetComponent<MobileControlsUI>();
                 if (mcUI == null) mcUI = joyAreaT.gameObject.AddComponent<MobileControlsUI>();
 
-                // Joystick Görselleri (140x140 Zemin, 60x60 Handle)
+                // Joystick Görselleri (136x136 Zemin, 54x54 Handle)
                 var joyBgT = rootRT.Find("Joystick_Background");
                 if (joyBgT == null) joyBgT = joyAreaT.Find("Joystick_Background");
                 if (joyBgT == null)
@@ -209,22 +252,22 @@ namespace TheLastBell.Editor
                     bgGO.transform.SetParent(rootRT, false);
                     joyBgT = bgGO.transform;
                 }
-                joyBgT.SetParent(rootRT, true); // Root altında bağımsız hareket etsin
+                joyBgT.SetParent(rootRT, true);
                 var joyBgRT = joyBgT.GetComponent<RectTransform>();
                 joyBgRT.anchorMin = Vector2.zero;
                 joyBgRT.anchorMax = Vector2.zero;
                 joyBgRT.pivot = new Vector2(0.5f, 0.5f);
                 joyBgRT.anchoredPosition = new Vector2(140f, 140f);
-                joyBgRT.sizeDelta = new Vector2(140f, 140f);
+                joyBgRT.sizeDelta = new Vector2(136f, 136f);
 
                 var joyBgImg = joyBgT.GetComponent<UnityEngine.UI.Image>();
                 joyBgImg.sprite = joyBgSprite;
-                joyBgImg.color = new Color(0.12f, 0.12f, 0.16f, 0.60f);
+                joyBgImg.color = new Color(0.90f, 0.92f, 0.95f, 0.50f);
                 joyBgImg.raycastTarget = false;
 
                 var joyCg = joyBgT.GetComponent<CanvasGroup>();
                 if (joyCg == null) joyCg = joyBgT.gameObject.AddComponent<CanvasGroup>();
-                joyCg.alpha = 0f; // Dokunulmadığında tamamen şeffaf (Floating)
+                joyCg.alpha = 0f;
                 joyCg.blocksRaycasts = false;
 
                 var handleT = joyBgT.Find("Joystick_Handle");
@@ -239,11 +282,11 @@ namespace TheLastBell.Editor
                 handleRT.anchorMax = new Vector2(0.5f, 0.5f);
                 handleRT.pivot = new Vector2(0.5f, 0.5f);
                 handleRT.anchoredPosition = Vector2.zero;
-                handleRT.sizeDelta = new Vector2(60f, 60f);
+                handleRT.sizeDelta = new Vector2(54f, 54f);
 
                 var handleImg = handleT.GetComponent<UnityEngine.UI.Image>();
                 handleImg.sprite = joyHandleSprite;
-                handleImg.color = new Color(0.90f, 0.90f, 1.0f, 0.90f);
+                handleImg.color = new Color(0.95f, 0.96f, 0.98f, 0.85f);
                 handleImg.raycastTarget = false;
 
                 // --- 3. ELEMAN: ActionButtonsPanel (EN ALTA / Sibling 2 -> En önde tıklanır!) ---
@@ -259,10 +302,10 @@ namespace TheLastBell.Editor
                 panelRT.anchorMax = new Vector2(1f, 0f);
                 panelRT.pivot = new Vector2(1f, 0f);
                 panelRT.anchoredPosition = Vector2.zero;
-                panelRT.sizeDelta = new Vector2(350f, 350f);
+                panelRT.sizeDelta = new Vector2(340f, 340f);
 
-                // Daire Aksiyon Butonları Yapılandırma Metodu
-                Func<string, Vector2, string, int, GameObject> configCircleBtn = (bName, anchoredPos, label, fontSize) =>
+                // Minimalist İkonlu Daire Buton Yapılandırma
+                Func<string, Vector2, float, Sprite, GameObject> configCircleBtn = (bName, anchoredPos, sizeDp, iconSprite) =>
                 {
                     Transform bT = panelT.Find(bName);
                     if (bT == null) bT = rootRT.Find(bName);
@@ -276,14 +319,14 @@ namespace TheLastBell.Editor
                     var rt = bT.GetComponent<RectTransform>();
                     rt.anchorMin = new Vector2(1f, 0f);
                     rt.anchorMax = new Vector2(1f, 0f);
-                    rt.pivot = new Vector2(1f, 0f); // Pivot sağ alt
+                    rt.pivot = new Vector2(1f, 0f);
                     rt.anchoredPosition = anchoredPos;
-                    rt.sizeDelta = new Vector2(75f, 75f); // 75x75 dp
+                    rt.sizeDelta = new Vector2(sizeDp, sizeDp);
 
                     var img = bT.GetComponent<UnityEngine.UI.Image>();
                     if (img == null) img = bT.gameObject.AddComponent<UnityEngine.UI.Image>();
                     img.sprite = btnSprite;
-                    img.color = new Color(0.078f, 0.078f, 0.094f, 0.60f); // #141418 %60 alfa
+                    img.color = new Color(0.06f, 0.07f, 0.09f, 0.42f);
                     img.type = UnityEngine.UI.Image.Type.Simple;
                     img.raycastTarget = true;
 
@@ -294,68 +337,110 @@ namespace TheLastBell.Editor
 
                     var colors = btn.colors;
                     colors.normalColor = Color.white;
-                    colors.highlightedColor = new Color(1.2f, 1.2f, 1.2f, 1f);
-                    colors.pressedColor = new Color(0.7f, 0.7f, 0.7f, 1f);
+                    colors.highlightedColor = new Color(1.15f, 1.15f, 1.15f, 1f);
+                    colors.pressedColor = new Color(0.75f, 0.75f, 0.75f, 1f);
                     colors.selectedColor = Color.white;
                     btn.colors = colors;
 
-                    // Metin etiketi
+                    // Eski büyük metin etiketini gizle (ikonlu minimalist tasarım)
                     var txtT = bT.Find("Text");
                     if (txtT == null) txtT = bT.GetComponentInChildren<TextMeshProUGUI>(true)?.transform;
-                    if (txtT == null)
+                    if (txtT != null)
                     {
-                        var tGO = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
-                        tGO.transform.SetParent(bT, false);
-                        txtT = tGO.transform;
+                        txtT.gameObject.SetActive(false);
                     }
-                    var txtRT = txtT.GetComponent<RectTransform>();
-                    txtRT.anchorMin = Vector2.zero;
-                    txtRT.anchorMax = Vector2.one;
-                    txtRT.offsetMin = Vector2.zero;
-                    txtRT.offsetMax = Vector2.zero;
 
-                    var tmp = txtT.GetComponent<TextMeshProUGUI>();
-                    tmp.text = label;
-                    tmp.fontSize = fontSize;
-                    tmp.fontStyle = FontStyles.Bold;
-                    tmp.alignment = TextAlignmentOptions.Center;
-                    tmp.color = Color.white;
-                    tmp.raycastTarget = false;
+                    // Merkez İkon Sprite
+                    if (iconSprite != null)
+                    {
+                        var iconT = bT.Find("Icon");
+                        if (iconT == null)
+                        {
+                            var iconGO = new GameObject("Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(UnityEngine.UI.Image));
+                            iconGO.transform.SetParent(bT, false);
+                            iconT = iconGO.transform;
+                        }
+                        var iconRT = iconT.GetComponent<RectTransform>();
+                        iconRT.anchorMin = new Vector2(0.5f, 0.5f);
+                        iconRT.anchorMax = new Vector2(0.5f, 0.5f);
+                        iconRT.pivot = new Vector2(0.5f, 0.5f);
+                        iconRT.anchoredPosition = Vector2.zero;
+                        iconRT.sizeDelta = new Vector2(sizeDp * 0.52f, sizeDp * 0.52f);
+
+                        var iconImg = iconT.GetComponent<UnityEngine.UI.Image>();
+                        iconImg.sprite = iconSprite;
+                        iconImg.preserveAspect = true;
+                        iconImg.color = new Color(0.92f, 0.93f, 0.95f, 0.90f);
+                        iconImg.raycastTarget = false;
+                    }
 
                     return bT.gameObject;
                 };
 
-                // Ergonomik Başparmak Yayı Konumlandırması:
-                // KOŞ: (Right: 60px, Bottom: 60px)
-                var btnSprintGO = configCircleBtn("Mobile_SprintButton", new Vector2(-60f, 60f), "KOŞ", 18);
-                // ÇÖMEL: (Right: 155px, Bottom: 60px) -> Koş'un hemen solunda
-                var btnCrouchGO = configCircleBtn("Mobile_CrouchButton", new Vector2(-155f, 60f), "ÇÖMEL", 16);
-                // FENER: (Right: 60px, Bottom: 155px) -> Koş'un hemen üstünde
-                var btnFlashGO = configCircleBtn("Mobile_FlashlightButton", new Vector2(-60f, 155f), "FENER", 16);
-                // ETKİLEŞİM: (Right: 155px, Bottom: 155px) -> Çömel'in üstü, Fener'in solu
-                var btnActionGO = configCircleBtn("Mobile_ActionButton", new Vector2(-155f, 155f), "ETKİLEŞİM", 13);
+                var btnSprintGO = configCircleBtn("Mobile_SprintButton", new Vector2(-44f, 44f), 72f, iconSprint);
+                var btnCrouchGO = configCircleBtn("Mobile_CrouchButton", new Vector2(-134f, 44f), 68f, iconCrouch);
+                var btnFlashGO = configCircleBtn("Mobile_FlashlightButton", new Vector2(-44f, 134f), 68f, iconFlash);
+                var btnActionGO = configCircleBtn("Mobile_ActionButton", new Vector2(-134f, 134f), 74f, iconInteract);
 
-                // KOŞ Butonuna MobileHoldButton ve EventTrigger ekle
+                // Sağ Üst Duraklatma (Pause) Butonu
+                Transform pauseT = rootRT.Find("Mobile_PauseButton");
+                if (pauseT == null)
+                {
+                    var pBtnGO = new GameObject("Mobile_PauseButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(UnityEngine.UI.Image), typeof(Button));
+                    pBtnGO.transform.SetParent(rootRT, false);
+                    pauseT = pBtnGO.transform;
+                }
+                var pauseRT = pauseT.GetComponent<RectTransform>();
+                pauseRT.anchorMin = new Vector2(1f, 1f);
+                pauseRT.anchorMax = new Vector2(1f, 1f);
+                pauseRT.pivot = new Vector2(1f, 1f);
+                pauseRT.anchoredPosition = new Vector2(-28f, -28f);
+                pauseRT.sizeDelta = new Vector2(52f, 52f);
+
+                var pauseImg = pauseT.GetComponent<UnityEngine.UI.Image>();
+                pauseImg.sprite = btnSprite;
+                pauseImg.color = new Color(0.06f, 0.07f, 0.09f, 0.42f);
+                pauseImg.raycastTarget = true;
+
+                if (iconPause != null)
+                {
+                    var pIconT = pauseT.Find("Icon");
+                    if (pIconT == null)
+                    {
+                        var pIconGO = new GameObject("Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(UnityEngine.UI.Image));
+                        pIconGO.transform.SetParent(pauseT, false);
+                        pIconT = pIconGO.transform;
+                    }
+                    var pIconRT = pIconT.GetComponent<RectTransform>();
+                    pIconRT.anchorMin = new Vector2(0.5f, 0.5f);
+                    pIconRT.anchorMax = new Vector2(0.5f, 0.5f);
+                    pIconRT.anchoredPosition = Vector2.zero;
+                    pIconRT.sizeDelta = new Vector2(26f, 26f);
+                    var pIconImg = pIconT.GetComponent<UnityEngine.UI.Image>();
+                    pIconImg.sprite = iconPause;
+                    pIconImg.preserveAspect = true;
+                    pIconImg.color = new Color(0.92f, 0.93f, 0.95f, 0.88f);
+                    pIconImg.raycastTarget = false;
+                }
+
+                // KOŞ Butonuna MobileHoldButton ekle ve eski çakışan EventTrigger'ı kaldır
                 var holdBtn = btnSprintGO.GetComponent<MobileHoldButton>();
                 if (holdBtn == null) holdBtn = btnSprintGO.AddComponent<MobileHoldButton>();
-
-                var trig = btnSprintGO.GetComponent<EventTrigger>();
-                if (trig == null) trig = btnSprintGO.AddComponent<EventTrigger>();
+                var oldTrig = btnSprintGO.GetComponent<EventTrigger>();
+                if (oldTrig != null) UnityEngine.Object.DestroyImmediate(oldTrig);
 
                 // HİYERARŞİ SIRALAMASINI KESİNLEŞTİR:
-                // Sibling 0: Touch_Look_Zone (arkada)
                 tlzT.SetSiblingIndex(0);
-                // Sibling 1: Joystick_Touch_Zone
                 joyAreaT.SetSiblingIndex(1);
-                // Sibling 2: ActionButtonsPanel (en önde)
                 panelT.SetSiblingIndex(2);
+                pauseT.SetSiblingIndex(3);
 
                 // MobileControlsUI ve TouchLookZone referanslarını bağla
                 var soTlz = new SerializedObject(tlz);
                 SafeSetObject(soTlz, "fpsController", fpc);
                 SafeSetObject(soTlz, "mobileControls", mcUI);
-                SafeSetFloat(soTlz, "lookSensitivity", 0.16f);
-                SafeSetFloat(soTlz, "smoothingSpeed", 28f);
+                SafeSetFloat(soTlz, "lookSensitivity", 0.18f);
+                SafeSetFloat(soTlz, "smoothingSpeed", 30f);
                 soTlz.ApplyModifiedProperties();
 
                 var soMc = new SerializedObject(mcUI);
@@ -367,17 +452,18 @@ namespace TheLastBell.Editor
                 SafeSetObject(soMc, "joystickHandle", handleRT);
                 SafeSetObject(soMc, "actionButton", btnActionGO.GetComponent<Button>());
                 SafeSetObject(soMc, "actionButtonImage", btnActionGO.GetComponent<UnityEngine.UI.Image>());
-                SafeSetObject(soMc, "actionButtonText", btnActionGO.GetComponentInChildren<TextMeshProUGUI>());
+                SafeSetObject(soMc, "actionButtonText", btnActionGO.GetComponentInChildren<TextMeshProUGUI>(true));
                 SafeSetObject(soMc, "sprintButton", btnSprintGO.GetComponent<Button>());
                 SafeSetObject(soMc, "sprintButtonImage", btnSprintGO.GetComponent<UnityEngine.UI.Image>());
                 SafeSetObject(soMc, "crouchButton", btnCrouchGO.GetComponent<Button>());
                 SafeSetObject(soMc, "crouchButtonImage", btnCrouchGO.GetComponent<UnityEngine.UI.Image>());
                 SafeSetObject(soMc, "flashlightButton", btnFlashGO.GetComponent<Button>());
                 SafeSetObject(soMc, "flashlightButtonImage", btnFlashGO.GetComponent<UnityEngine.UI.Image>());
+                SafeSetObject(soMc, "pauseButton", pauseT.GetComponent<Button>());
                 SafeSetFloat(soMc, "joystickRadius", 50f);
                 soMc.ApplyModifiedProperties();
 
-                Debug.Log("<color=green>[MobileSetupHelper] Hiyerarşi (TouchLookZone arkada, ActionButtonsPanel en önde) ve daire butonlar başarıyla kuruldu.</color>");
+                Debug.Log("<color=green>[MobileSetupHelper] Minimalist ikonlu mobil korku HUD'u, EventSystem ve SafeAreaFitter kuruldu.</color>");
             }
 
             // =================================================================

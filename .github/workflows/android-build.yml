@@ -194,8 +194,7 @@ jobs:
           restore-keys: |
             Bee-Android-6000.6.7f1-
 
-      - name: Validate Unity project (compile & scene check)
-        if: ${{ inputs.build_mode == 'validate-only' }}
+      - name: Validate Unity project (compile, mobile setup, video & scene check)
         id: unity-validate
         uses: game-ci/unity-builder@v6
         env:
@@ -212,6 +211,18 @@ jobs:
           manualExit: true
           allowDirtyBuild: true
           unityLicensingServer: ${{ secrets.UNITY_LICENSING_SERVER }}
+
+      - name: Publish validation report to summary
+        if: always()
+        run: |
+          if [[ -f Logs/ci-validation-report.txt ]]; then
+            {
+              echo "### Unity Pre-Build Validation Report"
+              echo '```text'
+              cat Logs/ci-validation-report.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Build Android APK (Unity 6000.6.7f1 + IL2CPP + ARM64)
         if: ${{ inputs.build_mode != 'validate-only' }}

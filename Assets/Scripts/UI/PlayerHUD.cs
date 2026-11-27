@@ -59,6 +59,10 @@ namespace TheLastBell.UI
             if (Instance == null) Instance = this;
             else Destroy(gameObject);
 
+            if (playerController == null) playerController = FindAnyObjectByType<FirstPersonController>();
+            if (playerInteractor == null) playerInteractor = FindAnyObjectByType<PlayerInteractor>();
+            if (flashlight == null) flashlight = FindAnyObjectByType<FlashlightController>();
+
             if (promptContainer != null) promptContainer.SetActive(false);
             if (statusContainer != null) statusContainer.SetActive(false);
             if (notePanelRoot != null) notePanelRoot.SetActive(false);
@@ -192,9 +196,13 @@ namespace TheLastBell.UI
             isReadingNote = false;
             if (notePanelRoot != null) notePanelRoot.SetActive(false);
 
-            // Oyuna dn: mlei tekrar kilitle
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            bool isMobile = Application.isMobilePlatform ||
+                            (MobileControlManager.Instance != null && MobileControlManager.Instance.IsMobileActive);
+            if (!isMobile)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
         }
 
         public void Configure(
