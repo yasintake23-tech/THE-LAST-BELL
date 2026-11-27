@@ -1,0 +1,315 @@
+name: Android APK Build & Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Execution mode (full APK build or Unity validation only)'
+        required: false
+        default: 'build'
+        type: choice
+        options:
+          - build
+          - validate-only
+      clean_library_cache:
+        description: 'Skip restoring Unity Library cache (force clean re-import)'
+        required: false
+        default: false
+        type: boolean
+      android_symbol_type:
+        description: 'Android symbols to export alongside the APK'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - public
+          - debugging
+  push:
+    branches:
+      - main
+    paths:
+      - 'Assets/**'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
+      - '.github/workflows/android-build.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Assets/**'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
+      - '.github/workflows/android-build.yml'
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Android APK (Unity 6000.6.7f1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository with Git LFS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Preflight integrity & credentials check
+        id: preflight
+        env:
+          HAS_UNITY_ACCOUNT: ${{ secrets.UNITY_EMAIL != '' && secrets.UNITY_PASSWORD != '' }}
+          HAS_UNITY_LICENSE: ${{ secrets.UNITY_LICENSE != '' }}
+          HAS_UNITY_SERIAL: ${{ secrets.UNITY_SERIAL != '' }}
+          HAS_UNITY_SERVER: ${{ secrets.UNITY_LICENSING_SERVER != '' }}
+        run: |
+          set -euo pipefail
+
+          echo "=== 1. Verify Unity Version ==="
+          cat ProjectSettings/ProjectVersion.txt
+          grep -q "m_EditorVersion: 6000.6.7f1" ProjectSettings/ProjectVersion.txt || {
+            echo "::error::Expected Unity 6000.6.7f1 in ProjectSettings/ProjectVersion.txt"
+            exit 1
+          }
+
+          echo "=== 2. Verify Git LFS resolution, .meta files, GUID uniqueness, and Gradle config ==="
+          python3 - << 'PYEOF'
+          import os, re, sys
+
+          errors = []
+
+          # Check unresolved LFS pointers
+          lfs_pointers = []
+          for dp, _, fns in os.walk("Assets"):
+              for fn in fns:
+                  if fn.endswith(".meta"):
+                      continue
+                  p = os.path.join(dp, fn)
+                  try:
+                      if os.path.getsize(p) <= 512:
+                          with open(p, "rb") as f:
+                              if f.read(45).startswith(b"version https://git-lfs.github.com/spec/v1"):
+                                  lfs_pointers.append(p)
+                  except OSError:
+                      pass
+          if lfs_pointers:
+              errors.append(
+                  f"{len(lfs_pointers)} unresolved Git LFS pointer files in Assets/ "
+                  f"(LFS objects missing from remote). Sample: {lfs_pointers[:5]}"
+              )
+
+          # Check .meta and GUID integrity
+          guids = {}
+          missing_meta = []
+          orphan_meta = []
+          dup_guids = []
+          for dp, dirnames, filenames in os.walk("Assets"):
+              for name in filenames + dirnames:
+                  full = os.path.join(dp, name)
+                  if name.endswith(".meta"):
+                      target = full[:-5]
+                      if not os.path.exists(target):
+                          orphan_meta.append(full)
+                      with open(full, "r", errors="ignore") as mf:
+                          m = re.search(r"^guid:\s*([0-9a-f]{32})", mf.read(), re.M)
+                          if m:
+                              g = m.group(1)
+                              if g in guids:
+                                  dup_guids.append((g, guids[g], full))
+                              else:
+                                  guids[g] = full
+                  else:
+                      if not os.path.exists(full + ".meta"):
+                          missing_meta.append(full)
+
+          if missing_meta:
+              errors.append(f"Missing .meta files ({len(missing_meta)}): {missing_meta[:5]}")
+          if orphan_meta:
+              errors.append(f"Orphan .meta files ({len(orphan_meta)}): {orphan_meta[:5]}")
+          if dup_guids:
+              errors.append(f"Duplicate GUIDs ({len(dup_guids)}): {dup_guids[:5]}")
+
+          # Verify required scenes
+          for scene in [
+              "Assets/Scenes/MainMenu.unity",
+              "Assets/Scenes/OpeningCinematic.unity",
+              "Assets/Scenes/AbandonedSchool.unity",
+          ]:
+              if not os.path.exists(scene):
+                  errors.append(f"Missing required scene: {scene}")
+
+          # Verify gradleTemplate.properties does not hardcode D:/thelast
+          with open("Assets/Plugins/Android/gradleTemplate.properties", "r", encoding="utf-8", errors="ignore") as gf:
+              gtxt = gf.read()
+              if "D:/thelast" in gtxt or "D:\\thelast" in gtxt:
+                  errors.append("Assets/Plugins/Android/gradleTemplate.properties still contains hardcoded Windows D:/thelast paths.")
+
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}")
+              sys.exit(1)
+
+          print(f"Integrity OK: {len(guids)} Asset GUIDs verified, 0 unresolved LFS pointers, 0 meta/GUID errors.")
+          PYEOF
+
+          echo "=== 3. Verify Unity License Secrets ==="
+          if [[ "$HAS_UNITY_ACCOUNT" != "true" && "$HAS_UNITY_LICENSE" != "true" && "$HAS_UNITY_SERVER" != "true" ]]; then
+            echo "::error::Unity license credentials are not configured in GitHub Secrets."
+            echo "Configure one of the following in Repository Settings -> Secrets and variables -> Actions:"
+            echo "  - Unity Personal (Unity 6+): UNITY_EMAIL and UNITY_PASSWORD (standard Unity ID without 2FA)"
+            echo "  - Unity Pro/Plus: UNITY_SERIAL, UNITY_EMAIL, and UNITY_PASSWORD"
+            echo "  - Enterprise/Floating: UNITY_LICENSING_SERVER (or UNITY_LICENSE .ulf contents)"
+            exit 1
+          fi
+          echo "Unity license secret configuration detected."
+
+      - name: Free disk space for Unity Android container
+        uses: jlumbroso/free-disk-space@v1.3.1
+
+      - name: Restore Unity Library cache
+        id: cache-library
+        if: ${{ inputs.clean_library_cache != true }}
+        uses: actions/cache/restore@v4
+        with:
+          path: Library
+          key: Library-Android-6000.6.7f1-il2cpp-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-Android-6000.6.7f1-il2cpp-
+
+      - name: Restore Unity Bee / IL2CPP incremental cache
+        id: cache-bee
+        if: ${{ inputs.clean_library_cache != true }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/unity3d/bee
+          key: Bee-Android-6000.6.7f1-${{ github.sha }}
+          restore-keys: |
+            Bee-Android-6000.6.7f1-
+
+      - name: Validate Unity project (compile & scene check)
+        if: ${{ inputs.build_mode == 'validate-only' }}
+        id: unity-validate
+        uses: game-ci/unity-builder@v6
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          unityVersion: auto
+          targetPlatform: Android
+          containerRegistryImageVersion: '4'
+          buildMethod: TheLastBell.Editor.AndroidBuildHelper.ValidateProjectBatch
+          manualExit: true
+          allowDirtyBuild: true
+          unityLicensingServer: ${{ secrets.UNITY_LICENSING_SERVER }}
+
+      - name: Build Android APK (Unity 6000.6.7f1 + IL2CPP + ARM64)
+        if: ${{ inputs.build_mode != 'validate-only' }}
+        id: unity-build
+        uses: game-ci/unity-builder@v6
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          unityVersion: auto
+          targetPlatform: Android
+          containerRegistryImageVersion: '4'
+          androidExportType: androidPackage
+          buildName: TheLastBell
+          buildsPath: build
+          androidSymbolType: ${{ inputs.android_symbol_type || 'none' }}
+          androidKeystoreName: ${{ secrets.ANDROID_KEYSTORE_NAME }}
+          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
+          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+          allowDirtyBuild: true
+          unityLicensingServer: ${{ secrets.UNITY_LICENSING_SERVER }}
+
+      - name: Verify APK output & write summary
+        if: ${{ inputs.build_mode != 'validate-only' }}
+        run: |
+          set -euo pipefail
+          echo "=== Build Directory Contents ==="
+          ls -lh build/Android/
+
+          APK_FILE=$(find build/Android -maxdepth 1 -type f -name "*.apk" | head -n 1 || true)
+          if [[ -z "$APK_FILE" || ! -s "$APK_FILE" ]]; then
+            echo "::error::No non-empty APK file was generated under build/Android/"
+            exit 1
+          fi
+
+          APK_SIZE=$(du -h "$APK_FILE" | cut -f1)
+          APK_BYTES=$(wc -c < "$APK_FILE")
+          APK_SHA256=$(sha256sum "$APK_FILE" | awk '{print $1}')
+
+          {
+            echo "## THE LAST BELL - Android Build Summary"
+            echo ""
+            echo "| Metric | Value |"
+            echo "| --- | --- |"
+            echo "| Unity Version | \`6000.6.7f1\` |"
+            echo "| Target Platform | Android (IL2CPP + ARM64) |"
+            echo "| APK File | \`$(basename "$APK_FILE")\` |"
+            echo "| Size | ${APK_SIZE} (${APK_BYTES} bytes) |"
+            echo "| SHA-256 | \`${APK_SHA256}\` |"
+            echo "| Build Version | \`${{ steps.unity-build.outputs.buildVersion }}\` |"
+            echo "| Android Version Code | \`${{ steps.unity-build.outputs.androidVersionCode }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -f Logs/ci-build-report.txt ]]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Unity Post-Build Report" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat Logs/ci-build-report.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Android APK artifact
+        if: ${{ inputs.build_mode != 'validate-only' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheLastBell-Android-APK
+          path: build/Android/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Unity validation & build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheLastBell-Build-Logs
+          path: |
+            Logs/
+            build/Android/*.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Save Unity Library cache
+        if: ${{ steps.cache-library.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          path: Library
+          key: Library-Android-6000.6.7f1-il2cpp-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+
+      - name: Save Unity Bee / IL2CPP cache
+        uses: actions/cache/save@v4
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          path: ~/.cache/unity3d/bee
+          key: Bee-Android-6000.6.7f1-${{ github.sha }}

@@ -1,9 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text;
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
+using UnityEditor.SceneManagement;
+using UnityEngine.SceneManagement;
 
 namespace TheLastBell.Editor
 {
@@ -12,6 +17,7 @@ namespace TheLastBell.Editor
     /// Tek tıklamayla Android platformuna geçiş yapar, IL2CPP ve ARM64 mimarisini ayarlar,
     /// C++ Compiler Configuration'ı Release yapar, Custom Gradle şablonlarını doğrular,
     /// paket adını "com.thelastbell.game" olarak belirler ve oyunu APK olarak derler.
+    /// Hem yerel Windows Editor hem de Linux/CI batch-mode ortamları ile uyumludur.
     /// </summary>
     public static class AndroidBuildHelper
     {
@@ -20,6 +26,8 @@ namespace TheLastBell.Editor
         public const string PRODUCT_NAME = "THE LAST BELL";
         public const string COMPANY_NAME = "TheLastBellStudio";
         public const string APK_FILE_NAME = "TheLastBell.apk";
+
+        private const string LfsPointerPrefix = "version https://git-lfs.github.com/spec/v1";
 
         public static readonly string[] BUILD_SCENES = new string[]
         {
@@ -31,17 +39,20 @@ namespace TheLastBell.Editor
         [MenuItem("The Last Bell/1. Tüm Değişiklikleri Kaydet ve Ekle", false, 1)]
         public static void ForceSaveAndSyncAll()
         {
-            // Açık olan tüm sahneleri diske kaydet
-            UnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes();
+            if (!Application.isBatchMode)
+            {
+                // Açık olan tüm sahneleri diske kaydet
+                EditorSceneManager.SaveOpenScenes();
 
-            // Bekleyen tüm asset/prefab değişikliklerini kaydet
-            AssetDatabase.SaveAssets();
+                // Bekleyen tüm asset/prefab değişikliklerini kaydet
+                AssetDatabase.SaveAssets();
 
-            // Varlıkları zorla tazeleyip derlemeye hazır hale getir
-            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
+                // Varlıkları zorla tazeleyip derlemeye hazır hale getir
+                AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
+            }
 
-            // Build Settings sahne listesini kontrol et ve güncelle
-            ValidateScenes();
+            // Build Settings sahne listesini kontrol et ve yalnızca farklıysa güncelle
+            ValidateScenes(syncIfChanged: true);
 
             Debug.Log("<color=green>[Sync] Tüm sahneler, kodlar ve UI varlıkları diske kaydedildi ve Build Settings güncellendi.</color>");
         }
@@ -50,6 +61,25 @@ namespace TheLastBell.Editor
         public static void BuildAndroidAPKMenu()
         {
             BuildAndroidAPK(true);
+        }
+
+        [MenuItem("The Last Bell/4. Projeyi Doğrula (CI Validation)", false, 4)]
+        public static void ValidateProjectMenu()
+        {
+            bool ok = ValidateProject(checkScenesDeep: true, out string report);
+            EditorUtility.DisplayDialog(
+                ok ? "Proje Doğrulaması Başarılı" : "Proje Doğrulaması Başarısız",
+                report,
+                "Tamam");
+        }
+
+        public static void ValidateProjectBatch()
+        {
+            Debug.Log("[AndroidBuildHelper] Batchmode proje doğrulaması başlatılıyor...");
+            bool ok = ValidateProject(checkScenesDeep: true, out string report);
+            WriteReportFile("Logs/ci-validation-report.txt", report);
+            Debug.Log("[AndroidBuildHelper] Batchmode proje doğrulama sonucu: " + ok);
+            EditorApplication.Exit(ok ? 0 : 1);
         }
 
         public static void BuildAndroidAPKBatch()
@@ -64,8 +94,15 @@ namespace TheLastBell.Editor
         {
             try
             {
-                // Derleme öncesi zorunlu senkronizasyon (Tüm açık sahneler, assetler ve build settings)
-                ForceSaveAndSyncAll();
+                // Derleme öncesi senkronizasyon (Batch mode'da takip edilen dosyaları gereksiz yere kirletme)
+                if (!Application.isBatchMode)
+                {
+                    ForceSaveAndSyncAll();
+                }
+                else
+                {
+                    ValidateScenes(syncIfChanged: false);
+                }
 
                 if (isInteractive)
                 {
@@ -82,15 +119,34 @@ namespace TheLastBell.Editor
                     try { Directory.Delete(utmpDir, true); } catch (Exception ex) { Debug.LogWarning("[AndroidBuildHelper] .utmp temizlenirken: " + ex.Message); }
                 }
 
-                // 2. Çıktı Dizinini Hazırla
+                // 2. Çıktı Dizinini Hazırla (-customBuildPath varsa onu kullan)
                 string projectDir = Directory.GetCurrentDirectory();
-                string outputDir = Path.Combine(projectDir, "Builds", "Android");
-                if (!Directory.Exists(outputDir))
+                string customBuildPath = GetCommandLineArg("-customBuildPath");
+                string apkPath;
+                if (!string.IsNullOrEmpty(customBuildPath))
                 {
-                    Directory.CreateDirectory(outputDir);
+                    apkPath = Path.IsPathRooted(customBuildPath)
+                        ? customBuildPath
+                        : Path.GetFullPath(Path.Combine(projectDir, customBuildPath));
+                    if (!apkPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+                    {
+                        apkPath = Path.Combine(apkPath, APK_FILE_NAME);
+                    }
+                    string customDir = Path.GetDirectoryName(apkPath);
+                    if (!string.IsNullOrEmpty(customDir) && !Directory.Exists(customDir))
+                    {
+                        Directory.CreateDirectory(customDir);
+                    }
                 }
-
-                string apkPath = Path.Combine(outputDir, APK_FILE_NAME);
+                else
+                {
+                    string outputDir = Path.Combine(projectDir, "Builds", "Android");
+                    if (!Directory.Exists(outputDir))
+                    {
+                        Directory.CreateDirectory(outputDir);
+                    }
+                    apkPath = Path.Combine(outputDir, APK_FILE_NAME);
+                }
 
                 // Derleme (BuildPlayer) başlamadan hemen önce eski APK dosyasını sil (Clean Build)
                 if (File.Exists(apkPath))
@@ -111,7 +167,7 @@ namespace TheLastBell.Editor
                 {
                     EditorUtility.DisplayProgressBar("THE LAST BELL - Android APK Derleme", "Sahneler doğrulanıyor...", 0.4f);
                 }
-                string[] scenesToBuild = ValidateScenes();
+                string[] scenesToBuild = ValidateScenes(syncIfChanged: !Application.isBatchMode);
 
                 // 4. BuildPlayerOptions Yapılandırması
                 BuildPlayerOptions buildOptions = new BuildPlayerOptions
@@ -146,7 +202,7 @@ namespace TheLastBell.Editor
                     long fileBytes = fi.Exists ? fi.Length : (long)summary.totalSize;
 
                     string successMsg = $"Android APK başarıyla derlendi!\n\n" +
-                                        $"• Dosya Adı: {APK_FILE_NAME}\n" +
+                                        $"• Dosya Adı: {Path.GetFileName(apkPath)}\n" +
                                         $"• Konum: {apkPath}\n" +
                                         $"• Boyut: {sizeMB:F2} MB ({fileBytes:N0} byte)\n" +
                                         $"• Oluşturulma/Yazılma Tarihi: {lastModified}\n" +
@@ -264,29 +320,34 @@ namespace TheLastBell.Editor
             // 8. Custom Gradle Templates (mainTemplate ve gradleTemplate.properties)
             ConfigureCustomGradleSettings();
 
-            // 9. GRADLE_USER_HOME & JAVA_TOOL_OPTIONS: Pure ASCII path to prevent CXX1429 and Turkish character issues
-            try
+            // 9. GRADLE_USER_HOME & JAVA_TOOL_OPTIONS: Yalnızca Windows'ta Türkçe/ASCII dışı kullanıcı yolu workaround'u
+            if (Application.platform == RuntimePlatform.WindowsEditor &&
+                Directory.Exists(@"D:\") &&
+                (Directory.Exists(@"D:\thelast") || HasNonAsciiCharacters(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))))
             {
-                string pureAsciiGradleHome = @"D:\thelast\.gradle";
-                Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.Process);
-                Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.User);
+                try
+                {
+                    string pureAsciiGradleHome = @"D:\thelast\.gradle";
+                    Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.User);
 
-                string tmpDir = @"D:\thelast\.tmp";
-                if (!Directory.Exists(tmpDir)) Directory.CreateDirectory(tmpDir);
-                Environment.SetEnvironmentVariable("TMP", tmpDir, EnvironmentVariableTarget.Process);
-                Environment.SetEnvironmentVariable("TEMP", tmpDir, EnvironmentVariableTarget.Process);
+                    string tmpDir = @"D:\thelast\.tmp";
+                    if (!Directory.Exists(tmpDir)) Directory.CreateDirectory(tmpDir);
+                    Environment.SetEnvironmentVariable("TMP", tmpDir, EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("TEMP", tmpDir, EnvironmentVariableTarget.Process);
 
-                string javaOptions = "-Dgradle.user.home=D:/thelast/.gradle -Duser.home=D:/thelast -Djava.io.tmpdir=D:/thelast/.tmp -Dfile.encoding=UTF-8";
-                Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.Process);
-                Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.User);
+                    string javaOptions = "-Dgradle.user.home=D:/thelast/.gradle -Duser.home=D:/thelast -Djava.io.tmpdir=D:/thelast/.tmp -Dfile.encoding=UTF-8";
+                    Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.User);
 
-                Environment.SetEnvironmentVariable("USERPROFILE", @"D:\thelast", EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("USERPROFILE", @"D:\thelast", EnvironmentVariableTarget.Process);
 
-                Debug.Log($"[AndroidBuildHelper] Ortam değişkenleri ayarlandı: GRADLE_USER_HOME={pureAsciiGradleHome}, TMP={tmpDir}, JAVA_TOOL_OPTIONS={javaOptions}");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AndroidBuildHelper] Ortam değişkenleri ayarlanırken uyarı: {ex.Message}");
+                    Debug.Log($"[AndroidBuildHelper] Windows ASCII ortam değişkenleri ayarlandı: GRADLE_USER_HOME={pureAsciiGradleHome}, TMP={tmpDir}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[AndroidBuildHelper] Ortam değişkenleri ayarlanırken uyarı: {ex.Message}");
+                }
             }
 
             // 10. Oryantasyon: Yatay (Landscape Left & Right)
@@ -297,6 +358,203 @@ namespace TheLastBell.Editor
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
 
             Debug.Log($"[AndroidBuildHelper] Ayarlar güncellendi: Paket={PACKAGE_NAME}, Backend=IL2CPP, Compiler=Release, Mimari=ARM64, AppBundle=False");
+        }
+
+        /// <summary>
+        /// Projenin derleme, sahne, eksik script, Git LFS ve Android ayar bütünlüğünü doğrular.
+        /// </summary>
+        public static bool ValidateProject(bool checkScenesDeep, out string summaryReport)
+        {
+            var issues = new List<string>();
+            var sb = new StringBuilder();
+            sb.AppendLine("=== THE LAST BELL - Project Validation Report ===");
+            sb.AppendLine($"Unity Version: {Application.unityVersion}");
+            sb.AppendLine($"Platform: {Application.platform} | ActiveBuildTarget: {EditorUserBuildSettings.activeBuildTarget}");
+
+            // 1. Script compilation status
+            if (EditorUtility.scriptCompilationFailed)
+            {
+                issues.Add("Script compilation failed (EditorUtility.scriptCompilationFailed == true).");
+            }
+
+            // 2. Unresolved Git LFS pointer check
+            List<string> lfsPointers = FindUnresolvedLfsPointers("Assets");
+            if (lfsPointers.Count > 0)
+            {
+                string sample = string.Join(", ", lfsPointers.Take(10));
+                issues.Add($"Found {lfsPointers.Count} unresolved Git LFS pointer files in Assets/ (run 'git lfs pull' / push LFS objects to remote). Sample: {sample}");
+            }
+            sb.AppendLine($"Git LFS unresolved pointers: {lfsPointers.Count}");
+
+            // 3. Required scenes existence and EditorBuildSettings check
+            var enabledScenes = EditorBuildSettings.scenes
+                .Where(s => s.enabled)
+                .Select(s => s.path.Replace('\\', '/'))
+                .ToList();
+
+            foreach (string requiredScene in BUILD_SCENES)
+            {
+                if (!File.Exists(requiredScene))
+                {
+                    issues.Add($"Required scene file missing: {requiredScene}");
+                }
+                else if (!enabledScenes.Contains(requiredScene))
+                {
+                    issues.Add($"Required scene not enabled in EditorBuildSettings: {requiredScene}");
+                }
+            }
+            sb.AppendLine($"Build scenes configured: {enabledScenes.Count}/{BUILD_SCENES.Length}");
+
+            // 4. Android Player Settings & Gradle template checks
+            NamedBuildTarget androidTarget = NamedBuildTarget.Android;
+            string appId = PlayerSettings.GetApplicationIdentifier(androidTarget);
+            ScriptingImplementation backend = PlayerSettings.GetScriptingBackend(androidTarget);
+            AndroidArchitecture arch = PlayerSettings.Android.targetArchitectures;
+
+            if (appId != PACKAGE_NAME)
+            {
+                issues.Add($"Android ApplicationIdentifier mismatch: expected '{PACKAGE_NAME}', got '{appId}'.");
+            }
+            if (backend != ScriptingImplementation.IL2CPP)
+            {
+                issues.Add($"Android ScriptingBackend mismatch: expected IL2CPP, got {backend}.");
+            }
+            if ((arch & AndroidArchitecture.ARM64) == 0)
+            {
+                issues.Add($"Android targetArchitectures does not include ARM64 (current: {arch}).");
+            }
+            if (!File.Exists("Assets/Plugins/Android/mainTemplate.gradle"))
+            {
+                issues.Add("Missing Assets/Plugins/Android/mainTemplate.gradle.");
+            }
+            if (!File.Exists("Assets/Plugins/Android/gradleTemplate.properties"))
+            {
+                issues.Add("Missing Assets/Plugins/Android/gradleTemplate.properties.");
+            }
+            sb.AppendLine($"Android Settings -> Package: {appId}, Backend: {backend}, Arch: {arch}, MinSDK: {PlayerSettings.Android.minSdkVersion}");
+
+            // 5. Optional deep scene check for missing scripts
+            if (checkScenesDeep)
+            {
+                int totalMissingScripts = 0;
+                foreach (string scenePath in BUILD_SCENES)
+                {
+                    if (!File.Exists(scenePath)) continue;
+                    Scene opened = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                    int sceneMissing = 0;
+                    foreach (GameObject root in opened.GetRootGameObjects())
+                    {
+                        sceneMissing += CountMissingScriptsRecursive(root.transform);
+                    }
+                    totalMissingScripts += sceneMissing;
+                    sb.AppendLine($"Scene check [{scenePath}]: {sceneMissing} missing script(s)");
+                    if (sceneMissing > 0)
+                    {
+                        issues.Add($"Scene '{scenePath}' has {sceneMissing} missing MonoBehaviour script reference(s).");
+                    }
+                }
+            }
+
+            if (issues.Count > 0)
+            {
+                sb.AppendLine("Validation FAILED:");
+                foreach (string issue in issues)
+                {
+                    sb.AppendLine("  - " + issue);
+                    Debug.LogError("[Validation Error] " + issue);
+                }
+                summaryReport = sb.ToString();
+                return false;
+            }
+
+            sb.AppendLine("Validation PASSED with 0 issues.");
+            summaryReport = sb.ToString();
+            Debug.Log(summaryReport);
+            return true;
+        }
+
+        private static int CountMissingScriptsRecursive(Transform t)
+        {
+            int count = GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(t.gameObject);
+            for (int i = 0; i < t.childCount; i++)
+            {
+                count += CountMissingScriptsRecursive(t.GetChild(i));
+            }
+            return count;
+        }
+
+        private static List<string> FindUnresolvedLfsPointers(string rootDir)
+        {
+            var unresolved = new List<string>();
+            if (!Directory.Exists(rootDir)) return unresolved;
+
+            byte[] expectedPrefix = Encoding.ASCII.GetBytes(LfsPointerPrefix);
+            byte[] buffer = new byte[expectedPrefix.Length];
+
+            foreach (string file in Directory.EnumerateFiles(rootDir, "*", SearchOption.AllDirectories))
+            {
+                if (file.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    var info = new FileInfo(file);
+                    // LFS pointer files are tiny (~130 bytes)
+                    if (info.Length < expectedPrefix.Length || info.Length > 512) continue;
+
+                    using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        int read = fs.Read(buffer, 0, buffer.Length);
+                        if (read == expectedPrefix.Length && buffer.SequenceEqual(expectedPrefix))
+                        {
+                            unresolved.Add(file.Replace('\\', '/'));
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore transient unreadable files
+                }
+            }
+            return unresolved;
+        }
+
+        private static bool HasNonAsciiCharacters(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            foreach (char c in value)
+            {
+                if (c > 127) return true;
+            }
+            return false;
+        }
+
+        private static string GetCommandLineArg(string name)
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return args[i + 1];
+                }
+            }
+            return null;
+        }
+
+        internal static void WriteReportFile(string relativePath, string content)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(relativePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                File.WriteAllText(relativePath, content, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AndroidBuildHelper] Rapor yazılamadı ({relativePath}): {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -342,9 +600,9 @@ namespace TheLastBell.Editor
         /// <summary>
         /// Sahnelerin varlığını kontrol eder ve Build Settings sırasına uygun liste döndürür.
         /// </summary>
-        private static string[] ValidateScenes()
+        private static string[] ValidateScenes(bool syncIfChanged = true)
         {
-            var validScenes = new System.Collections.Generic.List<string>();
+            var validScenes = new List<string>();
             foreach (var scenePath in BUILD_SCENES)
             {
                 if (File.Exists(scenePath))
@@ -357,15 +615,65 @@ namespace TheLastBell.Editor
                 }
             }
 
-            // Build Settings senkronizasyonu
-            EditorBuildSettingsScene[] buildScenes = new EditorBuildSettingsScene[validScenes.Count];
-            for (int i = 0; i < validScenes.Count; i++)
+            if (syncIfChanged)
             {
-                buildScenes[i] = new EditorBuildSettingsScene(validScenes[i], true);
+                var currentScenes = EditorBuildSettings.scenes
+                    .Where(s => s.enabled)
+                    .Select(s => s.path.Replace('\\', '/'))
+                    .ToArray();
+
+                if (!currentScenes.SequenceEqual(validScenes))
+                {
+                    EditorBuildSettingsScene[] buildScenes = new EditorBuildSettingsScene[validScenes.Count];
+                    for (int i = 0; i < validScenes.Count; i++)
+                    {
+                        buildScenes[i] = new EditorBuildSettingsScene(validScenes[i], true);
+                    }
+                    EditorBuildSettings.scenes = buildScenes;
+                }
             }
-            EditorBuildSettings.scenes = buildScenes;
 
             return validScenes.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Automatically validates project integrity and writes CI build logs/reports during BuildPipeline.BuildPlayer
+    /// (works for both local builds and GameCI UnityBuilderAction).
+    /// </summary>
+    internal sealed class CIBuildProcessor : IPreprocessBuildWithReport, IPostprocessBuildWithReport
+    {
+        public int callbackOrder => 0;
+
+        public void OnPreprocessBuild(BuildReport report)
+        {
+            if (report.summary.platform != BuildTarget.Android) return;
+
+            Debug.Log("[CIBuildProcessor] Running pre-build validation for Android...");
+            bool ok = AndroidBuildHelper.ValidateProject(checkScenesDeep: false, out string reportText);
+            AndroidBuildHelper.WriteReportFile("Logs/ci-prebuild-report.txt", reportText);
+
+            if (!ok)
+            {
+                throw new BuildFailedException("THE LAST BELL pre-build validation failed. See Logs/ci-prebuild-report.txt and console errors.");
+            }
+        }
+
+        public void OnPostprocessBuild(BuildReport report)
+        {
+            if (report.summary.platform != BuildTarget.Android) return;
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== THE LAST BELL - Android Build Report ===");
+            sb.AppendLine($"Result: {report.summary.result}");
+            sb.AppendLine($"Output Path: {report.summary.outputPath}");
+            sb.AppendLine($"Total Size: {report.summary.totalSize} bytes");
+            sb.AppendLine($"Total Time: {report.summary.totalTime.TotalSeconds:F1}s");
+            sb.AppendLine($"Total Errors: {report.summary.totalErrors}");
+            sb.AppendLine($"Total Warnings: {report.summary.totalWarnings}");
+
+            AndroidBuildHelper.WriteReportFile("Logs/ci-build-report.txt", sb.ToString());
+            Debug.Log(sb.ToString());
         }
     }
 }
