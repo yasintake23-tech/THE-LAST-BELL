@@ -86,9 +86,12 @@ namespace TheLastBell.Editor
             MobileSetupHelper.ApplyMobileFixes();
             ConfigureAndroidSettings();
             bool ok = ValidateProject(checkScenesDeep: true, out string report);
-            WriteReportFile("Logs/ci-validation-report.txt", report);
-            Debug.Log("[AndroidBuildHelper] Batchmode proje doğrulama sonucu: " + ok);
-            EditorApplication.Exit(ok ? 0 : 1);
+            bool testsOk = VerificationSuite.RunAll(out string testReport);
+            string fullReport = report + "\n" + testReport;
+            WriteReportFile("Logs/ci-validation-report.txt", fullReport);
+            bool allOk = ok && testsOk;
+            Debug.Log($"[AndroidBuildHelper] Batchmode proje doğrulama sonucu: valid={ok}, tests={testsOk}");
+            EditorApplication.Exit(allOk ? 0 : 1);
         }
 
         public static void BuildAndroidAPKBatch()

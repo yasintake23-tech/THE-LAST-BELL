@@ -53,6 +53,11 @@ namespace TheLastBell.UI
 
         private void Update()
         {
+            StepLook(Time.unscaledDeltaTime);
+        }
+
+        public void StepLook(float dt)
+        {
             if (fpsController == null)
             {
                 fpsController = FindAnyObjectByType<FirstPersonController>();
@@ -65,9 +70,15 @@ namespace TheLastBell.UI
                 return;
             }
 
-            // Aktif dokunma parmağı kalktıysa güvenlik sıfırlaması (multi-touch / focus kaybı koruması)
-            if (activePointerId != int.MinValue && Input.touchCount > 0)
+            // Aktif donanım dokunması (fingerId >= 0) kalktıysa güvenlik sıfırlaması
+            if (activePointerId >= 0)
             {
+                if (Input.touchCount == 0)
+                {
+                    CancelLook();
+                    return;
+                }
+
                 bool found = false;
                 for (int i = 0; i < Input.touchCount; i++)
                 {
@@ -83,22 +94,25 @@ namespace TheLastBell.UI
                         break;
                     }
                 }
-                if (!found && activePointerId >= 0)
+                if (!found)
                 {
                     CancelLook();
                     return;
                 }
             }
 
-            float dt = Time.unscaledDeltaTime;
-            float lerpFactor = 1f - Mathf.Exp(-smoothingSpeed * dt);
+            float safeDt = Mathf.Max(0.0001f, dt);
+            float lerpFactor = 1f - Mathf.Exp(-smoothingSpeed * safeDt);
             smoothedDelta = Vector2.Lerp(smoothedDelta, pendingDelta, lerpFactor);
             pendingDelta = Vector2.zero;
 
             if (smoothedDelta.sqrMagnitude > 0.0001f)
             {
                 // 1080p referans yüksekliğine göre normalize et (Galaxy A56 5G vb. farklı ekranlarda tutarlı hız)
-                float resScale = 1080f / Mathf.Max(480f, Screen.height);
+                float refHeight = (fpsController != null && Camera.main != null && Camera.main.targetTexture != null)
+                    ? Camera.main.pixelHeight
+                    : Screen.height;
+                float resScale = 1080f / Mathf.Max(480f, refHeight);
                 Vector2 lookInput = smoothedDelta * (lookSensitivity * resScale);
                 fpsController.MobileLookInput += lookInput;
             }
@@ -113,7 +127,8 @@ namespace TheLastBell.UI
             if (Time.timeScale <= 0.001f) return;
 
             // Ekranın sol yarısına dokunulduğunda TouchLookZone devreye girmesin
-            if (eventData.position.x < Screen.width * 0.45f) return;
+            float refWidth = eventData.pressEventCamera != null ? eventData.pressEventCamera.pixelWidth : Screen.width;
+            if (eventData.position.x < refWidth * 0.45f) return;
 
             // Eğer EventSystem doğrudan bir butona veya joystick'e çarptıysa yok say
             if (eventData.pointerCurrentRaycast.gameObject != null &&

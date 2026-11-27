@@ -24,8 +24,8 @@ namespace TheLastBell.Player
         [SerializeField] private float walkSpeed = 2.8f;
         [SerializeField] private float sprintSpeed = 5.6f;
         [SerializeField] private float crouchSpeed = 1.4f;
-        [SerializeField] private float acceleration = 12f;
-        [SerializeField] private float deceleration = 14f;
+        [SerializeField] private float acceleration = 16f;
+        [SerializeField] private float deceleration = 40f;
 
         [Header("--- Çömelme (Crouch) Ayarları ---")]
         [SerializeField] private float standingHeight = 1.8f;
@@ -200,13 +200,19 @@ namespace TheLastBell.Player
 
         private void Update()
         {
+            StepController(Time.deltaTime);
+        }
+
+        public void StepController(float deltaTime)
+        {
+            float dt = Mathf.Max(0.0001f, deltaTime);
             HandleLook();
-            HandleCrouch();
-            HandleStamina();
-            HandleMovement();
-            HandleHeadBobAndFOV();
-            HandleFootsteps();
-            UpdateAnimator();
+            HandleCrouch(dt);
+            HandleStamina(dt);
+            HandleMovement(dt);
+            HandleHeadBobAndFOV(dt);
+            HandleFootsteps(dt);
+            UpdateAnimator(dt);
         }
 
         private void HandleLook()
@@ -221,18 +227,18 @@ namespace TheLastBell.Player
                 lookY += Input.GetAxisRaw("Mouse Y") * mouseSensitivityY;
             }
 
-            // Mobil Dokunmatik Bak Girdisi
+            // Mobil Dokunmatik Bakış Girdisi
             if (MobileLookInput != Vector2.zero)
             {
                 lookX += MobileLookInput.x * mobileSensitivityX;
                 lookY += MobileLookInput.y * mobileSensitivityY;
-                MobileLookInput = Vector2.zero; // Harcand
+                MobileLookInput = Vector2.zero; // Harcandı
             }
 
-            // Yatay dn: Karakter gvdesini dndr
+            // Yatay dönüş: Karakter gövdesini döndür
             transform.Rotate(Vector3.up * lookX);
 
-            // Dikey bak: Kamera holder pitch clamp (-80, 80)
+            // Dikey bakış: Kamera holder pitch clamp (-75, 75)
             cameraPitch = Mathf.Clamp(cameraPitch - lookY, minPitch, maxPitch);
             if (cameraHolder != null)
             {
@@ -265,47 +271,56 @@ namespace TheLastBell.Player
             }
         }
 
-        private void HandleCrouch()
+        private void HandleCrouch(float dt)
         {
             if (Input.GetKeyDown(KeyCode.LeftControl) || Input.GetKeyDown(KeyCode.C))
             {
                 ToggleCrouch();
             }
-            else if (MobileCrouchInput != isCrouching)
+            else if (MobileCrouchInput && !isCrouching)
             {
-                SetCrouch(MobileCrouchInput);
+                SetCrouch(true);
             }
 
             // CharacterController yükseklik ve merkez lerp
             float targetHeight = isCrouching ? crouchHeight : standingHeight;
-            controller.height = Mathf.Lerp(controller.height, targetHeight, Time.deltaTime * crouchTransitionSpeed);
+            controller.height = Mathf.Lerp(controller.height, targetHeight, dt * crouchTransitionSpeed);
             controller.center = new Vector3(0f, controller.height * 0.5f, 0f);
 
-            // Camera_Pivot yükseklik lerp (Ayakta: 1.7m, Çömelme: 1.0m)
+            // Camera_Pivot yükseklik lerp
             if (cameraHolder != null)
             {
                 float targetCamY = isCrouching ? crouchCameraY : standingCameraY;
                 Vector3 camPos = cameraHolder.localPosition;
-                camPos.y = Mathf.Lerp(camPos.y, targetCamY, Time.deltaTime * crouchTransitionSpeed);
+                camPos.y = Mathf.Lerp(camPos.y, targetCamY, dt * crouchTransitionSpeed);
                 cameraHolder.localPosition = camPos;
             }
         }
 
-        private void HandleStamina()
+        private void GetCombinedMoveInput(out float horizontal, out float vertical)
         {
-            float v = Input.GetAxisRaw("Vertical");
-            if (TheLastBell.UI.MobileControlsUI.Instance != null && (Application.isMobilePlatform || Application.isEditor))
+            horizontal = Input.GetAxisRaw("Horizontal");
+            vertical = Input.GetAxisRaw("Vertical");
+
+            Vector2 mobileMove = MobileMoveInput;
+            if (mobileMove == Vector2.zero && TheLastBell.UI.MobileControlsUI.Instance != null)
             {
-                v += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.y;
-            }
-            else if (MobileMoveInput != Vector2.zero)
-            {
-                v += MobileMoveInput.y;
+                mobileMove = TheLastBell.UI.MobileControlsUI.Instance.MovementInput;
             }
 
-            bool movingForward = v > 0.1f;
+            horizontal += mobileMove.x;
+            vertical += mobileMove.y;
+
+            horizontal = Mathf.Clamp(horizontal, -1f, 1f);
+            vertical = Mathf.Clamp(vertical, -1f, 1f);
+        }
+
+        private void HandleStamina(float dt)
+        {
+            GetCombinedMoveInput(out float h, out float v);
+            bool movingEnough = (v > 0.1f) || ((h * h + v * v) > 0.09f && v >= -0.15f);
             bool mobileSprint = (TheLastBell.UI.MobileControlsUI.Instance != null && TheLastBell.UI.MobileControlsUI.Instance.IsSprinting) || MobileSprintInput;
-            bool wantSprint = (Input.GetKey(KeyCode.LeftShift) || mobileSprint) && movingForward && !isCrouching;
+            bool wantSprint = (Input.GetKey(KeyCode.LeftShift) || mobileSprint) && movingEnough && !isCrouching;
 
             if (isExhausted)
             {
@@ -322,7 +337,7 @@ namespace TheLastBell.Player
 
             if (isSprinting)
             {
-                currentStamina = Mathf.Max(0f, currentStamina - staminaDrainRate * Time.deltaTime);
+                currentStamina = Mathf.Max(0f, currentStamina - staminaDrainRate * dt);
                 lastSprintTime = Time.time;
 
                 if (currentStamina <= 0f)
@@ -335,15 +350,15 @@ namespace TheLastBell.Player
             {
                 if (Time.time - lastSprintTime > regenDelay)
                 {
-                    currentStamina = Mathf.Min(maxStamina, currentStamina + staminaRegenRate * Time.deltaTime);
+                    currentStamina = Mathf.Min(maxStamina, currentStamina + staminaRegenRate * dt);
                 }
             }
 
             OnStaminaChanged?.Invoke(StaminaPercent);
-            HandleBreathingAudio();
+            HandleBreathingAudio(dt);
         }
 
-        private void HandleBreathingAudio()
+        private void HandleBreathingAudio(float dt)
         {
             if (breathingAudioSource == null) return;
 
@@ -363,7 +378,7 @@ namespace TheLastBell.Player
             {
                 if (breathingAudioSource.isPlaying)
                 {
-                    breathingAudioSource.volume = Mathf.MoveTowards(breathingAudioSource.volume, 0f, Time.deltaTime * 1.5f);
+                    breathingAudioSource.volume = Mathf.MoveTowards(breathingAudioSource.volume, 0f, dt * 1.5f);
                     if (breathingAudioSource.volume <= 0.01f)
                     {
                         breathingAudioSource.Stop();
@@ -372,48 +387,38 @@ namespace TheLastBell.Player
             }
         }
 
-        private void HandleMovement()
+        private void HandleMovement(float dt)
         {
-            float horizontal = Input.GetAxisRaw("Horizontal");
-            float vertical = Input.GetAxisRaw("Vertical");
+            GetCombinedMoveInput(out float horizontal, out float vertical);
 
-            if (TheLastBell.UI.MobileControlsUI.Instance != null && (Application.isMobilePlatform || Application.isEditor))
+            Vector3 inputDir = transform.forward * vertical + transform.right * horizontal;
+            float inputMag = inputDir.magnitude;
+            if (inputMag > 1f)
             {
-                horizontal += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.x;
-                vertical += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.y;
-            }
-            else if (MobileMoveInput != Vector2.zero)
-            {
-                horizontal += MobileMoveInput.x;
-                vertical += MobileMoveInput.y;
-            }
-
-            horizontal = Mathf.Clamp(horizontal, -1f, 1f);
-            vertical = Mathf.Clamp(vertical, -1f, 1f);
-
-            // Hareket formülü (İleri/Geri ve Sağa/Sola):
-            // W tuşu (vertical > 0) = İLERİ (transform.forward)
-            // S tuşu (vertical < 0) = GERİ (-transform.forward)
-            // D tuşu (horizontal > 0) = SAĞ (transform.right)
-            // A tuşu (horizontal < 0) = SOL (-transform.right)
-            Vector3 move = (transform.forward * vertical + transform.right * horizontal);
-            if (move.sqrMagnitude > 1f)
-            {
-                move.Normalize();
+                inputDir /= inputMag;
+                inputMag = 1f;
             }
 
             float targetSpeed = 0f;
-            if (move.sqrMagnitude > 0.0025f)
+            if (inputMag > 0.05f)
             {
-                if (isCrouching) targetSpeed = crouchSpeed;
-                else if (isSprinting) targetSpeed = sprintSpeed;
-                else targetSpeed = walkSpeed;
+                float maxModeSpeed = isCrouching ? crouchSpeed : (isSprinting ? sprintSpeed : walkSpeed);
+                targetSpeed = maxModeSpeed * inputMag;
+                Vector3 targetHorizontalVel = inputDir.normalized * targetSpeed;
+                moveVelocity.x = Mathf.MoveTowards(moveVelocity.x, targetHorizontalVel.x, acceleration * dt * maxModeSpeed);
+                moveVelocity.z = Mathf.MoveTowards(moveVelocity.z, targetHorizontalVel.z, acceleration * dt * maxModeSpeed);
             }
-
-            float accelRate = (targetSpeed > 0.01f) ? acceleration : deceleration;
-            Vector3 targetHorizontalVel = move * targetSpeed;
-            moveVelocity.x = Mathf.MoveTowards(moveVelocity.x, targetHorizontalVel.x, accelRate * Time.deltaTime);
-            moveVelocity.z = Mathf.MoveTowards(moveVelocity.z, targetHorizontalVel.z, accelRate * Time.deltaTime);
+            else
+            {
+                // Joystick bırakıldığında kaymayı önlemek için anında keskin duruş
+                moveVelocity.x = Mathf.MoveTowards(moveVelocity.x, 0f, deceleration * dt);
+                moveVelocity.z = Mathf.MoveTowards(moveVelocity.z, 0f, deceleration * dt);
+                if ((moveVelocity.x * moveVelocity.x + moveVelocity.z * moveVelocity.z) < 0.02f)
+                {
+                    moveVelocity.x = 0f;
+                    moveVelocity.z = 0f;
+                }
+            }
 
             if (controller.isGrounded)
             {
@@ -421,19 +426,22 @@ namespace TheLastBell.Player
             }
             else
             {
-                verticalVelocity += gravity * Time.deltaTime;
+                verticalVelocity += gravity * dt;
             }
             moveVelocity.y = verticalVelocity;
 
-            controller.Move(moveVelocity * Time.deltaTime);
+            if (controller.enabled)
+            {
+                controller.Move(moveVelocity * dt);
+            }
         }
 
-        private void HandleHeadBobAndFOV()
+        private void HandleHeadBobAndFOV(float dt)
         {
             if (playerCamera == null) return;
 
             float targetFOV = isSprinting ? sprintFOV : baseFOV;
-            playerCamera.fieldOfView = Mathf.Lerp(playerCamera.fieldOfView, targetFOV, Time.deltaTime * fovChangeSpeed);
+            playerCamera.fieldOfView = Mathf.Lerp(playerCamera.fieldOfView, targetFOV, dt * fovChangeSpeed);
 
             if (isTrueFPS || !enableHeadBob || cameraHolder == null) return;
 
@@ -444,7 +452,7 @@ namespace TheLastBell.Player
                 float freq = isSprinting ? sprintBobFrequency : walkBobFrequency;
                 float amp = (isSprinting ? sprintBobAmplitude : walkBobAmplitude) * bobIntensity;
 
-                bobTimer += Time.deltaTime * freq;
+                bobTimer += dt * freq;
 
                 float bobY = Mathf.Sin(bobTimer) * amp;
                 float bobX = Mathf.Cos(bobTimer * 0.5f) * (amp * 0.5f);
@@ -454,11 +462,11 @@ namespace TheLastBell.Player
             else
             {
                 bobTimer = 0f;
-                cameraHolder.localPosition = Vector3.Lerp(cameraHolder.localPosition, defaultCameraLocalPos, Time.deltaTime * 8f);
+                cameraHolder.localPosition = Vector3.Lerp(cameraHolder.localPosition, defaultCameraLocalPos, dt * 8f);
             }
         }
 
-        private void HandleFootsteps()
+        private void HandleFootsteps(float dt)
         {
             if (!controller.isGrounded) return;
 
@@ -473,7 +481,7 @@ namespace TheLastBell.Player
             if (isSprinting) stepInterval = 0.35f;
             else if (isCrouching) stepInterval = 0.72f;
 
-            stepTimer += Time.deltaTime;
+            stepTimer += dt;
             if (stepTimer >= stepInterval)
             {
                 stepTimer = 0f;
@@ -532,26 +540,11 @@ namespace TheLastBell.Player
             return SurfaceType.Concrete;
         }
 
-        private void UpdateAnimator()
+        private void UpdateAnimator(float dt)
         {
             if (characterAnimator == null) return;
 
-            float horizontal = Input.GetAxisRaw("Horizontal");
-            float vertical = Input.GetAxisRaw("Vertical");
-
-            if (TheLastBell.UI.MobileControlsUI.Instance != null && (Application.isMobilePlatform || Application.isEditor))
-            {
-                horizontal += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.x;
-                vertical += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.y;
-            }
-            else if (MobileMoveInput != Vector2.zero)
-            {
-                horizontal += MobileMoveInput.x;
-                vertical += MobileMoveInput.y;
-            }
-
-            horizontal = Mathf.Clamp(horizontal, -1f, 1f);
-            vertical = Mathf.Clamp(vertical, -1f, 1f);
+            GetCombinedMoveInput(out float horizontal, out float vertical);
 
             float targetSpeed = 0f;
             float horizontalSpeed = new Vector2(controller.velocity.x, controller.velocity.z).magnitude;
@@ -578,8 +571,8 @@ namespace TheLastBell.Player
                 targetStrafe = Mathf.Sign(horizontal);
             }
 
-            currentAnimSpeed = Mathf.MoveTowards(currentAnimSpeed, targetSpeed, Time.deltaTime * 6f);
-            currentAnimStrafe = Mathf.MoveTowards(currentAnimStrafe, targetStrafe, Time.deltaTime * 6f);
+            currentAnimSpeed = Mathf.MoveTowards(currentAnimSpeed, targetSpeed, dt * 6f);
+            currentAnimStrafe = Mathf.MoveTowards(currentAnimStrafe, targetStrafe, dt * 6f);
 
             characterAnimator.SetFloat("Speed", currentAnimSpeed);
             characterAnimator.SetFloat("Strafe", currentAnimStrafe);

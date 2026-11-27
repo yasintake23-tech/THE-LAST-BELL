@@ -31,15 +31,17 @@ namespace TheLastBell.UI
         [SerializeField] private PlayerInteractor interactor;
         [SerializeField] private FlashlightController flashlight;
 
-        [Header("--- Dinamik Yüzen (Floating) Joystick ---")]
+        [Header("--- Daire Sanal Joystick (Sol Alt) ---")]
         [SerializeField] private RectTransform joystickTouchArea;
         [SerializeField] private RectTransform joystickBackground;
         [SerializeField] private RectTransform joystickHandle;
         [SerializeField] private CanvasGroup joystickCanvasGroup;
-        [SerializeField] private float joystickRadius = 50f;
-        [SerializeField] private float deadzone = 0.1f;
-        [SerializeField] private float inputLerpSpeed = 22f;
-        [SerializeField] private Vector2 defaultJoystickPosition = new Vector2(140f, 140f);
+        [SerializeField] private float joystickRadius = 128f;
+        [SerializeField] private float deadzone = 0.12f;
+        [SerializeField] private float inputLerpSpeed = 30f;
+        [SerializeField] private float idleJoystickAlpha = 0.65f;
+        [SerializeField] private float activeJoystickAlpha = 0.95f;
+        [SerializeField] private Vector2 defaultJoystickPosition = new Vector2(280f, 255f);
 
         [Header("--- Aksiyon Butonları ---")]
         [SerializeField] private Button actionButton;
@@ -59,11 +61,11 @@ namespace TheLastBell.UI
         [SerializeField] private Button pauseButton;
 
         [Header("--- Renk Temaları (Minimalist Korku Füme & İnce Parlama) ---")]
-        [SerializeField] private Color normalButtonColor = new Color(0.06f, 0.07f, 0.09f, 0.42f);
-        [SerializeField] private Color flashlightActiveColor = new Color(0.85f, 0.68f, 0.25f, 0.70f);
-        [SerializeField] private Color crouchActiveColor = new Color(0.88f, 0.48f, 0.18f, 0.70f);
-        [SerializeField] private Color sprintActiveColor = new Color(0.45f, 0.78f, 0.92f, 0.74f);
-        [SerializeField] private Color actionActiveColor = new Color(0.78f, 0.22f, 0.22f, 0.80f);
+        [SerializeField] private Color normalButtonColor = new Color(0.06f, 0.07f, 0.09f, 0.52f);
+        [SerializeField] private Color flashlightActiveColor = new Color(0.85f, 0.68f, 0.25f, 0.78f);
+        [SerializeField] private Color crouchActiveColor = new Color(0.88f, 0.48f, 0.18f, 0.78f);
+        [SerializeField] private Color sprintActiveColor = new Color(0.45f, 0.78f, 0.92f, 0.80f);
+        [SerializeField] private Color actionActiveColor = new Color(0.78f, 0.22f, 0.22f, 0.85f);
 
         private int movePointerId = int.MinValue;
         private Vector2 targetMoveInput = Vector2.zero;
@@ -73,18 +75,20 @@ namespace TheLastBell.UI
         private RectTransform parentRect;
         private GameObject pauseOverlayRoot;
         private TouchLookZone touchLookZone;
+        private Coroutine resetVisualCoroutine;
 
         private void Awake()
         {
             Instance = this;
-            parentRect = transform.parent as RectTransform ?? GetComponent<RectTransform>();
+            if (joystickTouchArea == null) joystickTouchArea = GetComponent<RectTransform>();
+            parentRect = (joystickBackground != null ? joystickBackground.parent as RectTransform : null)
+                         ?? (transform.parent as RectTransform)
+                         ?? joystickTouchArea;
 
             if (fpsController == null) fpsController = FindAnyObjectByType<FirstPersonController>();
             if (interactor == null) interactor = FindAnyObjectByType<PlayerInteractor>();
             if (flashlight == null) flashlight = FindAnyObjectByType<FlashlightController>();
             if (touchLookZone == null) touchLookZone = transform.parent != null ? transform.parent.GetComponentInChildren<TouchLookZone>(true) : FindAnyObjectByType<TouchLookZone>();
-
-            if (joystickTouchArea == null) joystickTouchArea = GetComponent<RectTransform>();
 
             if (joystickCanvasGroup == null && joystickBackground != null)
             {
@@ -100,6 +104,14 @@ namespace TheLastBell.UI
 
             ResetJoystickVisual(false);
             SetActionButtonVisible(false);
+        }
+
+        private void OnEnable()
+        {
+            if (movePointerId == int.MinValue)
+            {
+                ResetJoystickVisual(false);
+            }
         }
 
         private void Start()
@@ -129,8 +141,9 @@ namespace TheLastBell.UI
 
             UpdateCrouchVisual(fpsController != null && fpsController.IsCrouching);
             UpdateSprintVisual(isSprinting);
+            ResetJoystickVisual(false);
 
-            Debug.Log($"[MobileControlsUI] Başlatıldı -> FPC={fpsController != null}, Interactor={interactor != null}, Flashlight={flashlight != null}, JoystickBG={joystickBackground != null}, TouchLook={touchLookZone != null}");
+            Debug.Log($"[MobileControlsUI] Başlatıldı -> FPC={fpsController != null}, Interactor={interactor != null}, Flashlight={flashlight != null}, JoystickBG={joystickBackground != null}, TouchLook={touchLookZone != null}, Radius={joystickRadius}");
         }
 
         private void SetupSprintButtonHold()
@@ -198,6 +211,35 @@ namespace TheLastBell.UI
             ResetJoystickVisual(false);
         }
 
+        private void OnRectTransformDimensionsChange()
+        {
+            if (movePointerId == int.MinValue && joystickBackground != null)
+            {
+                joystickBackground.localPosition = GetRestingJoystickLocalPosition();
+            }
+        }
+
+        private Vector3 GetRestingJoystickLocalPosition()
+        {
+            RectTransform host = (joystickBackground != null ? joystickBackground.parent as RectTransform : null) ?? parentRect;
+            if (host == null) return Vector3.zero;
+
+            Rect r = host.rect;
+            if (r.width < 10f || r.height < 10f)
+            {
+                return new Vector3(-960f + defaultJoystickPosition.x, -540f + defaultJoystickPosition.y, 0f);
+            }
+
+            float halfW = joystickBackground != null ? joystickBackground.rect.width * 0.5f : 195f;
+            float halfH = joystickBackground != null ? joystickBackground.rect.height * 0.5f : 195f;
+            float marginX = Mathf.Max(defaultJoystickPosition.x, halfW + 40f);
+            float marginY = Mathf.Max(defaultJoystickPosition.y, halfH + 40f);
+
+            float lx = r.xMin + marginX;
+            float ly = r.yMin + marginY;
+            return new Vector3(lx, ly, 0f);
+        }
+
         private void Update()
         {
             if (Input.GetKeyDown(KeyCode.Escape))
@@ -208,37 +250,55 @@ namespace TheLastBell.UI
                 }
             }
 
-            // Aktif joystick parmağı kalktıysa güvenlik sıfırlaması
-            if (movePointerId != int.MinValue && Input.touchCount > 0)
+            float dt = Time.deltaTime > 0f ? Time.deltaTime : Time.unscaledDeltaTime;
+            StepMovement(dt);
+        }
+
+        public void StepMovement(float dt)
+        {
+            // Aktif donanım dokunması (fingerId >= 0) sona erdiyse veya kaybolduysa anında sıfırla
+            if (movePointerId >= 0)
             {
-                bool found = false;
-                for (int i = 0; i < Input.touchCount; i++)
+                if (Input.touchCount == 0)
                 {
-                    Touch t = Input.GetTouch(i);
-                    if (t.fingerId == movePointerId)
-                    {
-                        if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
-                        {
-                            movePointerId = int.MinValue;
-                            targetMoveInput = Vector2.zero;
-                            ResetJoystickVisual(true);
-                        }
-                        found = true;
-                        break;
-                    }
+                    ReleaseJoystickPointer(movePointerId);
                 }
-                if (!found && movePointerId >= 0)
+                else
                 {
-                    movePointerId = int.MinValue;
-                    targetMoveInput = Vector2.zero;
-                    ResetJoystickVisual(true);
+                    bool found = false;
+                    for (int i = 0; i < Input.touchCount; i++)
+                    {
+                        Touch t = Input.GetTouch(i);
+                        if (t.fingerId == movePointerId)
+                        {
+                            if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
+                            {
+                                ReleaseJoystickPointer(movePointerId);
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                    {
+                        ReleaseJoystickPointer(movePointerId);
+                    }
                 }
             }
 
-            currentMoveInput = Vector2.Lerp(currentMoveInput, targetMoveInput, Time.deltaTime * inputLerpSpeed);
-            if (targetMoveInput == Vector2.zero && currentMoveInput.sqrMagnitude < 0.0001f)
+            if (movePointerId == int.MinValue)
             {
                 currentMoveInput = Vector2.zero;
+                targetMoveInput = Vector2.zero;
+            }
+            else
+            {
+                float safeDt = dt > 0f ? dt : 0.016f;
+                currentMoveInput = Vector2.Lerp(currentMoveInput, targetMoveInput, 1f - Mathf.Exp(-inputLerpSpeed * safeDt));
+                if (targetMoveInput == Vector2.zero && currentMoveInput.sqrMagnitude < 0.0001f)
+                {
+                    currentMoveInput = Vector2.zero;
+                }
             }
 
             if (fpsController != null && fpsController.enabled)
@@ -248,65 +308,89 @@ namespace TheLastBell.UI
             }
         }
 
-        #region Dinamik Yüzen (Floating) Joystick Olayları
+        #region Görünür & Hızlı Tepkili 360° Sanal Joystick Olayları
         public void OnPointerDown(PointerEventData eventData)
         {
             if (Time.timeScale <= 0.001f || isPaused) return;
-
-            // Yalnızca ilk temas eden parmak joystick'e bağlanır
             if (movePointerId != int.MinValue) return;
-
-            // Dokunulan nokta ekranın sol bölgesinde mi kontrolü
-            if (eventData.position.x > Screen.width * 0.55f) return;
+            float refWidth = eventData.pressEventCamera != null ? eventData.pressEventCamera.pixelWidth : Screen.width;
+            if (eventData.position.x > refWidth * 0.55f) return;
 
             movePointerId = eventData.pointerId;
 
-            // Dokunulan konumu joystick merkezine dönüştür (Floating Joystick)
-            if (joystickBackground != null && parentRect != null)
+            if (resetVisualCoroutine != null)
             {
-                Vector2 localPoint;
-                if (RectTransformUtility.ScreenPointToLocalPointInRectangle(parentRect, eventData.position, eventData.pressEventCamera, out localPoint))
-                {
-                    joystickBackground.anchoredPosition = localPoint;
-                }
+                StopCoroutine(resetVisualCoroutine);
+                resetVisualCoroutine = null;
             }
 
-            if (joystickHandle != null)
+            RectTransform bgParent = (joystickBackground != null ? joystickBackground.parent as RectTransform : null) ?? parentRect;
+            if (joystickBackground != null && bgParent != null)
             {
-                joystickHandle.anchoredPosition = Vector2.zero;
+                joystickBackground.gameObject.SetActive(true);
+
+                Vector2 localFromCurrentCenter;
+                bool hasLocal = RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    joystickBackground, eventData.position, eventData.pressEventCamera, out localFromCurrentCenter);
+
+                // Görünür joystick çemberinin içinden veya hemen yakınından dokunulursa merkez sabit kalır ve yön hemen hesaplanır
+                if (hasLocal && localFromCurrentCenter.magnitude <= joystickRadius * 1.45f)
+                {
+                    UpdateJoystickFromLocalPoint(localFromCurrentCenter);
+                }
+                else if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    bgParent, eventData.position, eventData.pressEventCamera, out Vector2 localInParent))
+                {
+                    // Sol yarıdaki serbest alana dokunulursa joystick'i dokunulan yere taşı (ebeveyn local koordinatı ile hatasız)
+                    Rect pr = bgParent.rect;
+                    float pad = joystickRadius + 30f;
+                    localInParent.x = Mathf.Clamp(localInParent.x, pr.xMin + pad, pr.xMin + Mathf.Max(pad, pr.width * 0.44f));
+                    localInParent.y = Mathf.Clamp(localInParent.y, pr.yMin + pad, pr.yMax - pad);
+
+                    joystickBackground.localPosition = new Vector3(localInParent.x, localInParent.y, 0f);
+                    if (joystickHandle != null) joystickHandle.anchoredPosition = Vector2.zero;
+                    targetMoveInput = Vector2.zero;
+                }
             }
 
             if (joystickCanvasGroup != null)
             {
-                joystickCanvasGroup.alpha = 0.90f;
+                joystickCanvasGroup.alpha = activeJoystickAlpha;
             }
-
-            targetMoveInput = Vector2.zero;
         }
 
         public void OnDrag(PointerEventData eventData)
         {
-            if (eventData.pointerId != movePointerId || joystickBackground == null || joystickHandle == null) return;
+            if (eventData.pointerId != movePointerId || joystickBackground == null) return;
 
             Vector2 localPoint;
             if (RectTransformUtility.ScreenPointToLocalPointInRectangle(joystickBackground, eventData.position, eventData.pressEventCamera, out localPoint))
             {
-                Vector2 clamped = Vector2.ClampMagnitude(localPoint, joystickRadius);
+                UpdateJoystickFromLocalPoint(localPoint);
+            }
+        }
+
+        private void UpdateJoystickFromLocalPoint(Vector2 localPoint)
+        {
+            float effectiveRadius = Mathf.Max(40f, joystickRadius);
+            Vector2 clamped = Vector2.ClampMagnitude(localPoint, effectiveRadius);
+
+            if (joystickHandle != null)
+            {
                 joystickHandle.anchoredPosition = clamped;
+            }
 
-                Vector2 raw = clamped / joystickRadius;
-                float mag = raw.magnitude;
+            Vector2 raw = clamped / effectiveRadius;
+            float mag = raw.magnitude;
 
-                // Deadzone (0.1f) filtresi ile mikro titremeleri engelle
-                if (mag < deadzone)
-                {
-                    targetMoveInput = Vector2.zero;
-                }
-                else
-                {
-                    float normalizedMag = Mathf.Clamp01((mag - deadzone) / (1f - deadzone));
-                    targetMoveInput = raw.normalized * normalizedMag;
-                }
+            if (mag < deadzone)
+            {
+                targetMoveInput = Vector2.zero;
+            }
+            else
+            {
+                float normalizedMag = Mathf.Clamp01((mag - deadzone) / (1f - deadzone));
+                targetMoveInput = raw.normalized * normalizedMag;
             }
         }
 
@@ -326,6 +410,12 @@ namespace TheLastBell.UI
             {
                 movePointerId = int.MinValue;
                 targetMoveInput = Vector2.zero;
+                currentMoveInput = Vector2.zero;
+
+                if (fpsController != null)
+                {
+                    fpsController.MobileMoveInput = Vector2.zero;
+                }
 
                 if (joystickHandle != null)
                 {
@@ -340,39 +430,56 @@ namespace TheLastBell.UI
         {
             if (joystickBackground == null) return;
 
-            if (animate)
+            if (joystickHandle != null)
             {
-                StartCoroutine(FadeAndResetJoystickRoutine());
+                joystickHandle.anchoredPosition = Vector2.zero;
+            }
+
+            if (resetVisualCoroutine != null)
+            {
+                StopCoroutine(resetVisualCoroutine);
+                resetVisualCoroutine = null;
+            }
+
+            if (animate && gameObject.activeInHierarchy)
+            {
+                resetVisualCoroutine = StartCoroutine(FadeAndResetJoystickRoutine());
             }
             else
             {
-                joystickBackground.anchoredPosition = defaultJoystickPosition;
-                if (joystickCanvasGroup != null) joystickCanvasGroup.alpha = 0f;
+                joystickBackground.localPosition = GetRestingJoystickLocalPosition();
+                if (joystickCanvasGroup != null) joystickCanvasGroup.alpha = idleJoystickAlpha;
             }
         }
 
         private IEnumerator FadeAndResetJoystickRoutine()
         {
             float elapsed = 0f;
-            float duration = 0.25f;
-            float startAlpha = (joystickCanvasGroup != null) ? joystickCanvasGroup.alpha : 0.9f;
+            float duration = 0.16f;
+            Vector3 startPos = joystickBackground.localPosition;
+            Vector3 restPos = GetRestingJoystickLocalPosition();
+            float startAlpha = (joystickCanvasGroup != null) ? joystickCanvasGroup.alpha : activeJoystickAlpha;
 
             while (elapsed < duration)
             {
+                if (movePointerId != int.MinValue) yield break;
+
                 elapsed += Time.unscaledDeltaTime;
-                float t = elapsed / duration;
+                float t = Mathf.Clamp01(elapsed / duration);
+                joystickBackground.localPosition = Vector3.Lerp(startPos, restPos, t);
                 if (joystickCanvasGroup != null)
                 {
-                    joystickCanvasGroup.alpha = Mathf.Lerp(startAlpha, 0f, t);
+                    joystickCanvasGroup.alpha = Mathf.Lerp(startAlpha, idleJoystickAlpha, t);
                 }
                 yield return null;
             }
 
             if (movePointerId == int.MinValue)
             {
-                joystickBackground.anchoredPosition = defaultJoystickPosition;
-                if (joystickCanvasGroup != null) joystickCanvasGroup.alpha = 0f;
+                joystickBackground.localPosition = restPos;
+                if (joystickCanvasGroup != null) joystickCanvasGroup.alpha = idleJoystickAlpha;
             }
+            resetVisualCoroutine = null;
         }
         #endregion
 

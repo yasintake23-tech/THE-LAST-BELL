@@ -226,8 +226,8 @@ jobs:
             cat Logs/ci-validation-report.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          if grep -q "Validation FAILED" Logs/ci-validation-report.txt; then
-            echo "::error::Unity validation failed (see Logs/ci-validation-report.txt)."
+          if grep -qE "Validation FAILED|VerificationSuite FAILED" Logs/ci-validation-report.txt; then
+            echo "::error::Unity validation or functional verification failed (see Logs/ci-validation-report.txt)."
             exit 1
           fi
 

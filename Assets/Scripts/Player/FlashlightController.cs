@@ -12,19 +12,20 @@ namespace TheLastBell.Player
     {
         [Header("--- Işık Kaynağı (Spot Light) ---")]
         [SerializeField] private Light flashlightLight;
-        [SerializeField] private float baseIntensity = 3.5f;
+        [SerializeField] private Texture spotCookie;
+        [SerializeField] private float baseIntensity = 3.2f;
         [SerializeField] private bool isOn = true;
 
         [Header("--- Montaj & Kamera Takibi (Sway) ---")]
-        [SerializeField] private Vector3 mountOffset = new Vector3(0.25f, -0.25f, 0.35f);
+        [SerializeField] private Vector3 mountOffset = new Vector3(0.18f, -0.16f, 0.16f);
         [SerializeField] private Transform cameraTarget;
-        [SerializeField] private float swaySmoothSpeed = 8f;
+        [SerializeField] private float swaySmoothSpeed = 14f;
 
         [Header("--- Pil Sistemi ---")]
         [SerializeField] private bool useBattery = true;
         [SerializeField] private float maxBattery = 100f;
         [SerializeField] private float currentBattery = 100f;
-        [SerializeField] private float drainRatePerSecond = 0.25f; // Yaklak 7 dakika pil mr
+        [SerializeField] private float drainRatePerSecond = 0.25f; // Yaklaşık 7 dakika pil ömrü
         [SerializeField] private float lowBatteryThreshold = 20f;
 
         [Header("--- Ses Efektleri ---")]
@@ -48,35 +49,58 @@ namespace TheLastBell.Player
                 var spot = transform.Find("SpotLight")?.GetComponent<Light>();
                 flashlightLight = spot != null ? spot : GetComponentInChildren<Light>();
             }
+            if (cameraTarget == null && transform.parent != null)
+            {
+                var cam = transform.parent.GetComponentInChildren<Camera>();
+                cameraTarget = cam != null ? cam.transform : transform.parent;
+            }
             if (audioSource == null) audioSource = GetComponent<AudioSource>();
             playerInventory = GetComponentInParent<PlayerInventory>();
 
             if (flashlightLight != null)
             {
-                flashlightLight.type = LightType.Spot;
-                flashlightLight.range = 25f;
-                flashlightLight.spotAngle = 55f;
-                flashlightLight.innerSpotAngle = 30f;
-                flashlightLight.intensity = baseIntensity;
-                flashlightLight.shadows = LightShadows.Soft;
-                flashlightLight.shadowResolution = UnityEngine.Rendering.LightShadowResolution.Medium;
-                flashlightLight.color = new Color(1.0f, 0.9725f, 0.9059f, 1.0f); // #FFF8E7
+                ApplyRealisticLightSettings();
                 flashlightLight.enabled = isOn;
-                flashlightLight.transform.localRotation = Quaternion.identity;
             }
+        }
+
+        public void ApplyRealisticLightSettings()
+        {
+            if (flashlightLight == null) return;
+
+            flashlightLight.type = LightType.Spot;
+            flashlightLight.renderMode = LightRenderMode.ForcePixel;
+            flashlightLight.range = 20f;
+            flashlightLight.spotAngle = 42f;
+            flashlightLight.innerSpotAngle = 14f;
+            flashlightLight.intensity = baseIntensity;
+            flashlightLight.shadows = LightShadows.Soft;
+            flashlightLight.shadowResolution = UnityEngine.Rendering.LightShadowResolution.High;
+            flashlightLight.shadowBias = 0.015f;
+            flashlightLight.shadowNormalBias = 0.15f;
+            flashlightLight.shadowNearPlane = 0.12f;
+            flashlightLight.color = new Color(1.0f, 0.96f, 0.88f, 1.0f);
+            if (spotCookie != null)
+            {
+                flashlightLight.cookie = spotCookie;
+            }
+
+            // Işığın duvar içinden sızmasını önlemek için kapsül yarıçapı içinde tut
+            flashlightLight.transform.localPosition = new Vector3(0f, 0f, 0.02f);
+            flashlightLight.transform.localRotation = Quaternion.identity;
         }
 
         private void Update()
         {
             HandleSway();
 
-            // PC Girdi: 'F' feneri aar/kapatr
+            // PC Girdi: 'F' feneri açar/kapatır
             if (Input.GetKeyDown(KeyCode.F))
             {
                 ToggleFlashlight();
             }
 
-            // PC Girdi: 'R' pil deitir
+            // PC Girdi: 'R' pil değiştir
             if (Input.GetKeyDown(KeyCode.R))
             {
                 ReloadBattery();
@@ -87,12 +111,28 @@ namespace TheLastBell.Player
 
         private void HandleSway()
         {
-            // Fener pozisyonu karakterin sağ omzunun önünde (0.3f, 1.5f, 0.5f) sabit kalır
-            if (transform.parent != null)
+            if (transform.parent == null) return;
+
+            transform.localPosition = mountOffset;
+
+            Quaternion targetWorldRot = transform.parent.rotation;
+            if (cameraTarget != null)
             {
-                transform.localPosition = mountOffset;
-                // Işık konisinin TAM KARŞIYA (dünyaya/koridora) vurmasını sağla; oyuncuyu aydınlatmasını kesinlikle engelle
-                transform.localRotation = Quaternion.identity;
+                Vector3 aimPoint = cameraTarget.position + cameraTarget.forward * 8.0f;
+                Vector3 toAim = aimPoint - transform.position;
+                if (toAim.sqrMagnitude > 0.01f)
+                {
+                    targetWorldRot = Quaternion.LookRotation(toAim.normalized, cameraTarget.up);
+                }
+            }
+
+            if (swaySmoothSpeed > 0f && Time.deltaTime > 0f)
+            {
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetWorldRot, 1f - Mathf.Exp(-swaySmoothSpeed * Time.deltaTime));
+            }
+            else
+            {
+                transform.rotation = targetWorldRot;
             }
         }
 
