@@ -93,7 +93,19 @@ namespace TheLastBell.Editor
 
         public static void BuildAndroidAPKBatch()
         {
-            Debug.Log("[AndroidBuildHelper] Batchmode APK derleme başlatılıyor...");
+            Debug.Log("[AndroidBuildHelper] Batchmode kurulum, doğrulama ve APK derleme başlatılıyor...");
+            MobileSetupHelper.ApplyMobileFixes();
+            ConfigureAndroidSettings();
+
+            bool valid = ValidateProject(checkScenesDeep: true, out string report);
+            WriteReportFile("Logs/ci-validation-report.txt", report);
+            if (!valid)
+            {
+                Debug.LogError("[AndroidBuildHelper] Proje doğrulaması başarısız olduğu için APK derleme durduruldu.");
+                EditorApplication.Exit(1);
+                return;
+            }
+
             bool success = BuildAndroidAPK(false);
             Debug.Log("[AndroidBuildHelper] Batchmode APK derleme sonucu: " + success);
             EditorApplication.Exit(success ? 0 : 1);
