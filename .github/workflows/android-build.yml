@@ -32,6 +32,7 @@ on:
       - 'Assets/**'
       - 'Packages/**'
       - 'ProjectSettings/**'
+      - '.gitattributes'
       - '.github/workflows/android-build.yml'
   pull_request:
     branches:
