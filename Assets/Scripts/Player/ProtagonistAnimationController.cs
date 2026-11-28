@@ -246,8 +246,16 @@ namespace TheLastBell.Player
                 {
                     LeftHandFestekSocket = new GameObject("LeftHand_Festek_Socket").transform;
                     LeftHandFestekSocket.SetParent(leftHand, false);
-                    LeftHandFestekSocket.localPosition = new Vector3(-0.012f, 0.057f, 0.023f);
-                    LeftHandFestekSocket.localRotation = Quaternion.Euler(85f, 0f, 180f);
+                    var index = animator.GetBoneTransform(HumanBodyBones.LeftIndexProximal);
+                    var little = animator.GetBoneTransform(HumanBodyBones.LeftLittleProximal);
+                    Vector3 palm = index != null && little != null ? (index.position + little.position) * 0.5f : leftHand.position;
+                    Vector3 across = index != null && little != null ? (index.position - little.position).normalized : leftHand.up;
+                    Vector3 palmLength = (palm - leftHand.position).normalized;
+                    if (palmLength.sqrMagnitude < 0.5f) palmLength = leftHand.forward;
+                    Vector3 palmNormal = Vector3.Cross(across, palmLength).normalized;
+                    if (palmNormal.sqrMagnitude < 0.5f) palmNormal = leftHand.right;
+                    LeftHandFestekSocket.SetPositionAndRotation(Vector3.Lerp(leftHand.position, palm, 0.71f) + palmNormal * 0.015f,
+                        Quaternion.LookRotation(across, palmNormal));
                 }
             }
             if (LeftHandFestekSocket != null && !festekGripCalibrated)
@@ -695,9 +703,16 @@ namespace TheLastBell.Player
                 }
                 else if (IsHoldingFestek)
                 {
-                    Vector3 carry = transform.root.TransformPoint(new Vector3(-0.26f, animator.GetBool(HashIsCrouching) ? 0.79f : 1.17f, 0.38f));
-                    animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, 0.68f);
+                    var actor = transform.root;
+                    Vector3 carry = actor.TransformPoint(new Vector3(-0.24f, animator.GetBool(HashIsCrouching) ? 0.82f : 1.26f, 0.42f));
+                    animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, 0.82f);
                     animator.SetIKPosition(AvatarIKGoal.LeftHand, carry);
+                    if (LeftHandFestekSocket != null)
+                    {
+                        var itemRotation = actor.rotation * Quaternion.Euler(-19f, 12f, 8f);
+                        animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, 0.73f);
+                        animator.SetIKRotation(AvatarIKGoal.LeftHand, itemRotation * Quaternion.Inverse(LeftHandFestekSocket.localRotation));
+                    }
                 }
                 else if (leftHandAimIkWeight > 0.01f)
                 {

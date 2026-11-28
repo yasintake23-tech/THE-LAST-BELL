@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -553,7 +554,11 @@ namespace TheLastBell.UI
 
             if (hasInteractable && actionButtonText != null)
             {
-                actionButtonText.text = "ETKİLEŞİM";
+                var label = prompt.StartsWith("[E] - ", StringComparison.Ordinal) ? prompt.Substring(6) : prompt;
+                actionButtonText.text = label;
+                actionButtonText.enableAutoSizing = true;
+                actionButtonText.fontSizeMin = 15f;
+                actionButtonText.fontSizeMax = 23f;
             }
         }
 

@@ -141,15 +141,15 @@ namespace TheLastBell.Gameplay
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
             objectiveHudGroup = MakeHudGroup("Chapter_Objective_Tracker", safeArea,
-                new Vector2(0f, 1f), new Vector2(24f, -30f), new Vector2(244f, 67f));
+                new Vector2(0f, 1f), new Vector2(28f, -27f), new Vector2(330f, 88f));
             var background = objectiveHudGroup.gameObject.AddComponent<Image>();
-            background.color = new Color(0.035f, 0.047f, 0.055f, 0.78f);
+            background.color = new Color(0.035f, 0.047f, 0.055f, 0.87f);
             background.raycastTarget = false;
-            objectiveHeader = MakeLabel("Objective_Header", objectiveHudGroup.transform, font, 14,
-                TextAnchor.MiddleLeft, new Vector2(12, 39), new Vector2(-10, -4), "GÖREV");
+            objectiveHeader = MakeLabel("Objective_Header", objectiveHudGroup.transform, font, 17,
+                TextAnchor.MiddleLeft, new Vector2(15, 54), new Vector2(-13, -6), "GÖREV");
             objectiveHeader.color = new Color(0.84f, 0.75f, 0.58f);
-            objectiveHudText = MakeLabel("Objective_Label", objectiveHudGroup.transform, font, 17,
-                TextAnchor.MiddleLeft, new Vector2(12, 2), new Vector2(-10, -24), "");
+            objectiveHudText = MakeLabel("Objective_Label", objectiveHudGroup.transform, font, 22,
+                TextAnchor.MiddleLeft, new Vector2(15, 4), new Vector2(-13, -29), "");
 
             introGroup = MakeHudGroup("Chapter_Introduction", safeArea, new Vector2(0.5f, 1f),
                 new Vector2(0f, -67f), new Vector2(250f, 90f));
@@ -350,6 +350,17 @@ namespace TheLastBell.Gameplay
         public void AdvanceTo(ChapterObjectiveState nextState, string statusThought)
         {
             if (nextState <= currentState) return;
+            SetObjective(nextState, statusThought);
+        }
+
+        public void NotifyFestekWithdrawn()
+        {
+            if (currentState == ChapterObjectiveState.ActivateFestek)
+                SetObjective(ChapterObjectiveState.InsertFestek, null);
+        }
+
+        private void SetObjective(ChapterObjectiveState nextState, string statusThought)
+        {
             string previous = GetObjectiveDescription(currentState);
             string next = GetObjectiveDescription(nextState);
             currentState = nextState;
@@ -371,24 +382,24 @@ namespace TheLastBell.Gameplay
             switch (state)
             {
                 case ChapterObjectiveState.Arrival:
-                    return "İngilizce kursuna gir.";
+                    return "Binanın girişine git.";
                 case ChapterObjectiveState.EnterBuilding:
-                    return "İngilizce kursuna gir.";
+                    return "Binaya gir.";
                 case ChapterObjectiveState.ExploreInstitution:
                     return "Binayı keşfet.";
                 case ChapterObjectiveState.LocateElectricalPanel:
                     return "Elektrik panosunu bul.";
                 case ChapterObjectiveState.OperateElectricalPanel:
-                    return "Panoyu kontrol et.";
+                    return "Panonun kolunu indir.";
                 case ChapterObjectiveState.DiscoverFestek:
                 case ChapterObjectiveState.PickUpFestek:
-                    return "Feştek'i yerden al.";
+                    return "Yere düşen Feştek’i al.";
                 case ChapterObjectiveState.LocateFestekSocket:
-                    return "Feştek yuvasını bul.";
+                    return "Feştek’in takılacağı yuvayı bul.";
                 case ChapterObjectiveState.InsertFestek:
                     return "Feştek'i yuvasına yerleştir.";
                 case ChapterObjectiveState.ActivateFestek:
-                    return "Feştek’i saat yönünde çevir.";
+                    return "Feştek’i çevirerek elektriği aç.";
                 case ChapterObjectiveState.RestoreElectricity:
                     return "Elektriğin gelmesini bekle.";
                 case ChapterObjectiveState.TelevisionActivation:

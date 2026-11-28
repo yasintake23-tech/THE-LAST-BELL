@@ -200,19 +200,7 @@ namespace TheLastBell.Interaction
         public void PickupIntoLeftHand(GameObject playerRoot)
         {
             if (currentState != FestekItemState.DroppedPhysics || playerRoot == null) return;
-            var animation = playerRoot.GetComponentInChildren<ProtagonistAnimationController>(true);
-            animation?.InitializeIfNeeded();
-            var socket = animation != null ? animation.LeftHandFestekSocket : null;
-            if (socket == null) return;
-
-            Vector3 gripOffset = gripPoint != null ? transform.InverseTransformPoint(gripPoint.position) : Vector3.zero;
-            transform.SetParent(socket, false);
-            transform.localRotation = Quaternion.identity;
-            transform.localPosition = -Vector3.Scale(gripOffset, transform.localScale);
-            currentState = FestekItemState.HeldInLeftHand;
-            ApplyPhysicsForState(currentState);
-            SetHighlight(0f);
-            animation.IsHoldingFestek = true;
+            if (!AttachToLeftHand(playerRoot)) return;
 
             if (Application.isPlaying && itemAudioSource != null && pickupClip != null)
             {
@@ -221,6 +209,25 @@ namespace TheLastBell.Interaction
             }
             ChapterObjectiveManager.Instance?.NotifyFestekPickedUp();
             OnStateChanged?.Invoke(currentState);
+        }
+
+        public bool AttachToLeftHand(GameObject playerRoot)
+        {
+            if (playerRoot == null) return false;
+            var animation = playerRoot.GetComponentInChildren<ProtagonistAnimationController>(true);
+            animation?.InitializeIfNeeded();
+            var socket = animation != null ? animation.LeftHandFestekSocket : null;
+            if (socket == null) return false;
+
+            Vector3 gripOffset = gripPoint != null ? transform.InverseTransformPoint(gripPoint.position) : Vector3.zero;
+            transform.SetParent(socket, true);
+            transform.localRotation = Quaternion.identity;
+            transform.localPosition = -Vector3.Scale(gripOffset, transform.localScale);
+            currentState = FestekItemState.HeldInLeftHand;
+            ApplyPhysicsForState(currentState);
+            SetHighlight(0f);
+            animation.IsHoldingFestek = true;
+            return true;
         }
 
         private IEnumerator ReachAndLift(GameObject player)
@@ -279,7 +286,7 @@ namespace TheLastBell.Interaction
             if (socketInsertionTransform != null)
             {
                 Vector3 alignOffset = insertionAlignPoint != null ? transform.InverseTransformPoint(insertionAlignPoint.position) : Vector3.zero;
-                transform.SetParent(socketInsertionTransform, false);
+                transform.SetParent(socketInsertionTransform, true);
                 transform.localRotation = Quaternion.identity;
                 transform.localPosition = -Vector3.Scale(alignOffset, transform.localScale);
             }

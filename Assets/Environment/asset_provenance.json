@@ -1,6 +1,70 @@
 {
   "external_cc0_assets": [
     {
+      "asset_name": "Graphite four-door sedan",
+      "type": "3D model and textures",
+      "source_url": "https://www.innerscene.com/tools/library/3d-parts/graphite-four-door-sedan-eed96d12",
+      "author": "Innerscene",
+      "license": "CC0 1.0 Universal",
+      "modifications": "Reoriented, consolidated into ten material groups, and decimated to 49,126 faces. Render bounds center and ground the model in Unity.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/graphite_sedan/GraphiteSedan.fbx",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_black_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_chrome_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_clearlens_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_glass_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_interior_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_paint_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_redlens_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_rubber_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_steel_diff.png",
+        "Assets/Environment/External/Models/graphite_sedan/Sedan_white_diff.png"
+      ]
+    },
+    {
+      "asset_name": "Book Encyclopedia Set 01",
+      "type": "3D model and textures",
+      "source_url": "https://polyhaven.com/a/book_encyclopedia_set_01",
+      "author": "John Malcolm",
+      "license": "CC0 1.0 Universal",
+      "modifications": "Original FBX with albedo and normal maps, placed on the classroom reference desk.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/book_encyclopedia_set_01/book_encyclopedia_set_01.fbx",
+        "Assets/Environment/External/Models/book_encyclopedia_set_01/book_encyclopedia_set_01_cover_diff_1k.png",
+        "Assets/Environment/External/Models/book_encyclopedia_set_01/book_encyclopedia_set_01_cover_nor_gl_1k.png",
+        "Assets/Environment/External/Models/book_encyclopedia_set_01/book_encyclopedia_set_01_paper_diff_1k.png",
+        "Assets/Environment/External/Models/book_encyclopedia_set_01/book_encyclopedia_set_01_paper_nor_gl_1k.png"
+      ]
+    },
+    {
+      "asset_name": "Vintage Cabinet 01",
+      "type": "3D model and textures",
+      "source_url": "https://polyhaven.com/a/vintage_cabinet_01",
+      "author": "Rico Cilliers",
+      "license": "CC0 1.0 Universal",
+      "modifications": "Original FBX with reduced-resolution texture maps, placed against the archive classroom wall.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/vintage_cabinet_01/vintage_cabinet_01.fbx",
+        "Assets/Environment/External/Models/vintage_cabinet_01/vintage_cabinet_01_a_diff_1k.png",
+        "Assets/Environment/External/Models/vintage_cabinet_01/vintage_cabinet_01_a_nor_gl_1k.png",
+        "Assets/Environment/External/Models/vintage_cabinet_01/vintage_cabinet_01_b_diff_1k.png",
+        "Assets/Environment/External/Models/vintage_cabinet_01/vintage_cabinet_01_b_nor_gl_1k.png"
+      ]
+    },
+    {
+      "asset_name": "Painted Wooden Chair 01",
+      "type": "3D model and textures",
+      "source_url": "https://polyhaven.com/a/painted_wooden_chair_01",
+      "author": "Kuutti Siitonen",
+      "license": "CC0 1.0 Universal",
+      "modifications": "Original FBX with a converted 512-pixel normal map.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/painted_wooden_chair_01/painted_wooden_chair_01.fbx",
+        "Assets/Environment/External/Models/painted_wooden_chair_01/painted_wooden_chair_01_diff_1k.jpg",
+        "Assets/Environment/External/Models/painted_wooden_chair_01/painted_wooden_chair_01_nor_gl_1k.png"
+      ]
+    },
+    {
       "asset_name": "SchoolDesk_01",
       "type": "3D Model (FBX + PBR)",
       "source_url": "https://polyhaven.com/a/SchoolDesk_01",
@@ -577,17 +641,6 @@
         "Assets/Environment/Original/Festek/Festek_Device.fbx",
         "Assets/Environment/Original/Festek/Festek_Albedo.png",
         "Assets/Environment/Original/Festek/Festek_MetalSmooth.png"
-      ]
-    },
-    {
-      "asset_name": "ArrivedSedan_Car",
-      "type": "Original 3D Vehicle Model (FBX)",
-      "source_url": "Created in-house via Headless Blender 4.0.2",
-      "author": "THE LAST BELL Production Team",
-      "license": "Project Original (First-Party)",
-      "modifications": "Modeled 4,710-polygon unbranded 4-door sedan with sculpted body shell, tinted glass windows, interior seats/dashboard/steering wheel, 4 spoked alloy wheels & tires, bumpers, mirrors, handles, and lamps.",
-      "unity_paths": [
-        "Assets/Environment/Original/Vehicle/ArrivedSedan_Car.fbx"
       ]
     },
     {

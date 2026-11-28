@@ -10,6 +10,8 @@ namespace TheLastBell.UI
         private FestekSocketInteractable socket;
         private RectTransform dial;
         private RectTransform marker;
+        private Text progress;
+        private bool hasAngle;
         private int finger = int.MinValue;
         private float lastAngle;
 
@@ -28,7 +30,7 @@ namespace TheLastBell.UI
             target.anchorMin = target.anchorMax = new Vector2(0.78f, 0.34f);
             target.sizeDelta = new Vector2(274, 260);
             background.color = new Color(0.07f, 0.08f, 0.085f, 0.9f);
-            var label = CreateText(target, "Feştek’i saat yönünde çevir", new Vector2(.5f,.19f), Vector2.zero, new Vector2(252, 40), 18);
+            var label = CreateText(target, "Feştek’i çevirmek için sürükle.", new Vector2(.5f,.19f), Vector2.zero, new Vector2(252, 46), 20);
             label.raycastTarget = false;
             var ring = CreateText(target, "◯", new Vector2(.5f,.57f), Vector2.zero, new Vector2(170, 170), 140);
             ring.raycastTarget = false;
@@ -40,11 +42,13 @@ namespace TheLastBell.UI
             control.socket = socket;
             control.dial = target;
             control.marker = dot.rectTransform;
+            control.progress = CreateText(target, "", new Vector2(.5f, .57f), Vector2.zero, new Vector2(100, 42), 23);
+            control.progress.raycastTarget = false;
             control.UpdateMarker();
 
-            var cancel = CreateText(safe, "Geri", new Vector2(.78f,.34f),
+            var cancel = CreateText(safe, "İptal", new Vector2(.78f,.34f),
                 new Vector2(0,-163), new Vector2(112,48), 21);
-            cancel.gameObject.AddComponent<Button>().onClick.AddListener(socket.ReleaseFocus);
+            cancel.gameObject.AddComponent<Button>().onClick.AddListener(socket.CancelAndWithdraw);
             return panel;
         }
 
@@ -66,21 +70,46 @@ namespace TheLastBell.UI
 
         public void OnPointerDown(PointerEventData eventData)
         {
-            if (finger != int.MinValue || eventData.button != PointerEventData.InputButton.Left || !TryAngle(eventData, out lastAngle)) return;
+            if (finger != int.MinValue || eventData.button != PointerEventData.InputButton.Left ||
+                Time.timeScale <= 0f || !TryAngle(eventData, out lastAngle)) return;
             finger = eventData.pointerId;
+            hasAngle = true;
         }
 
         public void OnDrag(PointerEventData eventData)
         {
-            if (eventData.pointerId != finger || !TryAngle(eventData, out float angle)) return;
-            socket.ApplyRotationDelta(Mathf.Clamp(Mathf.DeltaAngle(angle, lastAngle), -30f, 30f));
+            if (eventData.pointerId != finger) return;
+            if (Time.timeScale <= 0f || !TryAngle(eventData, out float angle))
+            {
+                hasAngle = false;
+                return;
+            }
+            if (hasAngle)
+                socket.ApplyRotationDelta(Mathf.DeltaAngle(angle, lastAngle));
             lastAngle = angle;
+            hasAngle = true;
             UpdateMarker();
         }
 
         public void OnPointerUp(PointerEventData eventData)
         {
-            if (finger == eventData.pointerId) finger = int.MinValue;
+            if (finger == eventData.pointerId) ClearGesture();
+        }
+
+        private void OnDisable() => ClearGesture();
+        private void OnApplicationFocus(bool focused)
+        {
+            if (!focused) ClearGesture();
+        }
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused) ClearGesture();
+        }
+
+        private void ClearGesture()
+        {
+            finger = int.MinValue;
+            hasAngle = false;
         }
 
         private bool TryAngle(PointerEventData data, out float angle)
@@ -96,7 +125,8 @@ namespace TheLastBell.UI
 
         private void UpdateMarker()
         {
-            float radians = (90f - socket.RotationProgress * 90f) * Mathf.Deg2Rad;
+            float radians = (90f - socket.RotationDegrees) * Mathf.Deg2Rad;
+            progress.text = $"{Mathf.RoundToInt(socket.RotationDegrees)}° / 90°";
             marker.anchoredPosition = new Vector2(Mathf.Cos(radians), Mathf.Sin(radians)) * 67f + Vector2.up * 18f;
         }
     }

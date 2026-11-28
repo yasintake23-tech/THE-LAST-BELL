@@ -13,7 +13,8 @@ namespace TheLastBell.Interaction
         Inserting,
         SeatedReadyToActivate,
         Activating,
-        Activated
+        Activated,
+        Withdrawing
     }
 
     [DisallowMultipleComponent]
@@ -29,6 +30,10 @@ namespace TheLastBell.Interaction
         [SerializeField] private AudioClip buttonClickClip;
 
         private FestekItem seatedFestek;
+        private GameObject carrier;
+        private MaterialPropertyBlock lensProperties;
+        private static readonly int LensColor = Shader.PropertyToID("_Color");
+        private static readonly int LensEmission = Shader.PropertyToID("_EmissionColor");
         private InteractionFocus focus;
         private ProtagonistAnimationController animation;
         private Transform wrist;
@@ -40,7 +45,8 @@ namespace TheLastBell.Interaction
         public FestekSocketState SocketState => socketState;
         public bool IsActivated => socketState == FestekSocketState.Activated;
         public FestekItem SeatedFestek => seatedFestek;
-        public float RotationProgress => turn / RequiredTurn;
+        public float RotationProgress => Mathf.Clamp01(turn / RequiredTurn);
+        public float RotationDegrees => turn;
         public Transform InsertionAnchor => insertionTransform;
 
         public void Configure(Transform insertPoint, Renderer lens, FacilityPowerManager power,
@@ -55,7 +61,28 @@ namespace TheLastBell.Interaction
         }
 
         public string GetInteractionPrompt() => socketState == FestekSocketState.SeatedReadyToActivate
-            ? "[E] - Feştek’i çevir" : socketState == FestekSocketState.Empty ? "[E] - Bağlantı yuvası" : "";
+            ? "[E] - Feştek’i çevir" : socketState == FestekSocketState.Empty ? GetEmptyPrompt() : "";
+
+        private static string GetEmptyPrompt()
+        {
+            var manager = ChapterObjectiveManager.Instance;
+            return manager != null && (manager.CurrentState == ChapterObjectiveState.LocateFestekSocket ||
+                manager.CurrentState == ChapterObjectiveState.InsertFestek) ? "[E] - Feştek’i tak" : "[E] - Yuvayı incele";
+        }
+
+        private void Update()
+        {
+            if (statusLensRenderer == null || IsActivated) return;
+            var player = ChapterObjectiveManager.Instance;
+            bool guiding = socketState == FestekSocketState.Empty && player != null &&
+                (player.CurrentState == ChapterObjectiveState.InsertFestek ||
+                 player.CurrentState == ChapterObjectiveState.LocateFestekSocket);
+            if (lensProperties == null) lensProperties = new MaterialPropertyBlock();
+            statusLensRenderer.GetPropertyBlock(lensProperties);
+            float glow = guiding ? 0.17f + 0.12f * Mathf.Sin(Time.time * 2.8f) : 0f;
+            lensProperties.SetColor(LensEmission, new Color(0.80f, 0.56f, 0.26f) * glow);
+            statusLensRenderer.SetPropertyBlock(lensProperties);
+        }
 
         public bool CanInteract() => socketState == FestekSocketState.Empty || socketState == FestekSocketState.SeatedReadyToActivate;
 
@@ -88,6 +115,7 @@ namespace TheLastBell.Interaction
             }
 
             if (!BeginFocus(player, controller)) return;
+            carrier = player;
             Transform hand = controller.LeftHandFestekSocket.parent;
             itemToHandRotation = Quaternion.Inverse(item.transform.rotation) * hand.rotation;
             itemToHandOffset = Quaternion.Inverse(item.transform.rotation) * (hand.position - item.transform.position);
@@ -131,14 +159,33 @@ namespace TheLastBell.Interaction
             }
 
             PoseHand(end, aligned);
-            yield return new WaitForEndOfFrame();
+            float settle = 0f;
+            while (settle < 0.38f && !IsAligned(item, end, aligned))
+            {
+                settle += Time.deltaTime;
+                yield return null;
+            }
+            if (!IsAligned(item, end, aligned))
+            {
+                socketState = FestekSocketState.Empty;
+                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Yuvanın karşısına geçip biraz daha yaklaş.");
+                ReleaseFocus();
+                yield break;
+            }
             Seat(item, player);
             Play(socketInsertClip, 0.85f);
             OpenRotationPanel();
         }
 
+        private static bool IsAligned(FestekItem item, Vector3 position, Quaternion rotation)
+        {
+            return Vector3.SqrMagnitude(item.transform.position - position) <= 0.065f * 0.065f &&
+                   Quaternion.Angle(item.transform.rotation, rotation) <= 28f;
+        }
+
         private void Seat(FestekItem item, GameObject player)
         {
+            carrier = player;
             seatedFestek = item;
             item.SeatIntoSocket(insertionTransform, player);
             socketState = FestekSocketState.SeatedReadyToActivate;
@@ -171,16 +218,9 @@ namespace TheLastBell.Interaction
                 (!Application.isPlaying && socketState != FestekSocketState.SeatedReadyToActivate) ||
                 seatedFestek == null || float.IsNaN(degrees) || float.IsInfinity(degrees)) return;
 
-            turn = Mathf.Clamp(turn + degrees, 0f, RequiredTurn);
-            var device = seatedFestek.transform;
-            Vector3 anchor = seatedFestek.InsertionAlignPoint != null
-                ? device.InverseTransformPoint(seatedFestek.InsertionAlignPoint.position) : Vector3.zero;
-            device.localRotation = Quaternion.AngleAxis(-turn, Vector3.forward);
-            device.localPosition = -(device.localRotation * Vector3.Scale(anchor, device.localScale));
-            PoseHand(device.position, device.rotation);
-
-            int detent = Mathf.FloorToInt(turn / 22.5f);
-            if (detent > notch && detent < 4) Play(buttonClickClip, 0.23f);
+            SetTurn(Mathf.Clamp(turn + degrees, -28f, RequiredTurn));
+            int detent = Mathf.FloorToInt(Mathf.Abs(turn) / 22.5f);
+            if (detent != notch && detent < 4) Play(buttonClickClip, 0.22f);
             notch = detent;
             if (turn < RequiredTurn) return;
 
@@ -190,8 +230,8 @@ namespace TheLastBell.Interaction
             {
                 var properties = new MaterialPropertyBlock();
                 statusLensRenderer.GetPropertyBlock(properties);
-                properties.SetColor("_Color", new Color(0.32f, 0.78f, 0.36f));
-                properties.SetColor("_EmissionColor", new Color(0.26f, 0.68f, 0.28f));
+                properties.SetColor(LensColor, new Color(0.32f, 0.78f, 0.36f));
+                properties.SetColor(LensEmission, new Color(0.26f, 0.68f, 0.28f));
                 statusLensRenderer.SetPropertyBlock(properties);
             }
             ChapterObjectiveManager.Instance?.NotifyFestekActivated();
@@ -203,6 +243,74 @@ namespace TheLastBell.Interaction
                 StartCoroutine(ReleaseAfterLock());
             }
             else powerManager?.ExecuteImmediateForTest();
+        }
+
+        private void SetTurn(float angle)
+        {
+            turn = angle;
+            if (seatedFestek == null) return;
+            var device = seatedFestek.transform;
+            Vector3 anchor = seatedFestek.InsertionAlignPoint != null
+                ? device.InverseTransformPoint(seatedFestek.InsertionAlignPoint.position) : Vector3.zero;
+            device.localRotation = Quaternion.AngleAxis(-turn, Vector3.forward);
+            device.localPosition = -(device.localRotation * Vector3.Scale(anchor, device.localScale));
+            PoseHand(device.position, device.rotation);
+        }
+
+        public void CancelAndWithdraw()
+        {
+            if (socketState != FestekSocketState.Activating && socketState != FestekSocketState.SeatedReadyToActivate) return;
+            if (seatedFestek == null || carrier == null)
+            {
+                ReleaseFocus();
+                return;
+            }
+            if (rotationPanel != null) Destroy(rotationPanel);
+            rotationPanel = null;
+            socketState = FestekSocketState.Withdrawing;
+            if (Application.isPlaying) StartCoroutine(Withdraw());
+            else CompleteWithdrawal();
+        }
+
+        private IEnumerator Withdraw()
+        {
+            float initialTurn = turn;
+            for (float t = 0f; t < 0.24f; t += Time.deltaTime)
+            {
+                SetTurn(Mathf.Lerp(initialTurn, 0f, Mathf.SmoothStep(0f, 1f, t / 0.24f)));
+                yield return null;
+            }
+            SetTurn(0f);
+            if (seatedFestek != null)
+            {
+                var device = seatedFestek.transform;
+                Vector3 seated = device.localPosition;
+                for (float t = 0f; t < 0.34f; t += Time.deltaTime)
+                {
+                    device.localPosition = seated - Vector3.forward * (0.14f * Mathf.SmoothStep(0f, 1f, t / 0.34f));
+                    PoseHand(device.position, device.rotation);
+                    yield return null;
+                }
+            }
+            CompleteWithdrawal();
+        }
+
+        private void CompleteWithdrawal()
+        {
+            if (seatedFestek != null && seatedFestek.AttachToLeftHand(carrier))
+            {
+                seatedFestek = null;
+                turn = 0f;
+                notch = 0;
+                socketState = FestekSocketState.Empty;
+                ChapterObjectiveManager.Instance?.NotifyFestekWithdrawn();
+            }
+            else
+            {
+                SetTurn(0f);
+                socketState = FestekSocketState.SeatedReadyToActivate;
+            }
+            ReleaseFocus();
         }
 
         private IEnumerator ReleaseAfterLock()
@@ -234,7 +342,8 @@ namespace TheLastBell.Interaction
         {
             StopAllCoroutines();
             if (socketState == FestekSocketState.Inserting) socketState = FestekSocketState.Empty;
-            ReleaseFocus();
+            if (socketState == FestekSocketState.Withdrawing) CompleteWithdrawal();
+            else ReleaseFocus();
         }
 
         private void Play(AudioClip clip, float gain)

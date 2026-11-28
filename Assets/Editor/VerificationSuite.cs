@@ -970,6 +970,8 @@ namespace TheLastBell.Editor
                 return;
             }
 
+            VerifyHeroGeometry(sedan, tvCtrl, sb, failures);
+
             // 3. Protagonist Toe & Sole Flat Ground Alignment Check (Sec 20)
             var player = GameObject.Find("Player_Protagonist");
             var anim = player != null ? player.GetComponentInChildren<Animator>(true) : null;
@@ -1156,7 +1158,12 @@ namespace TheLastBell.Editor
             // Step 7: Left-hand pickup with right-hand flashlight retained.
             var spotLight = GameObject.Find("SpotLight")?.GetComponent<Light>();
             if (flashPhys != null) flashPhys.AttachToHand();
+            float droppedScale = festek.transform.lossyScale.x;
             festek.PickupIntoLeftHand(player);
+            if (animCtrl == null || animCtrl.LeftHandFestekSocket == null ||
+                Mathf.Abs(festek.transform.lossyScale.x - droppedScale) > 0.025f ||
+                (festek.GripPoint != null && Vector3.Distance(festek.GripPoint.position, animCtrl.LeftHandFestekSocket.position) > 0.004f))
+                failures.Add("Left-hand pickup changed the item's world scale or lost the grip-point alignment.");
 
             if (festek.CurrentState != FestekItemState.HeldInLeftHand || animCtrl == null || !festek.transform.IsChildOf(animCtrl.LeftHandFestekSocket))
                 failures.Add("Feştek did not attach cleanly to LeftHand_Festek_Socket.");
@@ -1207,8 +1214,29 @@ namespace TheLastBell.Editor
                 Quaternion.Angle(festek.transform.localRotation, Quaternion.AngleAxis(-45f, Vector3.forward)) > 1f ||
                 (festek.InsertionAlignPoint != null && Vector3.Distance(festek.InsertionAlignPoint.position, socket.InsertionAnchor.position) > 0.004f))
                 failures.Add("Partial rotation failed to keep the device centered and power off.");
-            socket.ApplyRotationDelta(45f);
+            socket.ApplyRotationDelta(-65f);
+            if (socket.IsActivated || powerMgr.IsPowerRestored || Mathf.Abs(socket.RotationDegrees + 20f) > 0.01f)
+                failures.Add("Counterclockwise rotation did not reverse progress through zero.");
+            socket.CancelAndWithdraw();
+            if (socket.SocketState != FestekSocketState.Empty || powerMgr.IsPowerRestored ||
+                festek.CurrentState != FestekItemState.HeldInLeftHand || animCtrl == null || !festek.transform.IsChildOf(animCtrl.LeftHandFestekSocket) ||
+                objMgr.CurrentState != ChapterObjectiveState.InsertFestek ||
+                (festek.GripPoint != null && Vector3.Distance(festek.GripPoint.position, animCtrl.LeftHandFestekSocket.position) > 0.004f))
+                failures.Add("Cancelling a partial turn did not restore the left-hand grip and insertion objective.");
+
+            socket.SeatForVerification(festek, player);
+            socket.ApplyRotationDelta(89f);
+            if (socket.IsActivated || powerMgr.IsPowerRestored)
+                failures.Add("Power came on below 90 degrees.");
+            if (canRender && shotCam != null)
+            {
+                shotCam.transform.position = new Vector3(5.79f, 1.48f, 7.55f);
+                shotCam.transform.LookAt(socket.InsertionAnchor.position);
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Festek_Partial_Turn.png", sb);
+            }
+            socket.ApplyRotationDelta(1f);
             socket.ApplyRotationDelta(90f);
+            socket.CancelAndWithdraw();
             var mesh = tvCtrl.ScreenRenderer != null ? tvCtrl.ScreenRenderer.GetComponent<MeshFilter>()?.sharedMesh : null;
             if (mesh == null || mesh.vertexCount < 40 || tvCtrl.ScreenRenderer.name != "CRT_Display_Glass")
                 failures.Add("The CRT controller is not driving the curved display mesh.");
@@ -1229,7 +1257,7 @@ namespace TheLastBell.Editor
                 failures.Add("Player movement was locked at ChapterMilestoneComplete (player must remain in control!).");
 
             if (failures.Count == puzzleStartFailures)
-                sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Left-Hand Pickup + Right-Hand Flashlight -> Socket Insert & 90-Degree Turn -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
+                sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Left-Hand Pickup + Right-Hand Flashlight -> Socket Insert, Reverse, Withdraw, Reinsert & 90-Degree Turn -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
 
             if (canRender && shotCam != null)
             {
@@ -1242,6 +1270,46 @@ namespace TheLastBell.Editor
                 UnityEngine.Object.DestroyImmediate(shotCamGo);
                 if (canvas != null) canvas.gameObject.SetActive(prevCanvasActive);
             }
+        }
+
+        private static void VerifyHeroGeometry(GameObject sedan, AbandonedTelevisionController television,
+            StringBuilder log, List<string> failures)
+        {
+            int before = failures.Count;
+            var sets = UnityEngine.Object.FindObjectsByType<AbandonedTelevisionController>(FindObjectsInactive.Include);
+            var cabinet = GameObject.Find("PuzzleRight_TVCabinet");
+            if (sets.Length != 1 || cabinet == null || television.transform.position.z < 7.5f ||
+                television.transform.position.z > 10f)
+                failures.Add("The scene must contain a single CRT in the lounge.");
+
+            Bounds tv = Chapter1EnvironmentBuilder.BoundsIn(television.transform);
+            Vector3 tvMeters = Vector3.Scale(tv.size, television.transform.lossyScale);
+            if (tvMeters.x < 0.38f || tvMeters.x > 0.57f || tvMeters.y < 0.39f || tvMeters.y > 0.59f ||
+                tvMeters.z < 0.30f || tvMeters.z > 0.50f || tv.center.magnitude > 0.38f)
+                failures.Add($"CRT imported bounds are outside the real-world cabinet size: {tvMeters}.");
+            if (cabinet != null)
+            {
+                var stand = Chapter1EnvironmentBuilder.BoundsIn(cabinet.transform);
+                float screenBottom = television.transform.TransformPoint(tv.center.x, tv.min.y, tv.center.z).y;
+                if (Mathf.Abs(screenBottom - cabinet.transform.TransformPoint(stand.center.x, stand.max.y, stand.center.z).y) > 0.03f)
+                    failures.Add("CRT is floating above or intersecting the cabinet.");
+            }
+
+            if (sedan == null || GameObject.Find("Courtyard_ArrivedCar") != null)
+                failures.Add("The replacement sedan or removal of the placeholder could not be verified.");
+            else
+            {
+                var car = Chapter1EnvironmentBuilder.BoundsIn(sedan.transform);
+                if (car.size.z < 4.65f || car.size.z > 5.03f || car.size.x < 1.85f || car.size.x > 2.30f ||
+                    car.size.y < 1.37f || car.size.y > 1.69f || Mathf.Abs(car.min.y) > 0.02f ||
+                    Vector3.Distance(sedan.transform.position, new Vector3(2.85f, 0f, -17.6f)) > 0.03f)
+                    failures.Add($"Sedan outside verified size, ground contact or spawn location: {car.size}, min y {car.min.y:F3}.");
+                if (!sedan.GetComponentsInChildren<Renderer>().Any(renderer => renderer.name == "Sedan_rubber"))
+                    failures.Add("The replacement sedan is missing its tire mesh.");
+            }
+
+            if (before == failures.Count)
+                log.AppendLine($"  Scale regression check: one lounge CRT {tvMeters} m and grounded replacement sedan at the original spawn.");
         }
 
         private static void VerifyEntranceAndPresentation(GameObject player, ChapterObjectiveManager objective,
@@ -1277,7 +1345,7 @@ namespace TheLastBell.Editor
             var subtitle = labels.FirstOrDefault(label => label.name == "Chapter_Subtitle");
             var objectiveLabel = labels.FirstOrDefault(label => label.name == "Objective_Label");
             if (chapter == null || chapter.text != "BÖLÜM 1" || subtitle == null || subtitle.text != "Hoş Geldin" ||
-                objectiveLabel == null || objectiveLabel.text != "İngilizce kursuna gir.")
+                objectiveLabel == null || objectiveLabel.text != "Binanın girişine git.")
                 failures.Add("Turkish Chapter I introduction or initial objective label is missing.");
             else
             {

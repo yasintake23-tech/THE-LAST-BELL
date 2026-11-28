@@ -22,7 +22,7 @@ namespace TheLastBell.Editor
     /// - Mobil ASTC doku sıkıştırma & NormalMap doğrulaması
     /// - 26 doğrulanmış CC0 (Poly Haven + ambientCG) ve 7 özgün Blender 4.0.2 3B varlığının PBR materyal kurulumu
     /// - Alacakaranlık (Blue Hour) winter_evening 2K HDRI gökyüzü, sis, ReflectionProbe ve LightProbeGroup
-    /// - Avlu arabası (ArrivedSedan_Car), yabani otlar, 3B kabartma "HARPUT / ENGLISH COURSE" tabelası ve detaylı çift kanatlı giriş kapısı
+    /// - Avlu arabası (GraphiteSedan), yabani otlar, 3B kabartma "HARPUT / ENGLISH COURSE" tabelası ve detaylı çift kanatlı giriş kapısı
     /// - Derslikler, koridor, öğretmenler/personel odası (elektrik panosu -> fiziksel Feştek düşüşü -> Feştek yuvası -> sağ taraftaki CRT televizyon)
     /// - 7 yeni Bölüm I karakter etkileşim animasyonu (.anim, Humanoid uyumlu) ve 15 uzamsal 3B ses klibi
     /// </summary>
@@ -341,7 +341,7 @@ namespace TheLastBell.Editor
                 skyMat.shader = skyShader;
                 skyMat.SetTexture("_Tex", hdrCube);
                 skyMat.SetColor("_Tint", new Color(0.26f, 0.34f, 0.50f, 1f));
-                skyMat.SetFloat("_Exposure", 0.48f);
+                skyMat.SetFloat("_Exposure", 0.39f);
                 skyMat.SetFloat("_Rotation", 165f);
                 EditorUtility.SetDirty(skyMat);
                 dict["Skybox"] = skyMat;
@@ -683,13 +683,13 @@ namespace TheLastBell.Editor
             }
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.19f, 0.23f, 0.33f);
-            RenderSettings.ambientEquatorColor = new Color(0.09f, 0.11f, 0.17f);
+            RenderSettings.ambientSkyColor = new Color(0.23f, 0.25f, 0.28f);
+            RenderSettings.ambientEquatorColor = new Color(0.115f, 0.12f, 0.13f);
             RenderSettings.ambientGroundColor = new Color(0.045f, 0.05f, 0.065f);
 
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = new Color(0.065f, 0.085f, 0.135f);
+            RenderSettings.fogColor = new Color(0.12f, 0.13f, 0.16f);
             RenderSettings.fogDensity = 0.017f;
 
             // Alacakaranlık ay/ufuk yönlü ışığı (yumuşak gölgeli tek dış ana ışık)
@@ -700,7 +700,7 @@ namespace TheLastBell.Editor
                 var dirLight = moonGo.GetComponent<Light>();
                 if (dirLight != null)
                 {
-                    dirLight.color = new Color(0.48f, 0.58f, 0.78f);
+                    dirLight.color = new Color(0.72f, 0.75f, 0.81f);
                     dirLight.intensity = 0.81f;
                     dirLight.shadows = LightShadows.Soft;
                     dirLight.shadowStrength = 0.78f;
@@ -786,52 +786,39 @@ namespace TheLastBell.Editor
 
         private static void BuildCourtyardAndFacadeSign(Dictionary<string, Material> mats, Transform parent)
         {
-            // 1. Eski küp araba görselini gizle ve yerine gerçekçi ArrivedSedan_Car.fbx yerleştir
-            GameObject oldCar = GameObject.Find("Courtyard_ArrivedCar");
-            Vector3 carPos = new Vector3(2.85f, 0.0f, -17.6f);
-            if (oldCar != null)
-            {
-                var oldMr = oldCar.GetComponent<MeshRenderer>();
-                if (oldMr != null) oldMr.enabled = false;
-                var oldCol = oldCar.GetComponent<Collider>();
-                if (oldCol != null) oldCol.enabled = false;
-            }
+            var obsoleteCar = GameObject.Find("Courtyard_ArrivedCar");
+            if (obsoleteCar != null) UnityEngine.Object.DestroyImmediate(obsoleteCar);
 
-            GameObject carInst = InstantiateFbx("Assets/Environment/Original/Vehicle/ArrivedSedan_Car.fbx",
-                "Protagonist_ArrivedSedan", parent, carPos, Quaternion.Euler(0f, -18f, 0f), Vector3.one, isStatic: true);
-            if (carInst != null)
+            const string sedanPath = "Assets/Environment/External/Models/graphite_sedan/";
+            var sedan = InstantiateFbx(sedanPath + "GraphiteSedan.fbx", "Protagonist_ArrivedSedan",
+                parent, new Vector3(2.85f, 0f, -17.6f), Quaternion.Euler(0f, -18f, 0f), Vector3.one, true);
+            foreach (var renderer in sedan.GetComponentsInChildren<MeshRenderer>())
             {
-                foreach (var r in carInst.GetComponentsInChildren<Renderer>(true))
+                string part = renderer.name;
+                Material material;
+                if (part == "Sedan_glass")
+                    material = mats["CarGlass"];
+                else if (part == "Sedan_clearlens")
+                    material = mats["CarHeadlight"];
+                else if (part == "Sedan_redlens")
+                    material = mats["CarTaillight"];
+                else
                 {
-                    string rn = r.gameObject.name;
-                    if (rn.Contains("Tire") || rn.Contains("Tyre")) r.sharedMaterial = mats["Tire"];
-                    else if (rn.Contains("Sill") || rn.Contains("Underbody")) r.sharedMaterial = mats["VehicleLower"];
-                    else if (rn.Contains("Body") || rn.Contains("MirrorCap") || rn.Contains("Hood") || rn.Contains("Fender") ||
-                             rn.Contains("Trunk") || rn.Contains("DoorSkin") || rn.Contains("Roof")) r.sharedMaterial = mats["CarPaint"];
-                    else if (rn.Contains("Glass") || rn.Contains("Window") || rn.Contains("Windshield")) r.sharedMaterial = mats["CarGlass"];
-                    else if (rn.Contains("Interior") || rn.Contains("Dashboard") || rn.Contains("Seat") || rn.Contains("Bench")) r.sharedMaterial = mats["CarInterior"];
-                    else if (rn.Contains("Rim") || rn.Contains("Spoke") || rn.Contains("Exhaust")) r.sharedMaterial = mats["CarRim"];
-                    else if (rn.Contains("Headlight")) r.sharedMaterial = mats["CarHeadlight"];
-                    else if (rn.Contains("Taillight")) r.sharedMaterial = mats["CarTaillight"];
-                    else if (rn.Contains("Plate")) r.sharedMaterial = mats["CarPlate"];
-                    else r.sharedMaterial = mats["CarTrim"];
+                    float metal = part == "Sedan_chrome" || part == "Sedan_steel" ? 0.36f : 0.10f;
+                    material = CreateCustomPbrMat("Mat_Graphite_" + part, sedanPath + part + "_diff.png",
+                        null, null, Color.white, part == "Sedan_paint" ? 0.42f : 0.25f);
+                    material.SetFloat("_Metallic", metal);
+                    EditorUtility.SetDirty(material);
                 }
-
-                var carBox = carInst.AddComponent<BoxCollider>();
-                carBox.center = new Vector3(0f, 0.72f, 0f);
-                carBox.size = new Vector3(1.82f, 1.42f, 4.46f);
-
-                // Yeni park edilmiş arabanın hafif gösterge / park lambası ışıması (gölgesiz, mobil dostu)
-                var dashGlow = new GameObject("Car_SubtleParkingGlow");
-                dashGlow.transform.SetParent(carInst.transform, false);
-                dashGlow.transform.localPosition = new Vector3(0f, 0.72f, 2.35f);
-                var cl = dashGlow.AddComponent<Light>();
-                cl.type = LightType.Point;
-                cl.color = new Color(0.95f, 0.78f, 0.52f);
-                cl.intensity = 0.45f;
-                cl.range = 3.2f;
-                cl.shadows = LightShadows.None;
+                renderer.sharedMaterial = material;
             }
+            var carBounds = BoundsIn(sedan.transform);
+            var sedanModel = sedan.transform.GetChild(0);
+            sedanModel.localPosition -= new Vector3(carBounds.center.x, carBounds.min.y, carBounds.center.z);
+            carBounds = BoundsIn(sedan.transform);
+            var carCollider = sedan.AddComponent<BoxCollider>();
+            carCollider.center = carBounds.center;
+            carCollider.size = new Vector3(Mathf.Min(carBounds.size.x, 1.91f), carBounds.size.y, carBounds.size.z);
 
             // 2. Bina Ana Girişi Üzerine 3B Kabartma "HARPUT / ENGLISH COURSE" Metal Tabela
             GameObject signInst = InstantiateFbx("Assets/Environment/Original/Signage/HarputCourse_Sign.fbx",
@@ -1079,20 +1066,174 @@ namespace TheLastBell.Editor
                 }
             }
 
-            // Layer the skyline behind the courtyard boundary at distances that keep background geometry cheap.
-            var background = CreateSimpleStandardMat("Mat_Neighborhood_Weathered_Masonry", new Color(0.20f, 0.23f, 0.26f), 0f, 0.16f);
-            for (int i = 0; i < 7; i++)
+            const string modelDir = "Assets/Environment/External/Models/";
+            var cabinet = InstantiateFbx(modelDir + "vintage_cabinet_01/vintage_cabinet_01.fbx",
+                "C103_Records_Cabinet", parent, new Vector3(9.24f, 0f, 15.50f), Quaternion.Euler(0f, -90f, 0f), Vector3.one * 0.82f, true);
+            AssignCourseMaterialSlots(cabinet, "vintage_cabinet_01", "_a", "_b");
+            var cabinetVolume = BoundsIn(cabinet.transform);
+            var recordsCollider = cabinet.AddComponent<BoxCollider>();
+            recordsCollider.center = cabinetVolume.center;
+            recordsCollider.size = cabinetVolume.size;
+            var books = InstantiateFbx(modelDir + "book_encyclopedia_set_01/book_encyclopedia_set_01.fbx",
+                "C101_Reference_Books", parent, new Vector3(-6.05f, 0.725f, 3.50f), Quaternion.Euler(0f, 174f, 0f),
+                Vector3.one * 0.68f, true);
+            AssignCourseMaterialSlots(books, "book_encyclopedia_set_01", "_cover", "_paper");
+            foreach (var placement in new[] { new Vector3(-8.7f, 0.002f, 12.05f), new Vector3(8.32f, 0.002f, 16.7f) })
             {
-                float height = 3.6f + (i * 7 % 6) * 0.52f;
-                float x = -24f + i * 8.1f;
-                float z = -34f - (i % 3) * 5f;
-                BuildDetail("Neighborhood_Masonry_Silhouette", courtyard, new Vector3(x, height * 0.5f, z),
-                    new Vector3(6.4f + (i % 2) * 1.4f, height, 7.3f), background).GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-                BuildDetail("Neighborhood_Parapet", courtyard, new Vector3(x, height + 0.13f, z),
-                    new Vector3(6.65f + (i % 2) * 1.4f, 0.26f, 7.5f), background).GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+                var chair = InstantiateFbx(modelDir + "painted_wooden_chair_01/painted_wooden_chair_01.fbx",
+                    "Retired_Teacher_Chair", parent, placement, Quaternion.Euler(0f, placement.x < 0 ? 40f : -32f, 0f),
+                    Vector3.one, true);
+                AssignPolyHavenMats(chair, CreatePolyHavenMaterial("painted_wooden_chair_01", false), null);
             }
-            BuildDetail("Courtyard_Distant_Road", courtyard, new Vector3(0f, -0.06f, -33f),
-                new Vector3(55f, 0.11f, 17f), mats["Asphalt"]);
+
+            BuildNeighborhood(mats, courtyard);
+            BuildCourtyardGrowth(courtyard);
+            foreach (Vector3 pos in new[]
+            {
+                new Vector3(-13.1f, 0.015f, -19.4f), new Vector3(12.9f, 0.015f, -20.9f),
+                new Vector3(-12.4f, 0.015f, -3.28f), new Vector3(10.6f, 0.015f, -2.14f)
+            })
+            {
+                var verge = InstantiateFbx(modelDir + "fern_02/fern_02.fbx", "Boundary_Brush", courtyard, pos,
+                    Quaternion.Euler(0f, pos.z * 19f, 0f), Vector3.one * (pos.x < 0f ? 0.86f : 0.64f), true);
+                AssignPolyHavenMats(verge, mats["fern_02"], null);
+            }
+        }
+
+        private static void AssignCourseMaterialSlots(GameObject model, string id, string first, string second)
+        {
+            string directory = $"Assets/Environment/External/Models/{id}/{id}";
+            Material a = CreateCustomPbrMat($"Mat_PH_{id}{first}", directory + first + "_diff_1k.png", null,
+                directory + first + "_nor_gl_1k.png", Color.white, 0.22f);
+            Material b = CreateCustomPbrMat($"Mat_PH_{id}{second}", directory + second + "_diff_1k.png", null,
+                directory + second + "_nor_gl_1k.png", Color.white, 0.23f);
+            foreach (var renderer in model.GetComponentsInChildren<Renderer>())
+            {
+                var slots = renderer.sharedMaterials;
+                for (int i = 0; i < slots.Length; i++)
+                    slots[i] = slots[i] != null && slots[i].name.Contains(second, StringComparison.OrdinalIgnoreCase) ? b : a;
+                renderer.sharedMaterials = slots;
+            }
+        }
+
+        private static void BuildNeighborhood(Dictionary<string, Material> mats, Transform courtyard)
+        {
+            var slate = CreateSimpleStandardMat("Mat_Neighborhood_RoofTile", new Color(0.23f, 0.147f, 0.125f), 0f, 0.15f);
+            var recess = mats["WindowBoard"];
+            for (int i = 0; i < 6; i++)
+            {
+                float x = -23f + i * 9.1f;
+                float z = -34f - (i % 3) * 5f;
+                float width = 5.8f + (i % 2) * 1.4f;
+                float height = 4.5f + (i % 3) * 0.65f;
+                Material wall = i % 2 == 0 ? mats["FacadePlaster"] : mats["Brick"];
+                BuildDetail("Street_House", courtyard, new Vector3(x, height * 0.5f, z),
+                    new Vector3(width, height, 5.1f), wall);
+                foreach (float side in new[] { -1f, 1f })
+                {
+                    var roof = BuildDetail("Street_House_Pitched_Roof", courtyard,
+                        new Vector3(x + side * width * 0.26f, height + 0.37f, z),
+                        new Vector3(width * 0.58f, 0.14f, 5.55f), slate);
+                    roof.transform.localRotation = Quaternion.Euler(0f, 0f, -14f * side);
+                }
+
+                for (int story = 0; story < 2; story++)
+                {
+                    float y = 1.28f + story * (height - 2.2f);
+                    for (int column = -1; column <= 1; column++)
+                    {
+                        float windowX = x + width * 0.27f * column;
+                        BuildDetail("Street_Window_Frame", courtyard, new Vector3(windowX, y, z + 2.57f),
+                            new Vector3(1.22f, 1.38f, 0.11f), mats["DarkWood"]);
+                        BuildDetail("Street_Window_Glass", courtyard, new Vector3(windowX, y, z + 2.64f),
+                            new Vector3(1.04f, 1.17f, 0.05f), recess);
+                        BuildDetail("Street_Window_Sill", courtyard, new Vector3(windowX, y - 0.67f, z + 2.65f),
+                            new Vector3(1.39f, 0.13f, 0.27f), mats["Concrete"]);
+                    }
+                }
+            }
+            BuildDetail("Courtyard_Distant_Road", courtyard, new Vector3(0f, -0.06f, -34f),
+                new Vector3(62f, 0.11f, 19f), mats["Asphalt"]);
+        }
+
+        private static void BuildCourtyardGrowth(Transform parent)
+        {
+            var random = new System.Random(1743);
+            var points = new List<Vector3>();
+            for (int i = 0; i < 170; i++)
+            {
+                float spread = (float)random.NextDouble();
+                float side = i % 2 == 0 ? -1f : 1f;
+                float x;
+                float z;
+                if (i < 78)
+                {
+                    x = side * (13.1f + 1.45f * Mathf.Sqrt(spread));
+                    z = -1.2f - 22f * (float)random.NextDouble();
+                }
+                else if (i < 130)
+                {
+                    x = side * (2.15f + 11.3f * (float)random.NextDouble());
+                    z = -0.36f - Mathf.Pow(spread, 2.4f) * 1.7f;
+                }
+                else
+                {
+                    x = side * (1.13f + spread * 0.26f);
+                    z = -2.4f - 10.8f * (float)random.NextDouble();
+                }
+                points.Add(new Vector3(x, 0.012f, z));
+            }
+            for (int tone = 0; tone < 2; tone++)
+            {
+                var vertices = new List<Vector3>();
+                var triangles = new List<int>();
+                for (int i = tone; i < points.Count; i += 2)
+                {
+                    Vector3 point = points[i];
+                    int blades = random.Next(8, 24);
+                    for (int j = 0; j < blades; j++)
+                    {
+                        float angle = (float)random.NextDouble() * Mathf.PI * 2f;
+                        float radius = (float)random.NextDouble() * 0.27f;
+                        Vector3 tangent = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+                        Vector3 root = point + tangent * radius;
+                        float height = 0.065f + (float)random.NextDouble() * (i < 130 ? 0.32f : 0.16f);
+                        int index = vertices.Count;
+                        vertices.Add(root - tangent * 0.013f);
+                        vertices.Add(root + tangent * 0.013f);
+                        vertices.Add(root + Vector3.up * height + tangent * 0.067f);
+                        triangles.AddRange(new[] { index, index + 1, index + 2, index + 1, index, index + 2 });
+                    }
+                }
+
+                var generated = new Mesh { name = $"Courtyard_Grass_{tone}" };
+                generated.SetVertices(vertices);
+                generated.SetTriangles(triangles, 0);
+                var normals = new Vector3[vertices.Count];
+                for (int i = 0; i < normals.Length; i++) normals[i] = Vector3.up;
+                generated.normals = normals;
+                generated.RecalculateBounds();
+                string meshPath = $"{MAT_DIR}/Courtyard_Grass_{tone}.asset";
+                var saved = AssetDatabase.LoadAssetAtPath<Mesh>(meshPath);
+                if (saved == null)
+                {
+                    AssetDatabase.CreateAsset(generated, meshPath);
+                    saved = generated;
+                }
+                else
+                {
+                    EditorUtility.CopySerialized(generated, saved);
+                    UnityEngine.Object.DestroyImmediate(generated);
+                }
+                var patch = new GameObject(saved.name, typeof(MeshFilter), typeof(MeshRenderer));
+                patch.transform.SetParent(parent, false);
+                patch.GetComponent<MeshFilter>().sharedMesh = saved;
+                var renderer = patch.GetComponent<MeshRenderer>();
+                renderer.sharedMaterial = CreateSimpleStandardMat($"Mat_Courtyard_Grass_Blade_{tone}",
+                    tone == 0 ? new Color(0.18f, 0.22f, 0.10f) : new Color(0.25f, 0.25f, 0.13f), 0f, 0.15f);
+                renderer.shadowCastingMode = ShadowCastingMode.Off;
+                GameObjectUtility.SetStaticEditorFlags(patch, StaticEditorFlags.BatchingStatic);
+            }
         }
 
         private static GameObject BuildDetail(string name, Transform parent, Vector3 position, Vector3 size, Material material, bool solid = false)
@@ -1464,11 +1605,12 @@ namespace TheLastBell.Editor
                 "PuzzleRight_TVCabinet", puzzleParent, new Vector3(7.55f, 0f, 8.78f), Quaternion.Euler(0f, -152f, 0f), Vector3.one, isStatic: true);
             AssignPolyHavenMats(tvCabinet, mats["painted_wooden_cabinet"], null);
             var cabCol = tvCabinet.AddComponent<BoxCollider>();
-            cabCol.center = new Vector3(0f, 0.59f, 0f);
-            cabCol.size = new Vector3(1.18f, 1.18f, 0.62f);
+            Bounds cabinetBounds = BoundsIn(tvCabinet.transform);
+            cabCol.center = cabinetBounds.center;
+            cabCol.size = cabinetBounds.size;
 
             GameObject tvGo = InstantiateFbx("Assets/Environment/External/Models/television_02/television_02_chapter1.fbx",
-                "Abandoned_CRT_Television", puzzleParent, new Vector3(7.55f, 1.18f, 8.78f), Quaternion.Euler(0f, -152f, 0f), Vector3.one * 1.18f, isStatic: false);
+                "Abandoned_CRT_Television", puzzleParent, new Vector3(7.55f, cabinetBounds.max.y, 8.78f), Quaternion.Euler(0f, -152f, 0f), Vector3.one * 1.18f, isStatic: false);
             AssignPolyHavenMats(tvGo, mats["television_02"], null);
 
             var screenRend = FindDeep(tvGo.transform, "CRT_Display_Glass")?.GetComponent<Renderer>();
@@ -1527,6 +1669,15 @@ namespace TheLastBell.Editor
 
             var socketInteract = socketGo.AddComponent<FestekSocketInteractable>();
             Renderer lensRend = FindDeep(socketGo.transform, "Socket_StatusLens")?.GetComponent<Renderer>();
+            if (lensRend != null)
+            {
+                var socketLens = CreateSimpleStandardMat("Mat_Festek_SocketGuide",
+                    new Color(0.30f, 0.27f, 0.21f), 0.08f, 0.46f);
+                socketLens.EnableKeyword("_EMISSION");
+                socketLens.SetColor("_EmissionColor", Color.black);
+                EditorUtility.SetDirty(socketLens);
+                lensRend.sharedMaterial = socketLens;
+            }
             Transform rawInsertT = FindDeep(socketGo.transform, "Insertion_Transform");
             var insertAnchorGo = new GameObject("Insertion_Unity_Anchor");
             insertAnchorGo.transform.SetParent(socketGo.transform, false);
@@ -1701,6 +1852,25 @@ namespace TheLastBell.Editor
                 PrefabUtility.UnpackPrefabInstance(inst, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
             inst.name = instanceName + "_Model";
             inst.transform.SetParent(wrapper.transform, false);
+            // The FBX importer can apply file units on the mesh or the imported root.
+            // Compare the assembled model in wrapper space before the scene placement scale.
+            var nominal = BoundsIn(wrapper.transform);
+            float importedSpan = LongestSide(nominal.size);
+            float authoredSpan = AuthoredModelSpan(Path.GetFileNameWithoutExtension(assetPath));
+            if (importedSpan <= 0.0001f || authoredSpan <= 0f)
+                throw new InvalidOperationException($"Missing metre calibration for {assetPath} ({nominal.size}).");
+            float correction = authoredSpan / importedSpan;
+            if (Mathf.Abs(correction - 1f) > 0.015f)
+            {
+                inst.transform.localScale *= correction;
+                inst.transform.localPosition *= correction;
+                Debug.Log($"[Chapter I geometry] {instanceName}: {importedSpan:F3} m -> {authoredSpan:F3} m");
+            }
+            float corrected = LongestSide(BoundsIn(wrapper.transform).size);
+            if (Mathf.Abs(corrected - authoredSpan) > authoredSpan * 0.025f ||
+                BoundsIn(wrapper.transform).center.magnitude > Mathf.Max(1.2f, authoredSpan))
+                throw new InvalidOperationException($"Unity geometry bounds failed for {instanceName}: {corrected:F3} m.");
+
 
             if (isStatic)
             {
@@ -1711,6 +1881,72 @@ namespace TheLastBell.Editor
             }
             return wrapper;
         }
+
+        internal static Bounds BoundsIn(Transform root)
+        {
+            var worldToRoot = root.worldToLocalMatrix;
+            var result = new Bounds();
+            bool found = false;
+            foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var filter = renderer.GetComponent<MeshFilter>();
+                if (filter == null || filter.sharedMesh == null) continue;
+                var meshBounds = filter.sharedMesh.bounds;
+                Matrix4x4 toRoot = worldToRoot * renderer.localToWorldMatrix;
+                Vector3 center = toRoot.MultiplyPoint3x4(meshBounds.center);
+                Vector3 x = toRoot.MultiplyVector(Vector3.right * meshBounds.extents.x);
+                Vector3 y = toRoot.MultiplyVector(Vector3.up * meshBounds.extents.y);
+                Vector3 z = toRoot.MultiplyVector(Vector3.forward * meshBounds.extents.z);
+                Vector3 extent = new Vector3(Mathf.Abs(x.x) + Mathf.Abs(y.x) + Mathf.Abs(z.x),
+                    Mathf.Abs(x.y) + Mathf.Abs(y.y) + Mathf.Abs(z.y), Mathf.Abs(x.z) + Mathf.Abs(y.z) + Mathf.Abs(z.z));
+                if (!found) result = new Bounds(center, extent * 2f);
+                else
+                {
+                    result.Encapsulate(center - extent);
+                    result.Encapsulate(center + extent);
+                }
+                found = true;
+            }
+            return result;
+        }
+
+        private static float LongestSide(Vector3 size) => Mathf.Max(size.x, Mathf.Max(size.y, size.z));
+
+        // Longest axis in metres, measured from the source meshes in Blender 4.3.
+        private static float AuthoredModelSpan(string name) => name switch
+        {
+            "GraphiteSedan" => 4.8399f,
+            "HarputCourse_Sign" => 3.5650f,
+            "SchoolEntrance_DetailedDoor" => 2.8400f,
+            "Whiteboard_Classroom" => 2.4200f,
+            "vintage_cabinet_01" => 2.2351f,
+            "weed_plant_02" => 2.1253f,
+            "wooden_bookshelf_worn" => 2.0634f,
+            "metal_office_desk" => 2.0000f,
+            "fern_02" => 1.9725f,
+            "metal_trash_can" => 1.8469f,
+            "WoodenTable_01" => 1.7996f,
+            "Sofa_01" => 1.5715f,
+            "ElectricalPanel_Unit" => 1.5200f,
+            "Radiator_CastIron" => 1.2890f,
+            "painted_wooden_cabinet" => 1.1947f,
+            "office_notepads" => 1.1028f,
+            "SchoolChair_01" => 1.0060f,
+            "painted_wooden_chair_01" => 0.9565f,
+            "mounted_fluorescent_lights" => 0.9122f,
+            "SchoolDesk_01" => 0.8826f,
+            "desk_lamp_arm_01" => 0.8790f,
+            "FestekSocket_Unit" => 0.7800f,
+            "binder_notebook" => 0.5840f,
+            "book_encyclopedia_set_01" => 0.5513f,
+            "cardboard_box_01" => 0.5159f,
+            "industrial_wall_lamp" => 0.4299f,
+            "television_02_chapter1" => 0.4114f,
+            "clipboard" => 0.3366f,
+            "wall_clock" => 0.3205f,
+            "Festek_Device" => 0.2182f,
+            _ => 0f
+        };
 
         private static void AssignPolyHavenMats(GameObject root, Material mainMat, Material glassMat)
         {
