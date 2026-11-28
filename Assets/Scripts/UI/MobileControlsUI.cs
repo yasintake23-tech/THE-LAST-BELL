@@ -499,7 +499,7 @@ namespace TheLastBell.UI
 
         private void OnActionButtonClicked()
         {
-            if (actionButton != null) StartCoroutine(PunchButtonScaleRoutine(actionButton.transform));
+            if (Application.isPlaying && actionButton != null) StartCoroutine(PunchButtonScaleRoutine(actionButton.transform));
 
             if (interactor != null)
             {

@@ -668,9 +668,12 @@ namespace TheLastBell.Player
                     // Yalnızca ayak zemine yakınsa (adım atarken havadaki ayağı aşağı çekme)
                     if (footPos.y <= targetY + 0.08f)
                     {
-                        Vector3 newPos = new Vector3(footPos.x, Mathf.Max(footPos.y, targetY), footPos.z);
+                        // Settle a planted idle shoe without pulling down a swinging locomotion foot.
+                        float soleY = Mathf.Max(footPos.y, targetY);
+                        if (!animator.GetBool(HashIsMoving) && footPos.y > targetY)
+                            soleY = Mathf.Max(targetY, footPos.y - 0.025f);
                         animator.SetIKPositionWeight(footGoal, 0.85f);
-                        animator.SetIKPosition(footGoal, newPos);
+                        animator.SetIKPosition(footGoal, new Vector3(footPos.x, soleY, footPos.z));
 
                         Quaternion footRot = Quaternion.FromToRotation(Vector3.up, hit.normal) * animator.GetIKRotation(footGoal);
                         animator.SetIKRotationWeight(footGoal, 0.6f);

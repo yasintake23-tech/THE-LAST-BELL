@@ -50,6 +50,7 @@ namespace TheLastBell.Editor
                 VerifyAnimationAndPhysicalFlashlight(sb, failures);
                 RunFunctionalMovementAndJoystickTests(sb, failures);
                 CaptureVisualScreenshots(sb);
+                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
                 VerifyChapter1ProductionAndPuzzleArc(sb, failures);
             }
             catch (Exception ex)
@@ -827,8 +828,7 @@ namespace TheLastBell.Editor
                 if (idleClip != null)
                 {
                     if (camMode != null) camMode.SetCameraMode(CameraViewMode.FirstPerson);
-                    anim.Rebind();
-                    idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                    SampleCharacterForScreenshot(animCtrl, player.GetComponent<CharacterProceduralController>(), idleClip, 0.25f);
                     cam.transform.position = player.transform.position + new Vector3(0f, 1.62f, 0.14f);
                     cam.transform.rotation = Quaternion.Euler(65f, 0f, 0f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/TrueFPS_LookDown_Body.png", sb);
@@ -841,8 +841,7 @@ namespace TheLastBell.Editor
 
                 if (idleClip != null)
                 {
-                    anim.Rebind();
-                    idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                    SampleCharacterForScreenshot(animCtrl, player.GetComponent<CharacterProceduralController>(), idleClip, 0.25f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Idle_GroundCheck.png", sb);
                 }
 
@@ -850,8 +849,7 @@ namespace TheLastBell.Editor
                 var crouchIdleClip = registry.FindClip("Crouch_Idle_V2");
                 if (crouchIdleClip != null)
                 {
-                    anim.Rebind();
-                    crouchIdleClip.SampleAnimation(anim.gameObject, crouchIdleClip.length * 0.25f);
+                    SampleCharacterForScreenshot(animCtrl, player.GetComponent<CharacterProceduralController>(), crouchIdleClip, 0.25f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Crouch_Idle.png", sb);
                 }
 
@@ -859,8 +857,7 @@ namespace TheLastBell.Editor
                 var walkClip = registry.FindClip("Walk_Grounded_V2") ?? registry.FindClip("Walk_Forward_unity");
                 if (walkClip != null)
                 {
-                    anim.Rebind();
-                    walkClip.SampleAnimation(anim.gameObject, walkClip.length * 0.30f);
+                    SampleCharacterForScreenshot(animCtrl, player.GetComponent<CharacterProceduralController>(), walkClip, 0.30f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Walk_Forward.png", sb);
                 }
 
@@ -868,8 +865,7 @@ namespace TheLastBell.Editor
                 var flashHoldClip = registry.FindClip("Flashlight_Hold_V2") ?? registry.FindClip("Flashlight_Hold");
                 if (flashHoldClip != null)
                 {
-                    anim.Rebind();
-                    flashHoldClip.SampleAnimation(anim.gameObject, flashHoldClip.length * 0.25f);
+                    SampleCharacterForScreenshot(animCtrl, player.GetComponent<CharacterProceduralController>(), flashHoldClip, 0.25f);
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Flashlight_Hold.png", sb);
                 }
 
@@ -878,8 +874,7 @@ namespace TheLastBell.Editor
                 {
                     if (idleClip != null)
                     {
-                        anim.Rebind();
-                        idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                        SampleCharacterForScreenshot(animCtrl, player.GetComponent<CharacterProceduralController>(), idleClip, 0.25f);
                     }
                     cam.transform.position = player.transform.position + new Vector3(0.65f, 1.32f, 2.55f);
                     cam.transform.LookAt(player.transform.position + new Vector3(-0.45f, 0.95f, 0f));
@@ -912,6 +907,16 @@ namespace TheLastBell.Editor
             if (canvas != null) canvas.gameObject.SetActive(true);
         }
 
+        private static void SampleCharacterForScreenshot(ProtagonistAnimationController animation,
+            CharacterProceduralController procedural, AnimationClip clip, float phase)
+        {
+            animation.ResetAnimationState();
+            animation.StartIsolatedPreview(clip, true);
+            animation.SetPreviewNormalizedTime(phase);
+            procedural?.InitializeIfNeeded();
+            procedural?.StepProcedural(0.02f);
+        }
+
         private static void VerifyChapter1ProductionAndPuzzleArc(StringBuilder sb, List<string> failures)
         {
             sb.AppendLine("=== Chapter I: The Arrival — Environment, Toe Alignment & Puzzle Verification ===");
@@ -923,7 +928,7 @@ namespace TheLastBell.Editor
             if (RenderSettings.skybox == null)
                 failures.Add("RenderSettings.skybox is null (expected Blue Hour winter_evening skybox).");
 
-            var allRenderers = UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var allRenderers = UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include);
             int errorMatCount = 0;
             foreach (var r in allRenderers)
             {
@@ -975,6 +980,7 @@ namespace TheLastBell.Editor
             var camMode = player != null ? player.GetComponent<CameraModeController>() : null;
             var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(ProtagonistAnimationSetup.REGISTRY_PATH);
 
+            Vector3 initialSpawn = player != null ? player.transform.position : Vector3.zero;
             if (anim != null && animCtrl != null && procCtrl != null && registry != null)
             {
                 player.transform.position = Vector3.zero;
@@ -1022,6 +1028,8 @@ namespace TheLastBell.Editor
                 }
             }
 
+            if (player != null) player.transform.position = initialSpawn;
+
             // Setup screenshot helper camera if rendering is available
             bool canRender = SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null;
             Camera shotCam = null;
@@ -1064,6 +1072,7 @@ namespace TheLastBell.Editor
             }
 
             // 4. Full 13-State Chapter I Narrative & Physical Puzzle Progression Verification
+            int puzzleStartFailures = failures.Count;
             InvokePrivate(objMgr, "Awake");
             InvokePrivate(powerMgr, "Awake");
             InvokePrivate(tvCtrl, "Awake");
@@ -1084,14 +1093,19 @@ namespace TheLastBell.Editor
             if (socket.IsActivated || powerMgr.IsPowerRestored)
                 failures.Add("Out-of-order socket interaction restored power without Feştek!");
 
-            // Spatial progression Arrival -> EnterBuilding -> ExploreInstitution -> LocateElectricalPanel -> OperateElectricalPanel
-            objMgr.EvaluateSpatialProgression(new Vector3(0f, 0.02f, -8.0f));
-            if (objMgr.CurrentState != ChapterObjectiveState.EnterBuilding)
-                failures.Add($"Expected EnterBuilding at courtyard approach, got {objMgr.CurrentState}.");
-
-            objMgr.EvaluateSpatialProgression(new Vector3(0f, 0.02f, 1.5f));
-            if (objMgr.CurrentState != ChapterObjectiveState.ExploreInstitution)
-                failures.Add($"Expected ExploreInstitution inside entrance, got {objMgr.CurrentState}.");
+            VerifyEntranceAndPresentation(player, objMgr, canvas, shotCam, sb, failures);
+            VerifyChapterAudio(player, sb, failures);
+            if (canRender && shotCam != null)
+            {
+                shotCam.transform.SetPositionAndRotation(new Vector3(0.2f, 1.61f, 1.6f), Quaternion.identity);
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Main_Corridor.png", sb);
+                shotCam.transform.position = new Vector3(-3.2f, 1.58f, 14.25f);
+                shotCam.transform.LookAt(new Vector3(-6.2f, 1.54f, 10.8f));
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Classroom102.png", sb);
+                shotCam.transform.position = new Vector3(6.15f, 1.5f, 6.7f);
+                shotCam.transform.LookAt(tvCtrl.transform.position + Vector3.up * 0.18f);
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_TV_Before_Power.png", sb);
+            }
 
             objMgr.EvaluateSpatialProgression(new Vector3(0f, 0.02f, 5.0f));
             if (objMgr.CurrentState != ChapterObjectiveState.LocateElectricalPanel)
@@ -1193,7 +1207,8 @@ namespace TheLastBell.Editor
             if (fpc != null && !fpc.AllowMovement)
                 failures.Add("Player movement was locked at ChapterMilestoneComplete (player must remain in control!).");
 
-            sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Right-Hand Pickup + Left-Hand Flashlight -> Socket Insert & Button Press -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
+            if (failures.Count == puzzleStartFailures)
+                sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Right-Hand Pickup + Left-Hand Flashlight -> Socket Insert & Button Press -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
 
             if (canRender && shotCam != null)
             {
@@ -1206,6 +1221,173 @@ namespace TheLastBell.Editor
                 UnityEngine.Object.DestroyImmediate(shotCamGo);
                 if (canvas != null) canvas.gameObject.SetActive(prevCanvasActive);
             }
+        }
+
+        private static void VerifyEntranceAndPresentation(GameObject player, ChapterObjectiveManager objective,
+            Canvas canvas, Camera screenshot, StringBuilder log, List<string> failures)
+        {
+            var entrance = GameObject.Find("SchoolEntrance_Doorway")?.GetComponent<DoorInteractable>();
+            var actor = player != null ? player.GetComponent<CharacterController>() : null;
+            var interactor = player != null ? player.GetComponent<PlayerInteractor>() : null;
+            var camera = player != null ? player.GetComponentInChildren<Camera>(true) : null;
+            var mobile = UnityEngine.Object.FindAnyObjectByType<MobileControlsUI>(FindObjectsInactive.Include);
+            var uiEvent = UnityEngine.Object.FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include);
+            var left = entrance != null ? entrance.transform.Find("Hinge_Unity_L") : null;
+            var right = entrance != null ? entrance.transform.Find("Hinge_Unity_R") : null;
+            if (entrance == null || actor == null || interactor == null || camera == null || mobile == null ||
+                uiEvent == null || canvas == null || left == null || right == null || left.childCount == 0 || right.childCount == 0)
+            {
+                failures.Add("Entrance validation requires the player, mobile input, scene UI and two mounted entrance leaves.");
+                return;
+            }
+
+            int previousFailures = failures.Count;
+            canvas.gameObject.SetActive(true);
+            var button = GameObject.Find("Mobile_ActionButton")?.GetComponent<Button>();
+            if (button == null)
+            {
+                failures.Add("Could not locate the actual Mobile_ActionButton.");
+                return;
+            }
+
+            objective.InitializePresentation();
+            var labels = canvas.GetComponentsInChildren<Text>(true);
+            var chapter = labels.FirstOrDefault(label => label.name == "Chapter_Number");
+            var subtitle = labels.FirstOrDefault(label => label.name == "Chapter_Subtitle");
+            var objectiveLabel = labels.FirstOrDefault(label => label.name == "Objective_Label");
+            if (chapter == null || chapter.text != "BÖLÜM 1" || subtitle == null || subtitle.text != "Hoşgeldin" ||
+                objectiveLabel == null || objectiveLabel.text != "İngilizce kursuna gir.")
+                failures.Add("Turkish Chapter I introduction or initial objective label is missing.");
+            else
+            {
+                var introGroup = chapter.GetComponentInParent<CanvasGroup>();
+                objective.StepPresentation(0f, false);
+                if (introGroup.alpha != 0f) failures.Add("Chapter title showed before gameplay took control.");
+                objective.StepPresentation(1f, true);
+                objective.StepPresentation(2f, true);
+                if (introGroup.alpha < 0.99f || introGroup.blocksRaycasts)
+                    failures.Add("Chapter title did not fade to a readable non-blocking state.");
+
+                if (screenshot != null)
+                {
+                    var previousMode = canvas.renderMode;
+                    var previousCamera = canvas.worldCamera;
+                    canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                    canvas.worldCamera = screenshot;
+                    screenshot.transform.position = player.transform.position + new Vector3(-0.35f, 1.64f, -0.4f);
+                    screenshot.transform.LookAt(new Vector3(0.35f, 2.6f, 0f));
+                    Canvas.ForceUpdateCanvases();
+                    RenderAndSave(screenshot, 2340, 1080, "Logs/Screenshots/Chapter1_Spawn_Title_Objective.png", log);
+                    canvas.renderMode = previousMode;
+                    canvas.worldCamera = previousCamera;
+                }
+
+                objective.StepPresentation(7f, true);
+                if (introGroup.alpha != 0f) failures.Add("Chapter title remained visible after its outro.");
+            }
+
+            InvokePrivate(entrance, "Awake");
+            InvokePrivate(interactor, "Awake");
+            InvokePrivate(mobile, "Awake");
+            InvokePrivate(mobile, "Start");
+            Quaternion closedL = left.localRotation;
+            Quaternion closedR = right.localRotation;
+            float actualStart = player.transform.position.z;
+            actor.enabled = true;
+            interactor.enabled = true;
+            camera.transform.rotation = Quaternion.identity;
+            Physics.SyncTransforms();
+
+            // The controller walks from the actual scene spawn. Opening and crossing are separate objectives.
+            for (int i = 0; i < 220 && player.transform.position.z < -1.4f; i++)
+            {
+                actor.Move(new Vector3(0f, -0.06f, 0.12f));
+                objective.EvaluateSpatialProgression(player.transform.position);
+            }
+            if (actualStart > -11.5f || player.transform.position.z < -1.65f ||
+                objective.CurrentState != ChapterObjectiveState.EnterBuilding)
+                failures.Add($"Could not approach the entrance from the scene spawn (z={actualStart:F2} -> {player.transform.position.z:F2}).");
+
+            for (int i = 0; i < 22; i++) actor.Move(new Vector3(0f, -0.04f, 0.10f));
+            if (player.transform.position.z >= 0f)
+                failures.Add("The character crossed the threshold while the door was closed.");
+
+            objective.EvaluateSpatialProgression(new Vector3(0f, 0.02f, 1.2f));
+            if (objective.CurrentState != ChapterObjectiveState.EnterBuilding)
+                failures.Add("The entrance objective advanced without the door opening.");
+
+            Physics.SyncTransforms();
+            InvokePrivate(interactor, "CheckForInteractable");
+            if (interactor.CurrentInteractable != (IInteractable)entrance || !button.IsInteractable())
+                failures.Add("Closed entrance did not bind the mobile action button to the physical door.");
+
+            var pointer = new PointerEventData(uiEvent) { button = PointerEventData.InputButton.Left };
+            int openedEvents = 0;
+            entrance.OnDoorStateChanged += open => { if (open) openedEvents++; };
+            ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+            ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+            entrance.StepDoor(0.70f);
+            if (Quaternion.Angle(closedL, left.localRotation) < 1f || Quaternion.Angle(closedR, right.localRotation) < 1f)
+                failures.Add("Both physical entrance leaves must rotate during the press-triggered swing.");
+
+            // A component interruption must finish an accepted opening and release the blocker.
+            InvokePrivate(entrance, "OnDisable");
+            entrance.StepDoor(1f);
+            if (!entrance.IsOpen || openedEvents != 1 || !entrance.CanInteract() ||
+                Quaternion.Angle(closedL, left.localRotation) < 85f || Quaternion.Angle(closedR, right.localRotation) < 85f)
+                failures.Add("Entrance opening did not recover after interruption or emitted more than once.");
+
+            canvas.gameObject.SetActive(false);
+            if (screenshot != null)
+            {
+                screenshot.transform.position = new Vector3(0.16f, 1.55f, -2.55f);
+                screenshot.transform.LookAt(new Vector3(0f, 1.26f, 1.3f));
+                RenderAndSave(screenshot, 1280, 720, "Logs/Screenshots/Chapter1_Open_Entrance.png", log);
+            }
+
+            Physics.SyncTransforms();
+            for (int i = 0; i < 26; i++)
+            {
+                actor.Move(new Vector3(0f, -0.05f, 0.10f));
+                objective.EvaluateSpatialProgression(player.transform.position);
+            }
+            if (player.transform.position.z < 0.75f || objective.CurrentState != ChapterObjectiveState.ExploreInstitution ||
+                (objectiveLabel != null && objectiveLabel.text != "Binayı keşfet."))
+                failures.Add($"Open entrance traversal or objective update failed (z={player.transform.position.z:F2}, {objective.CurrentState}).");
+
+            if (failures.Count == previousFailures)
+                log.AppendLine("  Entrance: actual spawn approach, closed collision, mobile Button press, both hinge rotations, interruption recovery, open collision and Turkish objective update passed.");
+        }
+
+        private static void VerifyChapterAudio(GameObject player, StringBuilder log, List<string> failures)
+        {
+            int previousFailures = failures.Count;
+            var steps = player != null ? player.transform.Find("Player_Footsteps")?.GetComponent<AudioSource>() : null;
+            var controller = player != null ? player.GetComponent<FirstPersonController>() : null;
+            var banks = controller != null ? new SerializedObject(controller).FindProperty("surfaceSteps") : null;
+            if (steps == null || steps.outputAudioMixerGroup == null || steps.outputAudioMixerGroup.name != "Footsteps" || banks == null || banks.arraySize != 8)
+                failures.Add("Chapter I footstep source, mixer bus or eight surface banks are missing.");
+            else
+            {
+                for (int i = 0; i < banks.arraySize; i++)
+                {
+                    var clips = banks.GetArrayElementAtIndex(i).FindPropertyRelative("clips");
+                    if (clips.arraySize < 3 || Enumerable.Range(0, clips.arraySize).Any(index =>
+                        clips.GetArrayElementAtIndex(index).objectReferenceValue == null))
+                        failures.Add($"Surface footstep bank {i} is missing its recording variants.");
+                }
+            }
+
+            foreach (string name in new[] { "Ambience_Courtyard_Wind", "Ambience_Distant_Street", "Ambience_Course_RoomTone" })
+            {
+                var ambience = GameObject.Find(name)?.GetComponent<AudioSource>();
+                if (ambience == null || ambience.clip == null || !ambience.loop || !ambience.playOnAwake ||
+                    ambience.clip.loadType != AudioClipLoadType.Streaming || ambience.outputAudioMixerGroup == null)
+                    failures.Add($"Streaming ambience source not wired: {name}");
+            }
+
+            if (failures.Count == previousFailures)
+                log.AppendLine("  Audio: 8 assigned surface banks, Footsteps mixer routing and 3 streaming ambience sources checked.");
         }
 
         private static void RenderAndSave(Camera cam, int w, int h, string path, StringBuilder sb)

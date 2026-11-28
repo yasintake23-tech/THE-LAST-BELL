@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
+using TheLastBell.Cinematics;
 using TheLastBell.Player;
 using TheLastBell.Interaction;
 using TheLastBell.UI;
@@ -42,9 +42,14 @@ namespace TheLastBell.Gameplay
         [SerializeField] private Transform electricalPanelTransform;
         [SerializeField] private Transform festekSocketTransform;
 
-        [Header("--- HUD Hedef Gösterimi ---")]
-        [SerializeField] private TextMeshProUGUI objectiveHudText;
-        [SerializeField] private CanvasGroup objectiveHudGroup;
+        private Text objectiveHudText;
+        private Text objectiveHeader;
+        private CanvasGroup objectiveHudGroup;
+        private CanvasGroup introGroup;
+        private SeamlessIntroManager intro;
+        private float introTime = -1f;
+        private float objectiveChangeTime = float.NegativeInfinity;
+        private bool entranceOpened;
 
         public ChapterObjectiveState CurrentState => currentState;
         public bool IsMilestoneComplete => currentState == ChapterObjectiveState.ChapterMilestoneComplete;
@@ -99,60 +104,110 @@ namespace TheLastBell.Gameplay
             }
         }
 
+        public void InitializePresentation()
+        {
+            EnsureObjectiveHudWidget();
+            RefreshObjectiveHudText();
+        }
+
+        private void Start()
+        {
+            intro = FindAnyObjectByType<SeamlessIntroManager>();
+            InitializePresentation();
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
         private void EnsureObjectiveHudWidget()
         {
-            if (objectiveHudText != null) return;
+            if (objectiveHudGroup != null) return;
+            var hud = GameObject.Find("Gameplay_HUD_Canvas");
+            if (hud == null) return;
+            Transform safeArea = hud.transform.Find("Mobile_Controls_Root");
+            if (safeArea == null) safeArea = hud.transform;
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
-            var hudCanvas = GameObject.Find("Gameplay_HUD_Canvas");
-            if (hudCanvas == null) return;
+            objectiveHudGroup = MakeHudGroup("Chapter_Objective_Tracker", safeArea,
+                new Vector2(0f, 1f), new Vector2(24f, -30f), new Vector2(244f, 67f));
+            var background = objectiveHudGroup.gameObject.AddComponent<Image>();
+            background.color = new Color(0.035f, 0.047f, 0.055f, 0.78f);
+            background.raycastTarget = false;
+            objectiveHeader = MakeLabel("Objective_Header", objectiveHudGroup.transform, font, 14,
+                TextAnchor.MiddleLeft, new Vector2(12, 39), new Vector2(-10, -4), "GÖREV");
+            objectiveHeader.color = new Color(0.84f, 0.75f, 0.58f);
+            objectiveHudText = MakeLabel("Objective_Label", objectiveHudGroup.transform, font, 17,
+                TextAnchor.MiddleLeft, new Vector2(12, 2), new Vector2(-10, -24), "");
 
-            Transform existing = hudCanvas.transform.Find("Chapter_Objective_Tracker");
-            if (existing != null)
-            {
-                objectiveHudGroup = existing.GetComponent<CanvasGroup>();
-                objectiveHudText = existing.GetComponentInChildren<TextMeshProUGUI>(true);
-                return;
-            }
+            introGroup = MakeHudGroup("Chapter_Introduction", safeArea, new Vector2(0.5f, 1f),
+                new Vector2(0f, -67f), new Vector2(250f, 90f));
+            var number = MakeLabel("Chapter_Number", introGroup.transform, font, 19,
+                TextAnchor.MiddleCenter, new Vector2(0, 50), Vector2.zero, "BÖLÜM 1");
+            number.color = new Color(0.89f, 0.79f, 0.62f);
+            var subtitle = MakeLabel("Chapter_Subtitle", introGroup.transform, font, 33,
+                TextAnchor.MiddleCenter, Vector2.zero, new Vector2(0, -36), "Hoşgeldin");
+            subtitle.fontStyle = FontStyle.Italic;
+            introGroup.alpha = 0f;
+        }
 
-            var rootGo = new GameObject("Chapter_Objective_Tracker", typeof(RectTransform), typeof(CanvasGroup), typeof(Image));
-            rootGo.transform.SetParent(hudCanvas.transform, false);
-            var rt = rootGo.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 1f);
-            rt.anchorMax = new Vector2(0.5f, 1f);
-            rt.pivot = new Vector2(0.5f, 1f);
-            rt.anchoredPosition = new Vector2(0f, -24f);
-            rt.sizeDelta = new Vector2(520f, 48f);
+        private static CanvasGroup MakeHudGroup(string name, Transform parent, Vector2 anchor, Vector2 position, Vector2 size)
+        {
+            var group = new GameObject(name, typeof(RectTransform), typeof(CanvasGroup)).GetComponent<CanvasGroup>();
+            var rect = (RectTransform)group.transform;
+            rect.SetParent(parent, false);
+            rect.anchorMin = rect.anchorMax = rect.pivot = anchor;
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+            return group;
+        }
 
-            var bg = rootGo.GetComponent<Image>();
-            bg.color = new Color(0.04f, 0.05f, 0.07f, 0.52f);
-            bg.raycastTarget = false;
-
-            objectiveHudGroup = rootGo.GetComponent<CanvasGroup>();
-            objectiveHudGroup.alpha = 0.92f;
-            objectiveHudGroup.interactable = false;
-            objectiveHudGroup.blocksRaycasts = false;
-
-            var txtGo = new GameObject("Objective_Label", typeof(RectTransform), typeof(TextMeshProUGUI));
-            txtGo.transform.SetParent(rootGo.transform, false);
-            var txtRt = txtGo.GetComponent<RectTransform>();
-            txtRt.anchorMin = Vector2.zero;
-            txtRt.anchorMax = Vector2.one;
-            txtRt.offsetMin = new Vector2(14f, 6f);
-            txtRt.offsetMax = new Vector2(-12f, -6f);
-
-            objectiveHudText = txtGo.GetComponent<TextMeshProUGUI>();
-            objectiveHudText.fontSize = 18f;
-            objectiveHudText.color = new Color(0.86f, 0.88f, 0.90f, 0.92f);
-            objectiveHudText.alignment = TextAlignmentOptions.MidlineLeft;
-            objectiveHudText.raycastTarget = false;
+        private static Text MakeLabel(string name, Transform parent, Font font, int size, TextAnchor alignment,
+            Vector2 lower, Vector2 upper, string content)
+        {
+            var label = new GameObject(name, typeof(RectTransform), typeof(Text)).GetComponent<Text>();
+            label.transform.SetParent(parent, false);
+            label.rectTransform.anchorMin = Vector2.zero;
+            label.rectTransform.anchorMax = Vector2.one;
+            label.rectTransform.offsetMin = lower;
+            label.rectTransform.offsetMax = upper;
+            label.font = font;
+            label.fontSize = size;
+            label.alignment = alignment;
+            label.text = content;
+            label.raycastTarget = false;
+            label.color = new Color(0.93f, 0.93f, 0.91f);
+            var shadow = label.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.8f);
+            shadow.effectDistance = new Vector2(1f, -1f);
+            return label;
         }
 
         private void Update()
         {
-            if (playerTransform != null)
+            if (playerTransform != null) EvaluateSpatialProgression(playerTransform.position);
+            StepPresentation(Time.unscaledTime, intro == null || intro.IsIntroFinished);
+        }
+
+        public void StepPresentation(float now, bool controlsReady)
+        {
+            if (introGroup == null) InitializePresentation();
+            if (introGroup == null) return;
+            if (!controlsReady)
             {
-                EvaluateSpatialProgression(playerTransform.position);
+                objectiveHudGroup.alpha = 0f;
+                return;
             }
+            if (introTime < 0f) introTime = now;
+            float age = now - introTime;
+            introGroup.alpha = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(Mathf.Min(age / 0.65f, (5.45f - age) / 0.8f)));
+
+            float changeAge = now - objectiveChangeTime;
+            objectiveHeader.text = changeAge < 0.9f ? "✓ GÖREV" : "GÖREV";
+            objectiveHudGroup.alpha = Mathf.SmoothStep(0.64f, 1f, Mathf.Clamp01(changeAge / 0.55f));
         }
 
         public void EvaluateSpatialProgression(Vector3 playerPos)
@@ -170,7 +225,8 @@ namespace TheLastBell.Gameplay
 
                 case ChapterObjectiveState.EnterBuilding:
                     // Giriş eşiğini geçtiğinde (z > 0.6m)
-                    if (playerPos.z > 0.65f)
+                    if ((entranceOpened || (mainEntranceDoor != null && mainEntranceDoor.IsOpen)) &&
+                        playerPos.z > 0.65f && Mathf.Abs(playerPos.x) < 1.9f)
                     {
                         AdvanceTo(ChapterObjectiveState.ExploreInstitution,
                             "İçeride elektrik tamamen kesik. Koridor karanlık.");
@@ -205,6 +261,7 @@ namespace TheLastBell.Gameplay
 
         private void HandleMainEntranceDoorChanged(bool isOpen)
         {
+            entranceOpened |= isOpen;
             if (isOpen && currentState == ChapterObjectiveState.Arrival)
             {
                 AdvanceTo(ChapterObjectiveState.EnterBuilding, null);
@@ -271,21 +328,16 @@ namespace TheLastBell.Gameplay
 
         public void AdvanceTo(ChapterObjectiveState nextState, string statusThought)
         {
-            if (nextState < currentState) return;
-            bool changed = (nextState != currentState);
+            if (nextState <= currentState) return;
+            if (GetObjectiveDescription(currentState) != GetObjectiveDescription(nextState))
+                objectiveChangeTime = Time.unscaledTime;
             currentState = nextState;
-
             RefreshObjectiveHudText();
 
             if (!string.IsNullOrEmpty(statusThought) && PlayerHUD.Instance != null)
-            {
                 PlayerHUD.Instance.ShowStatusMessage(statusThought);
-            }
 
-            if (changed)
-            {
-                OnObjectiveChanged?.Invoke(currentState);
-            }
+            OnObjectiveChanged?.Invoke(currentState);
         }
 
         public static string GetObjectiveDescription(ChapterObjectiveState state)
@@ -293,30 +345,30 @@ namespace TheLastBell.Gameplay
             switch (state)
             {
                 case ChapterObjectiveState.Arrival:
-                    return "Kuruma yaklaş ve girişi kontrol et";
+                    return "İngilizce kursuna gir.";
                 case ChapterObjectiveState.EnterBuilding:
-                    return "Harput İngilizce Kursu binasına gir";
+                    return "İngilizce kursuna gir.";
                 case ChapterObjectiveState.ExploreInstitution:
-                    return "Karanlık kurumu incele";
+                    return "Binayı keşfet.";
                 case ChapterObjectiveState.LocateElectricalPanel:
-                    return "Elektrik panosunu bul";
+                    return "Elektrik panosunu bul.";
                 case ChapterObjectiveState.OperateElectricalPanel:
-                    return "Ana elektrik şalterini indir";
+                    return "Panoyu kontrol et.";
                 case ChapterObjectiveState.DiscoverFestek:
                 case ChapterObjectiveState.PickUpFestek:
-                    return "Panodan düşen Feştek parçasını yerden al";
+                    return "Feştek'i yerden al.";
                 case ChapterObjectiveState.LocateFestekSocket:
-                    return "Feştek bağlantı yuvasını bul";
+                    return "Feştek yuvasını bul.";
                 case ChapterObjectiveState.InsertFestek:
-                    return "Feştek'i bağlantı yuvasına yerleştir";
+                    return "Feştek'i yuvasına yerleştir.";
                 case ChapterObjectiveState.ActivateFestek:
-                    return "Üzerindeki düğmeye basarak devreyi etkinleştir";
+                    return "Sistemi etkinleştir.";
                 case ChapterObjectiveState.RestoreElectricity:
-                    return "Elektriğin geri gelişini bekle";
+                    return "Elektriğin gelmesini bekle.";
                 case ChapterObjectiveState.TelevisionActivation:
-                    return "Çalışmaya başlayan televizyona bak";
+                    return "Televizyonu kontrol et.";
                 case ChapterObjectiveState.ChapterMilestoneComplete:
-                    return "Televizyondaki parazit sinyali incele";
+                    return "Televizyonu kontrol et.";
                 default:
                     return "";
             }
@@ -327,7 +379,7 @@ namespace TheLastBell.Gameplay
             EnsureObjectiveHudWidget();
             if (objectiveHudText != null)
             {
-                objectiveHudText.text = "• " + GetObjectiveDescription(currentState);
+                objectiveHudText.text = GetObjectiveDescription(currentState);
             }
         }
     }

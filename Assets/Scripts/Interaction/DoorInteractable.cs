@@ -1,4 +1,3 @@
-using System.Collections;
 using UnityEngine;
 using TheLastBell.Player;
 
@@ -39,7 +38,14 @@ namespace TheLastBell.Interaction
         private Quaternion openRotR;
 
         private InteractionTarget interactionTarget;
-        private bool isAnimating = false;
+        private const float ContactDelay = 0.42f;
+        private bool isAnimating;
+        private bool targetOpen;
+        private bool latchPlayed;
+        private bool swingStarted;
+        private bool poseInitialized;
+        private float elapsed;
+        private Transform interactionActor;
 
         public InteractionTarget DoorInteractionTarget => interactionTarget;
         public bool IsOpen => isOpen;
@@ -47,23 +53,26 @@ namespace TheLastBell.Interaction
 
         private void Awake()
         {
-            if (doorLeafLeft != null)
-            {
-                closedRotL = doorLeafLeft.localRotation;
-                openRotL = closedRotL * Quaternion.Euler(0f, -openAngle, 0f);
-            }
-            if (doorLeafRight != null)
-            {
-                closedRotR = doorLeafRight.localRotation;
-                openRotR = closedRotR * Quaternion.Euler(0f, openAngle, 0f);
-            }
-
-            if (blockerCollider != null)
-            {
-                blockerCollider.enabled = !isOpen;
-            }
-
+            InitializePose();
+            ApplyPose(isOpen ? 1f : 0f);
             EnsureDoorHandleTarget();
+        }
+
+        private void InitializePose()
+        {
+            if (poseInitialized) return;
+            closedRotL = doorLeafLeft != null ? doorLeafLeft.localRotation : Quaternion.identity;
+            closedRotR = doorLeafRight != null ? doorLeafRight.localRotation : Quaternion.identity;
+            openRotL = closedRotL * Quaternion.Euler(0f, -openAngle, 0f);
+            openRotR = closedRotR * Quaternion.Euler(0f, openAngle, 0f);
+            poseInitialized = true;
+        }
+
+        private void Update() => StepDoor(Time.deltaTime);
+
+        private void OnDisable()
+        {
+            if (isAnimating) FinishDoor(true);
         }
 
         private void EnsureDoorHandleTarget()
@@ -75,7 +84,8 @@ namespace TheLastBell.Interaction
             }
 
             Transform leaf = doorLeafLeft != null ? doorLeafLeft : (doorLeafRight != null ? doorLeafRight : transform);
-            Transform handle = leaf.Find("Door_Handle_Target");
+            Transform handle = doorLeafLeft != null ? doorLeafLeft.Find("Door_Handle_Target") : null;
+            if (handle == null && doorLeafRight != null) handle = doorLeafRight.Find("Door_Handle_Target");
             if (handle == null)
             {
                 var handleGo = new GameObject("Door_Handle_Target");
@@ -99,121 +109,99 @@ namespace TheLastBell.Interaction
 
         public void Interact(PlayerInteractor interactor)
         {
-            if (isAnimating) return;
+            if (!isActiveAndEnabled || isAnimating || (doorLeafLeft == null && doorLeafRight == null)) return;
 
             if (isLocked)
             {
                 var inventory = interactor != null ? interactor.GetComponent<PlayerInventory>() : null;
-                if (inventory != null && !string.IsNullOrEmpty(requiredKeyId) && inventory.HasKey(requiredKeyId))
+                if (inventory == null || string.IsNullOrEmpty(requiredKeyId) || !inventory.HasKey(requiredKeyId))
                 {
-                    isLocked = false;
-                    interactor.ShowStatusMessage(unlockedNotice);
-                    TriggerHandInteraction(interactor);
-                    StartCoroutine(AnimateDoor(true, 0.42f));
-                    return;
-                }
-                else
-                {
-                    if (doorAudioSource != null && handleLatchClip != null)
-                        doorAudioSource.PlayOneShot(handleLatchClip, 0.75f);
+                    PlayDoorSound(handleLatchClip, 0.65f);
                     interactor?.ShowStatusMessage(lockedNotice);
                     return;
                 }
+
+                isLocked = false;
+                interactor.ShowStatusMessage(unlockedNotice);
             }
 
-            TriggerHandInteraction(interactor);
-            StartCoroutine(AnimateDoor(!isOpen, 0.42f));
-        }
-
-        private void TriggerHandInteraction(PlayerInteractor interactor)
-        {
-            if (interactor == null) return;
-            EnsureDoorHandleTarget();
-            var proc = interactor.GetComponentInChildren<CharacterProceduralController>(true);
-            if (proc != null && interactionTarget != null)
-            {
-                proc.BeginEnvironmentalInteraction(interactionTarget);
-            }
-        }
-
-        private IEnumerator AnimateDoor(bool targetOpen, float contactDelay = 0f)
-        {
+            InitializePose();
+            targetOpen = !isOpen;
+            interactionActor = interactor != null ? interactor.transform : null;
+            elapsed = 0f;
+            latchPlayed = false;
+            swingStarted = false;
             isAnimating = true;
 
-            if (contactDelay > 0f)
-            {
-                yield return new WaitForSeconds(contactDelay * 0.6f);
-                if (doorAudioSource != null && handleLatchClip != null)
-                    doorAudioSource.PlayOneShot(handleLatchClip, 0.85f);
-                yield return new WaitForSeconds(contactDelay * 0.4f);
-            }
-            else if (doorAudioSource != null && handleLatchClip != null)
-            {
-                doorAudioSource.PlayOneShot(handleLatchClip, 0.85f);
-            }
+            if (interactor == null) return;
+            EnsureDoorHandleTarget();
+            var procedural = interactor.GetComponentInChildren<CharacterProceduralController>(true);
+            if (procedural != null && interactionTarget.IsWithinReach(interactor.transform.position))
+                procedural.BeginEnvironmentalInteraction(interactionTarget);
+        }
 
-            if (doorAudioSource != null)
+        // The same clock drives the game and editor verification. IK is a visual follower.
+        public void StepDoor(float deltaTime)
+        {
+            if (!isAnimating) return;
+            elapsed += Mathf.Max(0f, deltaTime);
+            if (!latchPlayed && elapsed >= ContactDelay * 0.6f)
             {
-                AudioClip swingClip = targetOpen ? openHingeClip : closeHingeClip;
-                if (swingClip != null) doorAudioSource.PlayOneShot(swingClip, 0.90f);
-            }
-
-            // Geçişi açmak için blocker collider hemen kapatılır
-            if (targetOpen && blockerCollider != null)
-            {
-                blockerCollider.enabled = false;
+                latchPlayed = true;
+                PlayDoorSound(handleLatchClip, 0.85f);
             }
 
-            Quaternion startL = doorLeafLeft != null ? doorLeafLeft.localRotation : Quaternion.identity;
-            Quaternion endL = targetOpen ? openRotL : closedRotL;
-
-            Quaternion startR = doorLeafRight != null ? doorLeafRight.localRotation : Quaternion.identity;
-            Quaternion endR = targetOpen ? openRotR : closedRotR;
-
-            float elapsed = 0f;
-            while (elapsed < transitionDuration)
+            if (elapsed < ContactDelay) return;
+            if (!targetOpen && interactionActor != null)
             {
-                elapsed += Time.deltaTime;
-                float t = Mathf.SmoothStep(0f, 1f, elapsed / transitionDuration);
-
-                if (doorLeafLeft != null)
-                    doorLeafLeft.localRotation = Quaternion.Slerp(startL, endL, t);
-                if (doorLeafRight != null)
-                    doorLeafRight.localRotation = Quaternion.Slerp(startR, endR, t);
-
-                yield return null;
+                Vector3 actor = transform.InverseTransformPoint(interactionActor.position);
+                if (Mathf.Abs(actor.x) < 0.79f && actor.z > -0.45f && actor.z < 0.84f)
+                {
+                    FinishDoor(true);
+                    return;
+                }
+            }
+            if (!swingStarted)
+            {
+                swingStarted = true;
+                PlayDoorSound(targetOpen ? openHingeClip : closeHingeClip, 0.90f);
             }
 
-            if (doorLeafLeft != null) doorLeafLeft.localRotation = endL;
-            if (doorLeafRight != null) doorLeafRight.localRotation = endR;
+            float progress = Mathf.Clamp01((elapsed - ContactDelay) / Mathf.Max(0.01f, transitionDuration));
+            ApplyPose(Mathf.SmoothStep(0f, 1f, targetOpen ? progress : 1f - progress));
+            if (progress >= 1f) FinishDoor(targetOpen);
+        }
 
-            isOpen = targetOpen;
+        private void ApplyPose(float openness)
+        {
+            if (doorLeafLeft != null)
+                doorLeafLeft.localRotation = Quaternion.Slerp(closedRotL, openRotL, openness);
+            if (doorLeafRight != null)
+                doorLeafRight.localRotation = Quaternion.Slerp(closedRotR, openRotR, openness);
             if (blockerCollider != null)
-            {
-                blockerCollider.enabled = !isOpen;
-            }
+                blockerCollider.enabled = openness < 0.8f;
+        }
 
+        private void FinishDoor(bool open)
+        {
+            ApplyPose(open ? 1f : 0f);
             isAnimating = false;
+            interactionActor = null;
+            if (isOpen == open) return;
+            isOpen = open;
             OnDoorStateChanged?.Invoke(isOpen);
+        }
+
+        private void PlayDoorSound(AudioClip clip, float volume)
+        {
+            if (Application.isPlaying && doorAudioSource != null && clip != null)
+                doorAudioSource.PlayOneShot(clip, volume);
         }
 
         public void SetOpenImmediate(bool open)
         {
-            if (doorLeafLeft != null)
-            {
-                closedRotL = Quaternion.identity;
-                openRotL = Quaternion.Euler(0f, -openAngle, 0f);
-                doorLeafLeft.localRotation = open ? openRotL : closedRotL;
-            }
-            if (doorLeafRight != null)
-            {
-                closedRotR = Quaternion.identity;
-                openRotR = Quaternion.Euler(0f, openAngle, 0f);
-                doorLeafRight.localRotation = open ? openRotR : closedRotR;
-            }
-            isOpen = open;
-            if (blockerCollider != null) blockerCollider.enabled = !isOpen;
-            OnDoorStateChanged?.Invoke(isOpen);
+            InitializePose();
+            FinishDoor(open);
         }
 
         public void Configure(Transform left, Transform right, Collider blocker)
@@ -221,6 +209,7 @@ namespace TheLastBell.Interaction
             doorLeafLeft = left;
             doorLeafRight = right;
             blockerCollider = blocker;
+            poseInitialized = false;
         }
 
         public void ConfigureAudio(AudioSource source, AudioClip latch, AudioClip openHinge, AudioClip closeHinge)

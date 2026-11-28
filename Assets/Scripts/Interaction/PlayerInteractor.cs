@@ -20,7 +20,10 @@ namespace TheLastBell.Interaction
         [SerializeField] private float interactionCooldown = 0.25f;
 
         private IInteractable currentInteractable = null;
-        private float lastInteractTime = -1f;
+        private float lastInteractTime = float.NegativeInfinity;
+        private string currentPrompt;
+        private readonly RaycastHit[] rayHits = new RaycastHit[24];
+        private readonly Collider[] nearbyHits = new Collider[24];
         private TPSController tps;
         private FirstPersonController fpc;
 
@@ -61,55 +64,76 @@ namespace TheLastBell.Interaction
                 forward = playerCamera.forward;
             }
 
-            Ray ray = new Ray(origin, forward);
-            RaycastHit hit;
+            IInteractable target = FindAlongRay(origin, forward, maxInteractionDistance, out _);
+            if (target == null)
+                target = FindNearbyInteractable();
 
-            IInteractable foundInteractable = null;
+            currentInteractable = target;
+            string nextPrompt = target != null && target.CanInteract() ? target.GetInteractionPrompt() : null;
+            if (string.IsNullOrEmpty(nextPrompt)) nextPrompt = null;
+            if (nextPrompt == currentPrompt) return;
+            currentPrompt = nextPrompt;
+            OnPromptUpdated?.Invoke(nextPrompt);
+        }
 
-            if (Physics.Raycast(ray, out hit, maxInteractionDistance, interactionLayers, QueryTriggerInteraction.Collide))
+        private IInteractable FindAlongRay(Vector3 origin, Vector3 direction, float distance, out bool blocked)
+        {
+            int count = Physics.RaycastNonAlloc(origin, direction, rayHits, distance, interactionLayers, QueryTriggerInteraction.Collide);
+            float nearest = float.PositiveInfinity;
+            IInteractable candidate = null;
+            blocked = false;
+            for (int i = 0; i < count; i++)
             {
-                foundInteractable = hit.collider.GetComponentInParent<IInteractable>();
-                if (foundInteractable == null)
-                {
-                    foundInteractable = hit.collider.GetComponent<IInteractable>();
-                }
+                RaycastHit hit = rayHits[i];
+                if (hit.distance >= nearest || hit.collider.transform.IsChildOf(transform)) continue;
+                var interactable = hit.collider.GetComponentInParent<IInteractable>();
+                if (hit.collider.isTrigger && interactable == null) continue;
+                nearest = hit.distance;
+                candidate = interactable;
+                blocked = candidate == null;
             }
+            return candidate;
+        }
 
-            // Eer kamera raycast'i bulamadysa, karakterin tam nne ksa bir SphereCast yap
-            if (foundInteractable == null)
+        private IInteractable FindNearbyInteractable()
+        {
+            Vector3 eye = transform.position + Vector3.up * 1.15f;
+            int count = Physics.OverlapSphereNonAlloc(eye + transform.forward, 1.25f, nearbyHits,
+                interactionLayers, QueryTriggerInteraction.Collide);
+            float nearest = float.PositiveInfinity;
+            IInteractable result = null;
+            for (int i = 0; i < count; i++)
             {
-                Collider[] hits = Physics.OverlapSphere(transform.position + Vector3.up * 1.0f + transform.forward * 1.2f, 1.2f, interactionLayers, QueryTriggerInteraction.Collide);
-                foreach (var h in hits)
-                {
-                    var it = h.GetComponentInParent<IInteractable>() ?? h.GetComponent<IInteractable>();
-                    if (it != null)
-                    {
-                        foundInteractable = it;
-                        break;
-                    }
-                }
-            }
+                Collider hit = nearbyHits[i];
+                if (hit.transform.IsChildOf(transform)) continue;
+                var candidate = hit.GetComponentInParent<IInteractable>();
+                if (candidate == null) continue;
 
-            if (foundInteractable != currentInteractable)
-            {
-                currentInteractable = foundInteractable;
-                if (currentInteractable != null && currentInteractable.CanInteract())
+                Vector3 offset = hit.bounds.ClosestPoint(eye) - eye;
+                float distance = offset.magnitude;
+                if (distance >= nearest) continue;
+                if (distance > 0.01f)
                 {
-                    OnPromptUpdated?.Invoke(currentInteractable.GetInteractionPrompt());
+                    Vector3 direction = offset / distance;
+                    if (Vector3.Dot(transform.forward, direction) < 0.15f) continue;
+                    var visible = FindAlongRay(eye, direction, distance + 0.03f, out bool blocked);
+                    if (blocked || (visible != null && visible != candidate)) continue;
                 }
-                else
-                {
-                    OnPromptUpdated?.Invoke(null);
-                }
+                nearest = distance;
+                result = candidate;
             }
+            return result;
         }
 
         public void TriggerInteraction()
         {
-            if (Time.time - lastInteractTime < interactionCooldown) return;
-            lastInteractTime = Time.time;
+            CheckForInteractable();
+            if (Time.time - lastInteractTime < interactionCooldown ||
+                currentInteractable == null || !currentInteractable.CanInteract()) return;
 
-            if (currentInteractable != null && currentInteractable.CanInteract())
+            lastInteractTime = Time.time;
+            // DoorInteractable owns the handle animation and starts its own physical motion.
+            if (!(currentInteractable is DoorInteractable))
             {
                 if (tps != null)
                 {
@@ -121,18 +145,10 @@ namespace TheLastBell.Interaction
                     if (currentInteractable is ItemPickupInteractable) fpc.PlayPickupAnimation();
                     else fpc.PlayInteractAnimation();
                 }
-
-                currentInteractable.Interact(this);
-
-                if (currentInteractable != null && currentInteractable.CanInteract())
-                {
-                    OnPromptUpdated?.Invoke(currentInteractable.GetInteractionPrompt());
-                }
-                else
-                {
-                    OnPromptUpdated?.Invoke(null);
-                }
             }
+
+            currentInteractable.Interact(this);
+            CheckForInteractable();
         }
 
         public void ShowStatusMessage(string message)

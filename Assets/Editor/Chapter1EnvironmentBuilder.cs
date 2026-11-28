@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Audio;
+using System.Reflection;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using TheLastBell.Player;
@@ -39,6 +41,9 @@ namespace TheLastBell.Editor
                 "Tamam");
         }
 
+        private const string MixerPath = "Assets/Audio/Chapter1/Chapter1.mixer";
+        private static AudioMixer chapterMixer;
+
         public static void SetupChapter1()
         {
             Debug.Log("[Chapter1EnvironmentBuilder] Chapter I — The Arrival kurulumu başlatılıyor...");
@@ -48,6 +53,7 @@ namespace TheLastBell.Editor
 
             // 1. Doku, HDRI, Ses ve Model Importer Ayarları (Mobil ASTC + NormalMap + Cubemap)
             ConfigureEnvironmentAssetImporters();
+            chapterMixer = EnsureChapterMixer();
 
             // 2. Bölüm I Yeni Karakter Etkileşim Animasyonlarını (.anim) Üret ve Kayıt Defterine Ekle
             CreateAndRegisterChapter1Animations();
@@ -380,11 +386,23 @@ namespace TheLastBell.Editor
                 "Assets/Environment/Original/Signage/HarputSign_Backing_MetalSmooth.png", null, Color.white, 0.42f);
             dict["SignLetters"] = CreateSimpleStandardMat("Mat_Original_HarputSignLetters", new Color(0.14f, 0.19f, 0.28f, 1f), 0.68f, 0.54f);
 
-            dict["CarPaint"] = CreateSimpleStandardMat("Mat_Car_SlatePaint", new Color(0.15f, 0.19f, 0.25f, 1f), 0.68f, 0.68f);
+            dict["CarPaint"] = CreateSimpleStandardMat("Mat_Car_SlatePaint", new Color(0.20f, 0.27f, 0.32f, 1f), 0.38f, 0.52f);
             dict["CarTrim"] = CreateSimpleStandardMat("Mat_Car_TrimRubber", new Color(0.09f, 0.09f, 0.10f, 1f), 0.05f, 0.28f);
             dict["ClassroomGlass"] = CreateTransparentStandardMat("Mat_Classroom_BrokenGlass", new Color(0.36f, 0.43f, 0.52f, 0.24f), 0f, 0.58f);
-            dict["CarGlass"] = CreateTransparentStandardMat("Mat_Car_TintedGlass", new Color(0.06f, 0.09f, 0.12f, 0.76f), 0.15f, 0.90f);
+            dict["CarGlass"] = CreateTransparentStandardMat("Mat_Car_TintedGlass", new Color(0.13f, 0.17f, 0.20f, 0.48f), 0.08f, 0.77f);
             dict["CarInterior"] = CreateSimpleStandardMat("Mat_Car_InteriorDark", new Color(0.12f, 0.12f, 0.14f, 1f), 0.0f, 0.20f);
+            dict["Tire"] = CreateSimpleStandardMat("Mat_Car_TireSidewall", new Color(0.115f, 0.105f, 0.096f), 0f, 0.19f);
+            dict["VehicleLower"] = CreateSimpleStandardMat("Mat_Car_DirtySill", new Color(0.15f, 0.17f, 0.16f), 0.15f, 0.28f);
+            dict["WindowBoard"] = CreateSimpleStandardMat("Mat_Facade_WindowInterior", new Color(0.11f, 0.13f, 0.14f), 0f, 0.12f);
+            dict["ParkingLine"] = CreateSimpleStandardMat("Mat_Parking_WornPaint", new Color(0.29f, 0.28f, 0.22f), 0f, 0.1f);
+            dict["CoursePaper"] = CreateSimpleStandardMat("Mat_Course_Paper", new Color(0.57f, 0.54f, 0.43f), 0f, 0.08f);
+            dict["Soil"] = CreateAcgMaterial("Road012B", new Vector2(1.5f, 1f), new Color(0.61f, 0.48f, 0.33f), 0.16f, "Mat_Courtyard_CompactSoil");
+            dict["Grass"] = CreateAcgMaterial("Road012B", new Vector2(1.3f, 1f), new Color(0.43f, 0.53f, 0.33f), 0.12f, "Mat_Courtyard_GrassVerge");
+            dict["Leaves"] = CreateSimpleStandardMat("Mat_Courtyard_DryLeaf", new Color(0.23f, 0.14f, 0.073f), 0f, 0.18f);
+            dict["Runoff"] = CreateTransparentStandardMat("Mat_Facade_Runoff", new Color(0.26f, 0.31f, 0.29f, 0.55f), 0f, 0.08f);
+            dict["Runoff"].mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Environment/Original/Props/Facade_Runoff.png");
+            EditorUtility.SetDirty(dict["Runoff"]);
+
             dict["CarRim"] = CreateSimpleStandardMat("Mat_Car_AlloyRim", new Color(0.58f, 0.60f, 0.64f, 1f), 0.82f, 0.68f);
             dict["CarHeadlight"] = CreateSimpleStandardMat("Mat_Car_HeadlightWarm", new Color(0.88f, 0.86f, 0.78f, 1f), 0.20f, 0.85f, new Color(0.42f, 0.36f, 0.22f) * 0.45f);
             dict["CarTaillight"] = CreateSimpleStandardMat("Mat_Car_TaillightRed", new Color(0.55f, 0.08f, 0.08f, 1f), 0.15f, 0.82f, new Color(0.38f, 0.04f, 0.04f) * 0.40f);
@@ -628,19 +646,22 @@ namespace TheLastBell.Editor
 
             // 4C. Dış Avlu: Gerçekçi Araba + Yabani Otlar + 3B HARPUT ENGLISH COURSE Tabelası
             BuildCourtyardAndFacadeSign(mats, extGroup.transform);
+            DressCourtyard(mats, extGroup.transform);
 
             // 4D. Ana Giriş Kapısı: Detaylı Çift Kanatlı Kapı, Menteşeler, Kollar ve Sol El IK + Ses
-            DoorInteractable mainEntranceDoor = UpgradeMainEntranceDoor(mats, extGroup.transform);
+            DoorInteractable mainEntranceDoor = UpgradeMainEntranceDoor(mats);
 
             // 4E. İç Mekan Derslikler & Koridor Donanımı + Tavan Floresanları (Başlangıçta elektriksiz)
             var poweredFixtures = new List<FacilityLightFixture>();
             PopulateClassroomsAndCorridor(mats, intGroup.transform, poweredFixtures);
+            DressCourseInterior(mats, intGroup.transform);
 
             // 4F. Personel & Arşiv Odası (Teachers_Lounge): Pano -> Feştek Fiziksel Düşüş -> Yuva -> Sağdaki CRT TV
             BuildPuzzleRoomAndPowerChain(mats, puzzleGroup.transform, sysGroup.transform, mainEntranceDoor, poweredFixtures);
 
             // 4G. Dış Rüzgar ve İç Mekan Oda Sesi (Spatial 3D Ambience)
             BuildSpatialAudioZones(audioGroup.transform);
+            WireFootstepAudio();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
@@ -656,7 +677,7 @@ namespace TheLastBell.Editor
             }
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.15f, 0.19f, 0.29f);
+            RenderSettings.ambientSkyColor = new Color(0.19f, 0.23f, 0.33f);
             RenderSettings.ambientEquatorColor = new Color(0.09f, 0.11f, 0.17f);
             RenderSettings.ambientGroundColor = new Color(0.045f, 0.05f, 0.065f);
 
@@ -674,7 +695,7 @@ namespace TheLastBell.Editor
                 if (dirLight != null)
                 {
                     dirLight.color = new Color(0.48f, 0.58f, 0.78f);
-                    dirLight.intensity = 0.52f;
+                    dirLight.intensity = 0.81f;
                     dirLight.shadows = LightShadows.Soft;
                     dirLight.shadowStrength = 0.78f;
                 }
@@ -706,7 +727,7 @@ namespace TheLastBell.Editor
             var stairL = GameObject.Find("Light_Staircase_Dim")?.GetComponent<Light>();
             if (stairL != null) stairL.color = new Color(0.38f, 0.48f, 0.68f);
 
-            CreateSubtleWindowFill("Courtyard_DuskFill", root, new Vector3(-1.5f, 4.5f, -13f), 19f, 1.35f);
+            CreateSubtleWindowFill("Courtyard_DuskFill", root, new Vector3(-3f, 5.5f, -14f), 24f, 1.85f);
 
             // Reflection Probes & LightProbeGroup
             CreateReflectionProbe("RefProbe_Courtyard", root, new Vector3(0f, 2.2f, -10f), new Vector3(32f, 10f, 26f), 0.55f);
@@ -777,7 +798,10 @@ namespace TheLastBell.Editor
                 foreach (var r in carInst.GetComponentsInChildren<Renderer>(true))
                 {
                     string rn = r.gameObject.name;
-                    if (rn.Contains("Body") || rn.Contains("MirrorCap")) r.sharedMaterial = mats["CarPaint"];
+                    if (rn.Contains("Tire") || rn.Contains("Tyre")) r.sharedMaterial = mats["Tire"];
+                    else if (rn.Contains("Sill") || rn.Contains("Underbody")) r.sharedMaterial = mats["VehicleLower"];
+                    else if (rn.Contains("Body") || rn.Contains("MirrorCap") || rn.Contains("Hood") || rn.Contains("Fender") ||
+                             rn.Contains("Trunk") || rn.Contains("DoorSkin") || rn.Contains("Roof")) r.sharedMaterial = mats["CarPaint"];
                     else if (rn.Contains("Glass") || rn.Contains("Window") || rn.Contains("Windshield")) r.sharedMaterial = mats["CarGlass"];
                     else if (rn.Contains("Interior") || rn.Contains("Dashboard") || rn.Contains("Seat") || rn.Contains("Bench")) r.sharedMaterial = mats["CarInterior"];
                     else if (rn.Contains("Rim") || rn.Contains("Spoke") || rn.Contains("Exhaust")) r.sharedMaterial = mats["CarRim"];
@@ -847,21 +871,135 @@ namespace TheLastBell.Editor
             }
         }
 
-        private static DoorInteractable UpgradeMainEntranceDoor(Dictionary<string, Material> mats, Transform fallbackParent)
+        private static void DressCourtyard(Dictionary<string, Material> mats, Transform parent)
+        {
+            var trim = mats["Concrete"];
+            var steel = mats["RustedMetal"];
+            BuildDetail("Roof_Parapet", parent, new Vector3(0, 4.91f, -0.31f), new Vector3(30.2f, 0.24f, 0.36f), trim);
+            BuildDetail("Roof_DripEdge", parent, new Vector3(0, 5.06f, -0.35f), new Vector3(30.3f, 0.08f, 0.48f), steel);
+            BuildDetail("Entrance_Canopy", parent, new Vector3(0, 2.97f, -0.59f), new Vector3(3.03f, 0.17f, 0.92f), trim);
+            BuildDetail("Entrance_StoneLanding", parent, new Vector3(0, 0.018f, -0.38f), new Vector3(2.56f, 0.055f, 0.85f), trim, true);
+
+            foreach (float side in new[] { -1f, 1f })
+            {
+                BuildDetail("Entrance_Pilaster", parent, new Vector3(side * 1.62f, 1.57f, -0.23f), new Vector3(0.31f, 3.14f, 0.32f), trim);
+                BuildDetail("Facade_Base", parent, new Vector3(side * 8.6f, 0.31f, -0.26f), new Vector3(12.8f, 0.62f, 0.09f), trim);
+                BuildDetail("Gutter_Downpipe", parent, new Vector3(side * 13.5f, 2.62f, -0.37f), new Vector3(0.09f, 4.65f, 0.10f), steel);
+                for (int i = 0; i < 3; i++)
+                {
+                    float x = side * (3.63f + 3.59f * i);
+                    BuildDetail("Facade_Window_Reveal", parent, new Vector3(x, 2.55f, -0.253f), new Vector3(2.0f, 1.69f, 0.075f), mats["WindowBoard"]);
+                    BuildDetail("Facade_Window_Sill", parent, new Vector3(x, 1.66f, -0.36f), new Vector3(2.17f, 0.12f, 0.32f), trim);
+                    BuildDetail("Facade_Window_Lintel", parent, new Vector3(x, 3.43f, -0.31f), new Vector3(2.15f, 0.15f, 0.25f), trim);
+                    foreach (float offset in new[] { -0.99f, 0f, 0.99f })
+                        BuildDetail("Facade_Window_Frame", parent, new Vector3(x + offset, 2.55f, -0.31f), new Vector3(0.085f, 1.72f, 0.13f), steel);
+                    BuildDetail("Facade_Window_Crossbar", parent, new Vector3(x, 2.73f, -0.32f), new Vector3(2f, 0.075f, 0.10f), steel);
+                    PlaceWallPoster("Sill_Runoff", parent, new Vector3(x + side * 0.23f, 1.16f, -0.306f),
+                        180f, mats["Runoff"], new Vector2(1.7f, 1.03f));
+                }
+            }
+
+            for (int i = 0; i < 8; i++)
+            {
+                float z = -19.6f + i * 0.57f;
+                BuildDetail("Parking_Paint_Segment", parent, new Vector3(1.48f, 0.001f, z),
+                    new Vector3(0.07f, 0.004f, 0.36f + (i % 2) * 0.19f), mats["ParkingLine"]);
+            }
+
+            var random = new System.Random(117);
+            for (int i = 0; i < 20; i++)
+            {
+                float side = i % 2 == 0 ? -1f : 1f;
+                float x = side * (i < 12 ? 2.35f + (float)random.NextDouble() * 9.2f : 1.07f);
+                float z = i < 12 ? -0.52f - (float)random.NextDouble() * 0.92f : -2f - (float)random.NextDouble() * 9.7f;
+                float scale = 0.32f + (float)random.NextDouble() * 0.52f;
+                var plant = InstantiateFbx("Assets/Environment/External/Models/weed_plant_02/weed_plant_02.fbx",
+                    "Courtyard_Seam_Weed", parent, new Vector3(x, 0.01f, z),
+                    Quaternion.Euler(0f, random.Next(360), 0f), Vector3.one * scale, true);
+                AssignPolyHavenMats(plant, mats["weed_plant_02"], null);
+                if (plant != null && plant.GetComponentInChildren<LODGroup>() == null)
+                {
+                    var lod = plant.AddComponent<LODGroup>();
+                    lod.SetLODs(new[] { new LOD(0.018f, plant.GetComponentsInChildren<Renderer>()) });
+                    lod.RecalculateBounds();
+                }
+
+                var rubble = BuildDetail("Loose_Masonry", parent, new Vector3(x + 0.14f, 0.013f, z - 0.17f),
+                    new Vector3(0.038f + scale * 0.1f, 0.026f, 0.06f), trim);
+                rubble.transform.localRotation = Quaternion.Euler(5f, random.Next(360), 3f);
+                var leaf = BuildDetail("Dry_Leaf", parent, new Vector3(x - 0.15f, 0.008f, z - 0.31f),
+                    new Vector3(0.042f, 0.007f, 0.075f), mats["Leaves"]);
+                leaf.transform.localRotation = Quaternion.Euler(0f, random.Next(360), 0f);
+            }
+
+            foreach (float x in new[] { -5.3f, 5.5f })
+                BuildDetail("Courtyard_Gravel_Drainage", parent, new Vector3(x, 0.002f, -1.07f),
+                    new Vector3(4.2f, 0.016f, 0.65f), mats["Cobble"], true);
+            BuildDetail("Courtyard_Grass_Verge", parent, new Vector3(-13.1f, 0.001f, -8.1f),
+                new Vector3(2.9f, 0.015f, 9.4f), mats["Grass"], true);
+            BuildDetail("Courtyard_Soil_ParkingEdge", parent, new Vector3(7.8f, 0.001f, -18.6f),
+                new Vector3(2.7f, 0.014f, 3.2f), mats["Soil"], true);
+        }
+
+        private static void DressCourseInterior(Dictionary<string, Material> mats, Transform parent)
+        {
+            var wood = mats["DarkWood"];
+            var steel = mats["RustedMetal"];
+            var paper = mats["CoursePaper"];
+            BuildDetail("Corridor_Noticeboard", parent, new Vector3(-1.80f, 1.72f, 3.65f), new Vector3(0.07f, 1.02f, 1.52f), wood);
+            PlaceWallPoster("Noticeboard_Course_Notice", parent, new Vector3(-1.75f, 1.76f, 3.55f), 90f,
+                mats["CoursePoster"], new Vector2(0.60f, 0.80f));
+            for (int i = 0; i < 4; i++)
+            {
+                float z = 2.5f + i * 4.1f;
+                BuildDetail("Corridor_Wall_CableTrunk", parent, new Vector3(1.80f, 0.17f, z),
+                    new Vector3(0.05f, 0.07f, 1.55f), steel);
+                BuildDetail("Corridor_Wall_Outlet", parent, new Vector3(1.77f, 0.33f, z + 0.36f),
+                    new Vector3(0.045f, 0.095f, 0.15f), mats["CarInterior"]);
+            }
+
+            for (int i = 0; i < 7; i++)
+            {
+                var sheet = BuildDetail("Discarded_Handout", parent, new Vector3(-1.29f + (i % 3) * 0.18f, 0.012f, 4.84f + i * 1.57f),
+                    new Vector3(0.20f, 0.007f, 0.27f), paper);
+                sheet.transform.localRotation = Quaternion.Euler(0f, 31f * i, 0f);
+            }
+
+            for (int i = 0; i < 6; i++)
+            {
+                var book = BuildDetail("C101_Shelf_Coursebook", parent,
+                    new Vector3(-8.99f + i * 0.067f, 0.80f, 3.02f), new Vector3(0.045f, 0.19f + 0.015f * (i % 3), 0.14f),
+                    mats[i % 3 == 0 ? "PanelRed" : i % 3 == 1 ? "CarPaint" : "DarkWood"]);
+                book.transform.localRotation = Quaternion.Euler(0, 0, i == 5 ? -12f : 2f);
+            }
+
+            PlaceWallPoster("C102_Revision_Poster", parent, new Vector3(-7.9f, 1.65f, 10.68f), 0f,
+                mats["CoursePoster"], new Vector2(0.68f, 0.92f));
+            BuildDetail("C102_Vent_Grille", parent, new Vector3(-4.3f, 2.95f, 10.68f), new Vector3(0.56f, 0.23f, 0.044f), steel);
+            for (int i = 0; i < 5; i++)
+                BuildDetail("C102_Vent_Louvre", parent, new Vector3(-4.3f, 2.87f + 0.037f * i, 10.65f),
+                    new Vector3(0.49f, 0.018f, 0.032f), mats["CarInterior"]);
+        }
+
+        private static GameObject BuildDetail(string name, Transform parent, Vector3 position, Vector3 size, Material material, bool solid = false)
+        {
+            var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            part.name = name;
+            part.transform.SetParent(parent, false);
+            part.transform.localPosition = position;
+            part.transform.localScale = size;
+            if (!solid) UnityEngine.Object.DestroyImmediate(part.GetComponent<Collider>());
+            var renderer = part.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            if (size.sqrMagnitude < 0.6f) renderer.shadowCastingMode = ShadowCastingMode.Off;
+            GameObjectUtility.SetStaticEditorFlags(part, StaticEditorFlags.BatchingStatic);
+            return part;
+        }
+
+        private static DoorInteractable UpgradeMainEntranceDoor(Dictionary<string, Material> mats)
         {
             GameObject doorway = GameObject.Find("SchoolEntrance_Doorway");
             if (doorway == null) return null;
-
-            // Eski küp kapı görsellerini gizle
-            foreach (string oldVis in new[] { "Door_Visual_L", "Door_Visual_R" })
-            {
-                var visGo = FindDeep(doorway.transform, oldVis);
-                if (visGo != null)
-                {
-                    var mr = visGo.GetComponent<MeshRenderer>();
-                    if (mr != null) mr.enabled = false;
-                }
-            }
 
             foreach (string oldNode in new[] { "Detailed_Entrance_DoorSet", "Hinge_Unity_L", "Hinge_Unity_R" })
             {
@@ -869,70 +1007,68 @@ namespace TheLastBell.Editor
                 if (existingNode != null) UnityEngine.Object.DestroyImmediate(existingNode.gameObject);
             }
 
-            // Mevcut 1.20m x 2.50m duvar açıklığına milimetrik uyacak ölçek (0.53 x 0.90 x 1.0); kanatlar içeri (+Z) açılır!
+            // The original opening is 1.0 m wide between the corridor jamb walls.
+            // Clone the FBX so its child leaves can be moved out of its model hierarchy.
             GameObject doorModel = InstantiateFbx("Assets/Environment/Original/Doors/SchoolEntrance_DetailedDoor.fbx",
-                "Detailed_Entrance_DoorSet", doorway.transform, Vector3.zero, Quaternion.identity, new Vector3(0.53f, 0.90f, 1.0f), isStatic: false);
-
-            Transform hingePivotL = null;
-            Transform hingePivotR = null;
-            if (doorModel != null)
-            {
-                foreach (var r in doorModel.GetComponentsInChildren<Renderer>(true))
-                {
-                    string rn = r.gameObject.name;
-                    if (rn.Contains("Glass")) r.sharedMaterial = mats["CarGlass"];
-                    else if (rn.Contains("Hinge") || rn.Contains("Handle") || rn.Contains("Lock") || rn.Contains("Kickplate") || rn.Contains("Threshold") || rn.Contains("Astragal"))
-                        r.sharedMaterial = mats["RustedMetal"];
-                    else if (rn.Contains("Jamb") || rn.Contains("Header") || rn.Contains("Transom"))
-                        r.sharedMaterial = mats["DarkWood"];
-                    else
-                        r.sharedMaterial = mats["PaintedWood"];
-                }
-
-                Transform leafL = FindDeep(doorModel.transform, "DoorLeaf_L");
-                Transform leafR = FindDeep(doorModel.transform, "DoorLeaf_R");
-
-                if (leafL != null && leafR != null)
-                {
-                    var hlGo = new GameObject("Hinge_Unity_L");
-                    hlGo.transform.SetParent(doorway.transform, false);
-                    hlGo.transform.localPosition = new Vector3(-0.60f, 0f, 0f);
-                    hlGo.transform.localRotation = Quaternion.identity;
-                    leafL.SetParent(hlGo.transform, true);
-                    hingePivotL = hlGo.transform;
-
-                    var hrGo = new GameObject("Hinge_Unity_R");
-                    hrGo.transform.SetParent(doorway.transform, false);
-                    hrGo.transform.localPosition = new Vector3(0.60f, 0f, 0f);
-                    hrGo.transform.localRotation = Quaternion.identity;
-                    leafR.SetParent(hrGo.transform, true);
-                    hingePivotR = hrGo.transform;
-
-                    // Dış kapı kolu IK hedefini avlu (-Z) tarafındaki kolun tam üzerine sabitle
-                    Transform hTarget = FindDeep(hlGo.transform, "Door_Handle_Target");
-                    if (hTarget == null)
-                    {
-                        var htGo = new GameObject("Door_Handle_Target");
-                        htGo.transform.SetParent(hlGo.transform, false);
-                        hTarget = htGo.transform;
-                    }
-                    else
-                    {
-                        hTarget.SetParent(hlGo.transform, true);
-                    }
-                    hTarget.localPosition = new Vector3(0.50f, 0.95f, -0.09f);
-                    hTarget.localRotation = Quaternion.identity;
-                }
-            }
+                "Detailed_Entrance_DoorSet", doorway.transform, Vector3.zero, Quaternion.identity,
+                new Vector3(0.46f, 0.90f, 1f), isStatic: false, editableHierarchy: true);
+            Transform leftLeaf = doorModel != null ? FindDeep(doorModel.transform, "DoorLeaf_L") : null;
+            Transform rightLeaf = doorModel != null ? FindDeep(doorModel.transform, "DoorLeaf_R") : null;
 
             var doorInteract = doorway.GetComponent<DoorInteractable>();
             if (doorInteract == null) doorInteract = doorway.AddComponent<DoorInteractable>();
 
-            Collider blocker = doorway.GetComponent<BoxCollider>();
-            if (hingePivotL != null && hingePivotR != null)
+            var blocker = doorway.GetComponent<BoxCollider>();
+            if (blocker == null) blocker = doorway.AddComponent<BoxCollider>();
+            blocker.isTrigger = false;
+            blocker.center = new Vector3(0f, 1.01f, 0f);
+            blocker.size = new Vector3(1.04f, 2.02f, 0.10f);
+
+            if (leftLeaf != null && rightLeaf != null)
             {
-                doorInteract.Configure(hingePivotL, hingePivotR, blocker);
+                foreach (var renderer in doorModel.GetComponentsInChildren<Renderer>(true))
+                {
+                    string node = renderer.name;
+                    if (node.Contains("Glass")) renderer.sharedMaterial = mats["ClassroomGlass"];
+                    else if (node.Contains("Hinge") || node.Contains("Handle") || node.Contains("Lock") ||
+                             node.Contains("Kickplate") || node.Contains("Threshold") || node.Contains("Astragal"))
+                        renderer.sharedMaterial = mats["RustedMetal"];
+                    else if (node.Contains("Jamb") || node.Contains("Header") || node.Contains("Transom"))
+                        renderer.sharedMaterial = mats["DarkWood"];
+                    else
+                        renderer.sharedMaterial = mats["PaintedWood"];
+                }
+
+                var importedHandle = FindDeep(leftLeaf, "Door_Handle_Target") ?? FindDeep(rightLeaf, "Door_Handle_Target");
+                if (doorway.transform.InverseTransformPoint(leftLeaf.position).x >
+                    doorway.transform.InverseTransformPoint(rightLeaf.position).x)
+                    (leftLeaf, rightLeaf) = (rightLeaf, leftLeaf);
+                var leftPivot = MountEntranceLeaf(doorway.transform, leftLeaf, true);
+                var rightPivot = MountEntranceLeaf(doorway.transform, rightLeaf, false);
+                var handTarget = new GameObject("Door_Handle_Target").transform;
+                var handlePivot = importedHandle != null && importedHandle.IsChildOf(rightPivot) ? rightPivot : leftPivot;
+                handTarget.SetParent(handlePivot, false);
+                handTarget.position = importedHandle != null ? importedHandle.position : leftPivot.TransformPoint(new Vector3(0.44f, 0.95f, -0.09f));
+
+                foreach (string oldVisual in new[] { "Door_Visual_L", "Door_Visual_R" })
+                {
+                    var visual = FindDeep(doorway.transform, oldVisual);
+                    if (visual != null) visual.gameObject.SetActive(false);
+                }
+                doorInteract.Configure(leftPivot, rightPivot, blocker);
             }
+            else
+            {
+                if (doorModel != null) UnityEngine.Object.DestroyImmediate(doorModel);
+                var legacyLeft = doorway.transform.Find("Pivot_DoorLeaf_L");
+                var legacyRight = doorway.transform.Find("Pivot_DoorLeaf_R");
+                var leftVisual = legacyLeft != null ? legacyLeft.Find("Door_Visual_L") : null;
+                var rightVisual = legacyRight != null ? legacyRight.Find("Door_Visual_R") : null;
+                if (leftVisual != null) leftVisual.gameObject.SetActive(true);
+                if (rightVisual != null) rightVisual.gameObject.SetActive(true);
+                doorInteract.Configure(legacyLeft, legacyRight, blocker);
+            }
+            doorInteract.SetLockState(false, "", "Kilitli");
 
             AudioSource doorAudio = doorway.GetComponent<AudioSource>();
             if (doorAudio == null) doorAudio = doorway.AddComponent<AudioSource>();
@@ -944,6 +1080,19 @@ namespace TheLastBell.Editor
             doorInteract.ConfigureAudio(doorAudio, latchClip, openClip, closeClip);
 
             return doorInteract;
+        }
+
+        private static Transform MountEntranceLeaf(Transform doorway, Transform leaf, bool left)
+        {
+            var hinge = new GameObject(left ? "Hinge_Unity_L" : "Hinge_Unity_R").transform;
+            hinge.SetParent(doorway, false);
+            hinge.position = leaf.position;
+            leaf.SetParent(hinge, true);
+
+            var collider = hinge.gameObject.AddComponent<BoxCollider>();
+            collider.center = new Vector3(left ? 0.25f : -0.25f, 1.01f, 0f);
+            collider.size = new Vector3(0.50f, 1.99f, 0.08f);
+            return hinge;
         }
 
         private static void PopulateClassroomsAndCorridor(
@@ -1295,35 +1444,103 @@ namespace TheLastBell.Editor
             objMgr.Configure(playerT, mainEntranceDoor, panelGo.transform, socketGo.transform);
         }
 
-        private static void BuildSpatialAudioZones(Transform audioParent)
+        private static AudioMixer EnsureChapterMixer()
         {
-            var windClip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Chapter1/Amb_BlueHour_Wind.wav");
-            if (windClip != null)
+            var mixer = AssetDatabase.LoadAssetAtPath<AudioMixer>(MixerPath);
+            if (mixer != null) return mixer;
+
+            // Unity only exposes mixer/group creation through the editor audio controller.
+            // Resolve by name because the Unity 6 controller is an internal editor type.
+            Type controller = Type.GetType("UnityEditor.Audio.AudioMixerController, UnityEditor.AudioModule");
+            if (controller == null)
+                controller = AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(assembly => assembly.GetType("UnityEditor.Audio.AudioMixerController"))
+                    .FirstOrDefault(type => type != null);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
+                BindingFlags.Instance | BindingFlags.Static;
+            var create = controller?.GetMethod("CreateMixerControllerAtPath", flags);
+            var createGroup = controller?.GetMethod("CreateNewGroup", flags);
+            var attachGroup = controller?.GetMethod("AddChildToParent", flags);
+            var masterProperty = controller?.GetProperty("masterGroup", flags);
+            if (create == null || createGroup == null || attachGroup == null || masterProperty == null)
             {
-                var extWindGo = new GameObject("Ambience_Courtyard_BlueHourWind");
-                extWindGo.transform.SetParent(audioParent, false);
-                extWindGo.transform.position = new Vector3(0f, 2.0f, -11.0f);
-                var src = extWindGo.AddComponent<AudioSource>();
-                ConfigureSpatialAudioSource(src, 4.0f, 24f);
-                src.clip = windClip;
-                src.loop = true;
-                src.playOnAwake = true;
-                src.volume = 0.36f;
+                Debug.LogWarning("Chapter I could not create audio mixer groups with this Unity editor version.");
+                return null;
             }
 
-            var roomClip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Chapter1/Amb_Interior_RoomTone.wav");
-            if (roomClip != null)
+            mixer = create.Invoke(null, new object[] { MixerPath }) as AudioMixer;
+            if (mixer == null) return null;
+            object master = masterProperty.GetValue(mixer);
+            foreach (string name in new[] { "Ambience", "Footsteps", "Interactions", "Environment", "Dialogue", "Music" })
             {
-                var intToneGo = new GameObject("Ambience_Interior_DeadRoomTone");
-                intToneGo.transform.SetParent(audioParent, false);
-                intToneGo.transform.position = new Vector3(2.0f, 1.8f, 8.5f);
-                var src = intToneGo.AddComponent<AudioSource>();
-                ConfigureSpatialAudioSource(src, 3.0f, 22f);
-                src.clip = roomClip;
-                src.loop = true;
-                src.playOnAwake = true;
-                src.volume = 0.32f;
+                object group = createGroup.Invoke(mixer, new object[] { name, false });
+                attachGroup.Invoke(mixer, new[] { group, master });
             }
+            EditorUtility.SetDirty((UnityEngine.Object)master);
+            EditorUtility.SetDirty(mixer);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.ImportAsset(MixerPath);
+            return AssetDatabase.LoadAssetAtPath<AudioMixer>(MixerPath);
+        }
+
+        private static AudioSource CreateAudioEmitter(Transform parent, string name, Vector3 position,
+            float minDistance, float maxDistance, string bus)
+        {
+            var emitter = new GameObject(name);
+            emitter.transform.SetParent(parent, false);
+            emitter.transform.localPosition = position;
+            var audio = emitter.AddComponent<AudioSource>();
+            ConfigureSpatialAudioSource(audio, minDistance, maxDistance, bus);
+            return audio;
+        }
+
+        private static void BuildSpatialAudioZones(Transform audioParent)
+        {
+            var wind = CreateAudioEmitter(audioParent, "Ambience_Courtyard_Wind", new Vector3(-4f, 2f, -10f), 7f, 34f, "Ambience");
+            var distant = CreateAudioEmitter(audioParent, "Ambience_Distant_Street", new Vector3(0f, 1.8f, -23f), 7f, 35f, "Ambience");
+            var room = CreateAudioEmitter(audioParent, "Ambience_Course_RoomTone", new Vector3(0f, 1.7f, 9.5f), 8f, 24f, "Ambience");
+            var frame = CreateAudioEmitter(audioParent, "Ambience_Window_Frame", new Vector3(-9.8f, 2f, 6.1f), 2f, 20f, "Environment");
+
+            SetAmbienceLoop(wind, "Amb_BlueHour_Wind", 0.55f);
+            SetAmbienceLoop(distant, "Amb_Exterior_Distant", 0.32f);
+            SetAmbienceLoop(room, "Amb_Interior_RoomTone", 0f);
+            var filter = wind.gameObject.AddComponent<AudioLowPassFilter>();
+            filter.cutoffFrequency = 16000f;
+
+            audioParent.gameObject.AddComponent<ChapterAmbience>().Configure(
+                GameObject.Find("Player_Protagonist")?.transform, wind, distant, room, frame, filter,
+                AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Chapter1/SFX_Interior_FrameCreak.wav"));
+        }
+
+        private static void SetAmbienceLoop(AudioSource source, string asset, float volume)
+        {
+            source.clip = AssetDatabase.LoadAssetAtPath<AudioClip>($"Assets/Audio/Chapter1/{asset}.wav");
+            source.volume = volume;
+            source.loop = true;
+            source.playOnAwake = true;
+        }
+
+        private static void WireFootstepAudio()
+        {
+            var player = GameObject.Find("Player_Protagonist");
+            var controller = player != null ? player.GetComponent<FirstPersonController>() : null;
+            if (controller == null) return;
+
+            var existing = player.transform.Find("Player_Footsteps");
+            if (existing != null) UnityEngine.Object.DestroyImmediate(existing.gameObject);
+            var steps = CreateAudioEmitter(player.transform, "Player_Footsteps", new Vector3(0f, 0.16f, 0f), 1f, 7f, "Footsteps");
+            steps.spatialBlend = 0.66f;
+            var banks = new List<SurfaceFootstepClips>();
+            foreach (SurfaceType surface in Enum.GetValues(typeof(SurfaceType)))
+            {
+                var clips = Directory.GetFiles("Assets/Audio/Chapter1", $"Step_{surface}_*.wav")
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .Select(path => AssetDatabase.LoadAssetAtPath<AudioClip>(path.Replace('\\', '/')))
+                    .Where(clip => clip != null)
+                    .ToArray();
+                banks.Add(new SurfaceFootstepClips { surface = surface, clips = clips });
+            }
+            controller.ConfigureSurfaceAudio(steps, banks.ToArray());
         }
         #endregion
 
@@ -1335,7 +1552,7 @@ namespace TheLastBell.Editor
             return go;
         }
 
-        private static GameObject InstantiateFbx(string assetPath, string instanceName, Transform parent, Vector3 pos, Quaternion rot, Vector3 scale, bool isStatic)
+        private static GameObject InstantiateFbx(string assetPath, string instanceName, Transform parent, Vector3 pos, Quaternion rot, Vector3 scale, bool isStatic, bool editableHierarchy = false)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
             if (prefab == null)
@@ -1351,7 +1568,9 @@ namespace TheLastBell.Editor
             wrapper.transform.localRotation = rot;
             wrapper.transform.localScale = scale;
 
-            var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            var inst = editableHierarchy ? UnityEngine.Object.Instantiate(prefab) : (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            if (editableHierarchy && PrefabUtility.IsPartOfPrefabInstance(inst))
+                PrefabUtility.UnpackPrefabInstance(inst, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
             inst.name = instanceName + "_Model";
             inst.transform.SetParent(wrapper.transform, false);
 
@@ -1413,7 +1632,7 @@ namespace TheLastBell.Editor
             pt.enabled = false;
 
             var humSrc = fixGo.AddComponent<AudioSource>();
-            ConfigureSpatialAudioSource(humSrc, 1.2f, 9.5f);
+            ConfigureSpatialAudioSource(humSrc, 1.2f, 9.5f, "Environment");
 
             list.Add(new FacilityLightFixture
             {
@@ -1435,7 +1654,7 @@ namespace TheLastBell.Editor
             foreach (var r in rad.GetComponentsInChildren<Renderer>(true)) r.sharedMaterial = ironMat;
         }
 
-        private static void PlaceWallPoster(string name, Transform parent, Vector3 pos, float yaw, Material posterMat)
+        private static void PlaceWallPoster(string name, Transform parent, Vector3 pos, float yaw, Material posterMat, Vector2 size = default)
         {
             var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
             q.name = name;
@@ -1443,7 +1662,7 @@ namespace TheLastBell.Editor
             q.transform.SetParent(parent, false);
             q.transform.localPosition = pos;
             q.transform.localRotation = Quaternion.Euler(0f, yaw + 180f, 0f);
-            q.transform.localScale = new Vector3(0.62f, 0.88f, 1f);
+            q.transform.localScale = size == default ? new Vector3(0.62f, 0.88f, 1f) : new Vector3(size.x, size.y, 1f);
             var mr = q.GetComponent<MeshRenderer>();
             mr.sharedMaterial = posterMat;
             mr.shadowCastingMode = ShadowCastingMode.Off;
@@ -1489,7 +1708,7 @@ namespace TheLastBell.Editor
             rp.intensity = intensity;
         }
 
-        private static void ConfigureSpatialAudioSource(AudioSource src, float minDist, float maxDist)
+        private static void ConfigureSpatialAudioSource(AudioSource src, float minDist, float maxDist, string bus = "Interactions")
         {
             if (src == null) return;
             src.playOnAwake = false;
@@ -1498,6 +1717,8 @@ namespace TheLastBell.Editor
             src.minDistance = minDist;
             src.maxDistance = maxDist;
             src.dopplerLevel = 0f;
+            if (chapterMixer != null)
+                src.outputAudioMixerGroup = chapterMixer.FindMatchingGroups("Master/" + bus).FirstOrDefault();
         }
 
         private static void DisableOrMuteLight(string objName, bool enabled, float intensity)

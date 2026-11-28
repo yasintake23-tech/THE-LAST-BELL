@@ -7,7 +7,19 @@ namespace TheLastBell.Player
     {
         Concrete,
         Wood,
-        Metal
+        Metal,
+        Tile,
+        Asphalt,
+        Grass,
+        Soil,
+        Gravel
+    }
+
+    [Serializable]
+    public struct SurfaceFootstepClips
+    {
+        public SurfaceType surface;
+        public AudioClip[] clips;
     }
 
     /// <summary>
@@ -81,6 +93,7 @@ namespace TheLastBell.Player
         [SerializeField] private AudioClip[] concreteSteps;
         [SerializeField] private AudioClip[] woodSteps;
         [SerializeField] private AudioClip[] metalSteps;
+        [SerializeField] private SurfaceFootstepClips[] surfaceSteps;
         [SerializeField] private AudioClip exhaustedBreathingClip;
 
         [Header("--- Karakter Animator Kontrolcüsü ---")]
@@ -117,7 +130,9 @@ namespace TheLastBell.Player
         private float bobTimer = 0f;
         private Vector3 defaultCameraLocalPos;
 
-        private float stepTimer = 0f;
+        private float stepDistance;
+        private float timeSinceFootstep = 1f;
+        private AudioClip previousFootstep;
 
         private float currentAnimSpeed = 0f;
         private float currentAnimStrafe = 0f;
@@ -591,78 +606,105 @@ namespace TheLastBell.Player
             }
         }
 
+        private void OnEnable()
+        {
+            if (animController != null) animController.OnFootstepEvent += OnAnimationFootstep;
+        }
+
+        private void OnDisable()
+        {
+            if (animController != null) animController.OnFootstepEvent -= OnAnimationFootstep;
+            stepDistance = 0f;
+        }
+
+        private float FootstepStride => isCrouching ? 0.47f : (isSprinting ? 1.27f : 0.82f);
+
+        private void OnAnimationFootstep()
+        {
+            if (!AllowMovement || controller == null || !controller.isGrounded || timeSinceFootstep < 0.17f ||
+                stepDistance < FootstepStride * 0.69f) return;
+
+            stepDistance = 0f;
+            timeSinceFootstep = 0f;
+            PlayFootstepSound();
+        }
+
         private void HandleFootsteps(float dt)
         {
-            if (!controller.isGrounded) return;
-
+            timeSinceFootstep += dt;
             float horizontalSpeed = new Vector2(controller.velocity.x, controller.velocity.z).magnitude;
-            if (horizontalSpeed < 0.2f)
+            if (!controller.isGrounded || horizontalSpeed < 0.18f)
             {
-                stepTimer = 0f;
+                stepDistance = 0f;
                 return;
             }
 
-            float stepInterval = 0.54f;
-            if (isSprinting) stepInterval = 0.35f;
-            else if (isCrouching) stepInterval = 0.72f;
-
-            stepTimer += dt;
-            if (stepTimer >= stepInterval)
+            // A step corresponds to horizontal motion on the floor, including analog speeds.
+            float stride = FootstepStride;
+            stepDistance += horizontalSpeed * dt;
+            if (stepDistance >= stride && timeSinceFootstep >= 0.17f)
             {
-                stepTimer = 0f;
+                stepDistance %= stride;
+                timeSinceFootstep = 0f;
                 PlayFootstepSound();
             }
         }
 
         private void PlayFootstepSound()
         {
-            if (footstepAudioSource == null) return;
-
+            if (!Application.isPlaying || footstepAudioSource == null) return;
             SurfaceType surface = DetectSurface();
-            AudioClip[] clipPool = concreteSteps;
-
-            switch (surface)
+            AudioClip[] clipPool = surface == SurfaceType.Wood ? woodSteps :
+                surface == SurfaceType.Metal ? metalSteps : concreteSteps;
+            if (surfaceSteps != null)
             {
-                case SurfaceType.Wood:
-                    if (woodSteps != null && woodSteps.Length > 0) clipPool = woodSteps;
+                foreach (var bank in surfaceSteps)
+                {
+                    if (bank.surface != surface || bank.clips == null || bank.clips.Length == 0) continue;
+                    clipPool = bank.clips;
                     break;
-                case SurfaceType.Metal:
-                    if (metalSteps != null && metalSteps.Length > 0) clipPool = metalSteps;
-                    break;
-                default:
-                    if (concreteSteps != null && concreteSteps.Length > 0) clipPool = concreteSteps;
-                    break;
+                }
             }
 
-            if (clipPool != null && clipPool.Length > 0)
-            {
-                AudioClip clip = clipPool[UnityEngine.Random.Range(0, clipPool.Length)];
-                float volume = isCrouching ? 0.35f : (isSprinting ? 0.95f : 0.65f);
-                footstepAudioSource.pitch = UnityEngine.Random.Range(0.95f, 1.05f);
-                footstepAudioSource.PlayOneShot(clip, volume);
-            }
+            if (clipPool == null || clipPool.Length == 0) return;
+            int choice = UnityEngine.Random.Range(0, clipPool.Length);
+            if (clipPool.Length > 1 && clipPool[choice] == previousFootstep)
+                choice = (choice + UnityEngine.Random.Range(1, clipPool.Length)) % clipPool.Length;
+            var clip = clipPool[choice];
+            if (clip == null) return;
+            previousFootstep = clip;
+            float volume = isCrouching ? 0.27f : (isSprinting ? 0.64f : 0.46f);
+            footstepAudioSource.pitch = UnityEngine.Random.Range(0.96f, 1.04f);
+            footstepAudioSource.PlayOneShot(clip, volume * UnityEngine.Random.Range(0.90f, 1.08f));
         }
 
         private SurfaceType DetectSurface()
         {
-            RaycastHit hit;
-            if (Physics.Raycast(transform.position + Vector3.up * 0.2f, Vector3.down, out hit, 1.2f, ~0, QueryTriggerInteraction.Ignore))
-            {
-                string hitName = hit.collider.gameObject.name.ToLower();
-                string hitTag = hit.collider.tag.ToLower();
-                PhysicsMaterial mat = hit.collider.sharedMaterial;
-                string matName = mat != null ? mat.name.ToLower() : "";
+            Vector3 foot = transform.TransformPoint(controller.center) - Vector3.up * (controller.height * 0.5f + 0.02f);
+            if (!Physics.Raycast(foot + Vector3.up * 0.17f, Vector3.down, out var hit, 0.75f, ~0, QueryTriggerInteraction.Ignore))
+                return SurfaceType.Concrete;
 
-                if (hitName.Contains("wood") || hitName.Contains("parquet") || hitName.Contains("board") || hitTag.Contains("wood") || matName.Contains("wood"))
-                {
-                    return SurfaceType.Wood;
-                }
-                if (hitName.Contains("metal") || hitName.Contains("iron") || hitName.Contains("elevator") || hitName.Contains("gate") || hitTag.Contains("metal") || matName.Contains("metal"))
-                {
-                    return SurfaceType.Metal;
-                }
-            }
+            string name = hit.collider.name.ToLowerInvariant();
+            var physicsMaterial = hit.collider.sharedMaterial;
+            if (physicsMaterial != null) name += " " + physicsMaterial.name.ToLowerInvariant();
+            var renderer = hit.collider.GetComponent<Renderer>();
+            if (renderer != null && renderer.sharedMaterial != null)
+                name += " " + renderer.sharedMaterial.name.ToLowerInvariant();
+
+            if (name.Contains("gravel")) return SurfaceType.Gravel;
+            if (name.Contains("asphalt")) return SurfaceType.Asphalt;
+            if (name.Contains("grass")) return SurfaceType.Grass;
+            if (name.Contains("soil") || name.Contains("dirt")) return SurfaceType.Soil;
+            if (name.Contains("tile")) return SurfaceType.Tile;
+            if (name.Contains("wood") || name.Contains("parquet")) return SurfaceType.Wood;
+            if (name.Contains("metal") || name.Contains("iron") || name.Contains("elevator")) return SurfaceType.Metal;
             return SurfaceType.Concrete;
+        }
+
+        public void ConfigureSurfaceAudio(AudioSource source, SurfaceFootstepClips[] banks)
+        {
+            footstepAudioSource = source;
+            surfaceSteps = banks;
         }
 
         private void UpdateAnimator(float dt)
