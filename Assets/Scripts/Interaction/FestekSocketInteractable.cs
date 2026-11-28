@@ -153,7 +153,7 @@ namespace TheLastBell.Interaction
 
         private bool BeginFocus(GameObject player, ProtagonistAnimationController controller)
         {
-            focus = InteractionFocus.Begin(player, insertionTransform, this);
+            focus = InteractionFocus.Begin(player, insertionTransform, this, reserveHeading: true);
             if (focus == null) return false;
             animation = controller;
             animation.IsPosingFestek = true;
@@ -180,7 +180,14 @@ namespace TheLastBell.Interaction
                 approach.Step(Time.deltaTime);
                 yield return null;
             }
-            approachReached = approach.Arrived;
+            approachReached = approach.Arrived && InteractionApproach.HasClearReach(player, approachProfile, insertionTransform);
+            if (approachReached)
+            {
+                focus.AlignOnce(insertionTransform.position);
+                for (float t = 0f; t < 1.42f && focus.IsOwnedBy(this) && focus.HeadingError > 8f; t += Time.deltaTime)
+                    yield return null;
+                approachReached = focus.IsOwnedBy(this);
+            }
             if (!approachReached)
                 player.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
         }
@@ -210,7 +217,6 @@ namespace TheLastBell.Interaction
                 ReleaseFocus();
                 yield break;
             }
-            Transform hand = animation.LeftHandFestekSocket.parent;
             Transform device = seatedFestek.transform;
             Vector3 seatedPosition = device.localPosition;
             for (float t = 0f; t < 0.48f; t += Time.deltaTime)
@@ -220,25 +226,22 @@ namespace TheLastBell.Interaction
             }
             PoseHand(device.position, device.rotation);
             yield return null;
-            if (Vector3.Distance(wrist.position, hand.position) <= 0.13f)
+            Play(socketInsertClip, 0.48f);
+            for (float t = 0f; t < 0.45f; t += Time.deltaTime)
             {
-                Play(socketInsertClip, 0.48f);
-                for (float t = 0f; t < 0.45f; t += Time.deltaTime)
-                {
-                    device.localPosition = seatedPosition - Vector3.forward * (0.15f * Mathf.SmoothStep(0f, 1f, t / 0.45f));
-                    PoseHand(device.position, device.rotation);
-                    yield return null;
-                }
-                device.localPosition = seatedPosition - Vector3.forward * 0.15f;
+                device.localPosition = seatedPosition - Vector3.forward * (0.15f * Mathf.SmoothStep(0f, 1f, t / 0.45f));
                 PoseHand(device.position, device.rotation);
                 yield return null;
-                if (Vector3.Distance(wrist.position, hand.position) <= 0.10f && TransferPoweredDevice(player, inventory))
+            }
+            device.localPosition = seatedPosition - Vector3.forward * 0.15f;
+            PoseHand(device.position, device.rotation);
+            yield return null;
+            if (TransferPoweredDevice(player, inventory))
+            {
+                for (float t = 0f; t < 0.26f; t += Time.deltaTime)
                 {
-                    for (float t = 0f; t < 0.26f; t += Time.deltaTime)
-                    {
-                        PoseHand(device.position, device.rotation, 1f - Mathf.Clamp01(t / 0.26f));
-                        yield return null;
-                    }
+                    PoseHand(device.position, device.rotation, 1f - Mathf.Clamp01(t / 0.26f));
+                    yield return null;
                 }
             }
             if (seatedFestek != null)
@@ -252,7 +255,7 @@ namespace TheLastBell.Interaction
                     yield return null;
                 }
                 SetTurn(RequiredTurn);
-                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Feştek’i çıkarmak için yuvanın karşısına geç.");
+                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Feştek sol ele geri alınamadı.");
             }
             removing = false;
             ReleaseFocus();
@@ -316,15 +319,7 @@ namespace TheLastBell.Interaction
                 settle += Time.deltaTime;
                 yield return null;
             }
-            if (!IsAligned(item, end, aligned) &&
-                (Vector3.Distance(item.transform.position, end) > 0.15f ||
-                 !animation.CanReachByArm(PreferredInteractionHand.Left, end, 0.12f)))
-            {
-                socketState = FestekSocketState.Empty;
-                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
-                ReleaseFocus();
-                yield break;
-            }
+            // Exact alignment is applied by Seat after the reach animation. Retargeting cannot veto a clear socket operation.
             Seat(item, player);
             Play(socketInsertClip, 0.85f);
             OpenRotationPanel();

@@ -33,8 +33,8 @@ namespace TheLastBell.Player
         }
         public GameObject Model => model;
         public bool IsQuestItem => questItem;
-        public HandGripProfile Grip => grip.fingerCurl > 0f ? grip : HandGripProfile.Device;
-        public HandGripProfile PocketGrip => pocketGrip.fingerCurl > 0f ? pocketGrip : Grip;
+        public HandGripProfile Grip => grip.objectRadius > 0f ? grip : HandGripProfile.Device;
+        public HandGripProfile PocketGrip => pocketGrip.objectRadius > 0f ? pocketGrip : Grip;
         public float PocketDuration => Mathf.Max(0.2f, pocketDuration);
 
         public void Configure(string id, string title, string details, Sprite itemIcon, GameObject physicalModel,

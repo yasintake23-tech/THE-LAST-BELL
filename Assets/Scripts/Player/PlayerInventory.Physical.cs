@@ -37,12 +37,13 @@ namespace TheLastBell.Player
 
         private void Start() => MobileInventoryPanel.Create(this);
 
+        public bool CanCollectEquipped(InventoryItemDefinition definition, IInventoryPhysicalItem item) =>
+            definition != null && item != null && !string.IsNullOrWhiteSpace(definition.ItemId) && EquippedItem == null &&
+            !physicalItems.Exists(entry => entry.Definition.ItemId == definition.ItemId || ReferenceEquals(entry.Instance, item));
+
         public bool TryCollectEquipped(InventoryItemDefinition definition, IInventoryPhysicalItem item)
         {
-            if (definition == null || item == null || string.IsNullOrWhiteSpace(definition.ItemId) || EquippedItem != null)
-                return false;
-            if (physicalItems.Exists(entry => entry.Definition.ItemId == definition.ItemId || ReferenceEquals(entry.Instance, item)))
-                return false;
+            if (!CanCollectEquipped(definition, item)) return false;
             EquippedItem = new PhysicalItem(definition, item);
             physicalItems.Add(EquippedItem);
             PhysicalItemsChanged?.Invoke();
@@ -83,17 +84,12 @@ namespace TheLastBell.Player
             if (EquippedItem != null)
             {
                 yield return ReachPocket(wrist, pocketTarget, EquippedItem.Definition);
-                if (!IsAtPocket(wrist, pocketTarget))
-                {
-                    EndTransfer();
-                    yield break;
-                }
                 CommitStorage();
             }
             if (next != null)
             {
                 yield return ReachPocket(wrist, pocketTarget, next.Definition);
-                if (IsAtPocket(wrist, pocketTarget) && next.Instance.TryEquip(gameObject))
+                if (next.Instance.TryEquip(gameObject))
                 {
                     EquippedItem = next;
                     for (float t = 0f; t < next.Definition.PocketDuration; t += Time.deltaTime)
@@ -107,15 +103,15 @@ namespace TheLastBell.Player
             EndTransfer();
         }
 
-        public IEnumerator StoreEquippedForCinematic() => StoreDuringFocus(requireContact: false);
-        public IEnumerator StoreEquippedForInteraction() => StoreDuringFocus(requireContact: true);
+        public IEnumerator StoreEquippedForCinematic() => StoreDuringFocus();
+        public IEnumerator StoreEquippedForInteraction() => StoreDuringFocus();
 
         public void CancelFocusedStorage()
         {
             if (transferring && interactionLock == null) EndTransfer();
         }
 
-        private IEnumerator StoreDuringFocus(bool requireContact)
+        private IEnumerator StoreDuringFocus()
         {
             if (EquippedItem == null || transferring) yield break;
             if (!Application.isPlaying)
@@ -134,7 +130,7 @@ namespace TheLastBell.Player
                     pose.IsPosingFestek = true;
                     yield return ReachPocket(wrist, GetPocket(), EquippedItem.Definition);
                 }
-                if (!requireContact || (wrist != null && IsAtPocket(wrist, GetPocket()))) CommitStorage();
+                CommitStorage();
             }
             finally
             {
@@ -160,13 +156,6 @@ namespace TheLastBell.Player
             pose.SetPhysicalWrist(PreferredInteractionHand.Left, target.position, target.rotation, definition.PocketGrip, 1f);
             yield return null;
             yield return null;
-        }
-
-        private bool IsAtPocket(Transform wrist, Transform target)
-        {
-            if (Vector3.Distance(wrist.position, target.position) <= 0.13f) return true;
-            GetComponent<PlayerInteractor>()?.ShowStatusMessage("Cebine ulaşmak için ayağa kalk.");
-            return false;
         }
 
         private Transform GetPocket()

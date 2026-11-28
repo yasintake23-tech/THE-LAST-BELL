@@ -77,13 +77,13 @@ namespace TheLastBell.Editor
             var desk2 = GameObject.Find("C102_Barricade_Desk2");
             if (desk2 != null) desk2.transform.position = new Vector3(-4.9f, desk2.transform.position.y, 15.65f);
 
-            CreateClassroomDoor("C101", "101", -2f, 6.25f, mats["PaintedWood"], mats, parent);
-            CreateClassroomDoor("C102", "102", -2f, 14.25f, mats["DarkWood"], mats, parent);
-            CreateClassroomDoor("C103", "103", 2f, 14.25f, mats["PaintedWood"], mats, parent);
-            CreateClassroomDoor("Lounge", "PERSONEL", 2f, 6.25f, mats["DarkWood"], mats, parent);
+            CreateClassroomDoor("C101", -2f, 6.25f, mats["PaintedWood"], mats, parent);
+            CreateClassroomDoor("C102", -2f, 14.25f, mats["DarkWood"], mats, parent);
+            CreateClassroomDoor("C103", 2f, 14.25f, mats["PaintedWood"], mats, parent);
+            CreateClassroomDoor("Lounge", 2f, 6.25f, mats["DarkWood"], mats, parent);
         }
 
-        private static void CreateClassroomDoor(string id, string sign, float x, float z, Material paint,
+        private static void CreateClassroomDoor(string id, float x, float z, Material paint,
             Dictionary<string, Material> mats, Transform parent)
         {
             Transform root = CreateGroup("ClassroomDoor_" + id, parent).transform;
@@ -100,18 +100,6 @@ namespace TheLastBell.Editor
                 new Vector3(1.51f, 0.30f, 0.31f), mats["Plaster"], true);
             BuildDetail("Weathered_Frame_Header", root, new Vector3(0f, 2.24f, -0.17f),
                 new Vector3(1.47f, 0.105f, 0.065f), mats["DarkWood"]);
-            BuildDetail("Recessed_Room_Plate", root, new Vector3(0.41f, 2.395f, -0.177f),
-                new Vector3(0.37f, 0.108f, 0.034f), mats["PanelDark"]);
-            var plate = CreateGroup("Room_Label", root);
-            plate.transform.localPosition = new Vector3(0.41f, 2.393f, -0.209f);
-            var label = plate.AddComponent<TextMesh>();
-            label.text = sign;
-            label.anchor = TextAnchor.MiddleCenter;
-            label.alignment = TextAlignment.Center;
-            label.fontSize = 60;
-            label.characterSize = 0.073f;
-            label.color = new Color(0.86f, 0.80f, 0.66f);
-
             Transform hinge = CreateGroup("Classroom_Physical_Hinge", root).transform;
             hinge.localPosition = new Vector3(-0.60f, 0f, 0f);
             var leaf = InstantiateFbx("Assets/Environment/Original/ClassroomDoor/Classroom_Service_Door.fbx",

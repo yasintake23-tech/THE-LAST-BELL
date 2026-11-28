@@ -218,13 +218,13 @@ namespace TheLastBell.Interaction
             highlightRenderer.SetPropertyBlock(highlight);
         }
 
-        public void PickupIntoLeftHand(GameObject playerRoot)
+        public bool PickupIntoLeftHand(GameObject playerRoot)
         {
-            if (currentState != FestekItemState.DroppedPhysics || playerRoot == null) return;
-            if (!AttachToLeftHand(playerRoot)) return;
+            if (currentState != FestekItemState.DroppedPhysics || playerRoot == null) return false;
             var inventory = playerRoot.GetComponent<PlayerInventory>();
-            if (inventoryDefinition != null && inventory != null)
-                inventory.TryCollectEquipped(inventoryDefinition, this);
+            if (inventory == null || !inventory.CanCollectEquipped(inventoryDefinition, this)) return false;
+            if (!AttachToLeftHand(playerRoot)) return false;
+            inventory.TryCollectEquipped(inventoryDefinition, this);
 
             if (Application.isPlaying && itemAudioSource != null && pickupClip != null)
             {
@@ -233,6 +233,7 @@ namespace TheLastBell.Interaction
             }
             ChapterObjectiveManager.Instance?.NotifyFestekPickedUp();
             OnStateChanged?.Invoke(currentState);
+            return true;
         }
 
         public bool TryEquip(GameObject player)
@@ -278,11 +279,25 @@ namespace TheLastBell.Interaction
                 yield return null;
             }
             if (pickupContact == null) yield break;
-            if (pickupContact.Ready) PickupIntoLeftHand(player);
+            if (pickupContact.Ready)
+            {
+                pickupContact.BeginExecution();
+                if (PickupIntoLeftHand(player))
+                {
+                    pickupContact.Recover();
+                    yield return new WaitForSeconds(0.31f);
+                }
+                else
+                {
+                    pickupContact.Interrupt("Envanter veya sol el bağlantısı kullanılamadı");
+                    player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Feştek alımı tamamlanamadı; envanteri kontrol et.");
+                }
+            }
             else
             {
                 // Physics can leave the object under a cabinet or up against a wall.
                 // Keep the item in the puzzle by falling again at the authored open floor point.
+                ApplyPhysicsForState(currentState);
                 if (Vector3.Distance(transform.position, safeFloorRecoveryPoint) > 0.28f) RecoverToOpenFloor();
                 player.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
             }
@@ -307,6 +322,7 @@ namespace TheLastBell.Interaction
             pickupContact?.End();
             pickupContact = null;
             pickingUp = false;
+            if (currentState == FestekItemState.DroppedPhysics) ApplyPhysicsForState(currentState);
         }
 
         private void OnDisable()
@@ -314,6 +330,7 @@ namespace TheLastBell.Interaction
             if (pickingUp)
             {
                 StopAllCoroutines();
+                if (currentState == FestekItemState.DroppedPhysics) pickupContact?.Interrupt("Nesne devre dışı kaldı");
                 FinishReach();
             }
         }
@@ -346,7 +363,9 @@ namespace TheLastBell.Interaction
             bool physicsActive = (state == FestekItemState.DroppedPhysics);
             if (itemRigidbody != null)
             {
+                if (!physicsActive) itemRigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
                 itemRigidbody.isKinematic = !physicsActive;
+                if (physicsActive) itemRigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
                 itemRigidbody.useGravity = physicsActive;
             }
             if (itemCollider != null)
@@ -363,7 +382,7 @@ namespace TheLastBell.Interaction
 
         public bool CanInteract()
         {
-            return currentState == FestekItemState.DroppedPhysics && hasNotifiedFloorDiscovery && !pickingUp;
+            return isActiveAndEnabled && currentState == FestekItemState.DroppedPhysics && hasNotifiedFloorDiscovery && !pickingUp;
         }
 
         public void Interact(PlayerInteractor interactor)
@@ -376,6 +395,13 @@ namespace TheLastBell.Interaction
                 return;
             }
             pickingUp = true;
+            if (itemRigidbody != null && !itemRigidbody.isKinematic)
+            {
+                itemRigidbody.linearVelocity = Vector3.zero;
+                itemRigidbody.angularVelocity = Vector3.zero;
+                itemRigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
+                itemRigidbody.isKinematic = true;
+            }
             StartCoroutine(ReachAndLift(interactor.gameObject));
         }
 

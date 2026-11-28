@@ -65,8 +65,14 @@ namespace TheLastBell.Interaction
             if (mainLeverPivot == null) mainLeverPivot = FindDeepChild(transform, "Main_Lever_Pivot");
             if (leverHandTarget == null) leverHandTarget = FindDeepChild(transform, "Lever_Hand_Target");
 
-            if (mainLeverPivot != null && leverHandTarget != null && !leverHandTarget.IsChildOf(mainLeverPivot))
-                leverHandTarget.SetParent(mainLeverPivot, true);
+            if (mainLeverPivot != null && leverHandTarget != null)
+            {
+                if (!leverHandTarget.IsChildOf(mainLeverPivot)) leverHandTarget.SetParent(mainLeverPivot, true);
+                var bar = FindDeepChild(mainLeverPivot, "Main_Lever_GripBar")?.GetComponent<Renderer>();
+                if (bar != null) leverHandTarget.position = bar.bounds.center;
+                // This cabinet faces the room along wrapper +Z. The grip frame follows the lever after calibration.
+                leverHandTarget.rotation = Quaternion.LookRotation(transform.forward, transform.up);
+            }
             if (mainLeverPivot != null)
             {
                 initialLeverRot = mainLeverPivot.localRotation;

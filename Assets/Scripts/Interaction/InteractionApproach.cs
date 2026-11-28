@@ -19,6 +19,17 @@ namespace TheLastBell.Interaction
         private float stalled, time;
         public bool Arrived { get; private set; }
         public bool Blocked { get; private set; }
+        public string Failure { get; private set; }
+
+        public static bool HasClearReach(GameObject actor, InteractionTarget target, Transform grip)
+        {
+            Vector3 foot = actor.transform.position;
+            Vector3 offset = grip.position - foot;
+            bool low = target.RequiredPosture == RequiredInteractionPosture.Crouching;
+            float limit = Mathf.Max(target.ContactDistance + 0.14f, low ? 0.63f : 0.60f);
+            if (Flat(offset).sqrMagnitude > limit * limit || offset.y < -0.27f || offset.y > (low ? 0.58f : 2.1f)) return false;
+            return ClearLine(foot + Vector3.up * Mathf.Clamp(offset.y, 0.28f, 1.45f), grip.position, actor.transform, target.transform);
+        }
 
         public InteractionApproach(GameObject player, InteractionTarget profile, Transform grip, InteractionFocus session)
         {
@@ -33,22 +44,13 @@ namespace TheLastBell.Interaction
             if (target == null) return true;
             Transform grip = target.GetHandTarget(actor.transform.position);
             if (grip == null || !target.IsWithinReach(actor.transform.position, grip)) return false;
-            return Plan(actor, target, grip, actor.transform.position, -1, out _, out _, out _);
+            return (target.StandAnchor == null && HasClearReach(actor, target, grip)) ||
+                Plan(actor, target, grip, actor.transform.position, -1, out _, out _, out _);
         }
 
         public static bool CanApproachFrom(GameObject actor, InteractionTarget target, Vector3 from)
         {
             return Plan(actor, target, target.GetHandTarget(from), from, -1, out _, out _, out _);
-        }
-
-        public bool TryAlternative()
-        {
-            if (retries >= 2 || time > 4.4f) return false;
-            retries++;
-            Arrived = false;
-            Blocked = false;
-            planned = false;
-            return true;
         }
 
         public void Step(float dt)
@@ -61,6 +63,13 @@ namespace TheLastBell.Interaction
             }
 
             time += dt;
+            if (time > 4.5f) { Blocked = true; Failure = "Yaklaşma süresi doldu"; return; }
+            if (!planned && target.StandAnchor == null && HasClearReach(actor, target, point))
+            {
+                focus.ReportStand(actor.transform.position);
+                Arrived = true;
+                return;
+            }
             if (!planned || (point.position - chosenTargetPosition).sqrMagnitude > 0.12f * 0.12f)
             {
                 chosenTargetPosition = point.position;
@@ -68,8 +77,10 @@ namespace TheLastBell.Interaction
                 if (!planned || time > 4f)
                 {
                     Blocked = true;
+                    Failure = "Güvenli duruş bulunamadı";
                     return;
                 }
+                focus.ReportStand(stand);
             }
 
             Vector3 from = actor.transform.position;
@@ -88,7 +99,7 @@ namespace TheLastBell.Interaction
             // A new blocker invalidates this path. Try the next stand and both detour sides.
             stalled = 0f;
             planned = false;
-            if (++retries > 2 || time > 4f) Blocked = true;
+            if (++retries > 2) { Blocked = true; Failure = "Geçiş engellendi"; }
         }
 
         private static bool Plan(GameObject actor, InteractionTarget profile, Transform grip, Vector3 from, int retry,

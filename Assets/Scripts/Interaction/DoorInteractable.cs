@@ -129,8 +129,7 @@ namespace TheLastBell.Interaction
             latchRest = handle.localRotation;
             interactionTarget.ConfigureApproach(null, null, back);
             interactionTarget.Configure(handle, PreferredInteractionHand.Left, "DoorOpen", 2.0f, 0.38f, 0.65f);
-            var grip = HandGripProfile.Handle;
-            if (classroomDoor) grip.wristAngles = new Vector3(7f, 5f, -10f);
+            var grip = classroomDoor ? HandGripProfile.DoorLever : HandGripProfile.Handle;
             interactionTarget.ConfigurePhysicalContact(2.38f, 0.51f, grip);
         }
 

@@ -47,7 +47,7 @@ namespace TheLastBell.Interaction
         [SerializeField] private float approachSpeed = 1.04f;
         [SerializeField] private float approachTimeout = 0.85f;
         [SerializeField] private float reachDuration = 0.36f;
-        public HandGripProfile Grip => grip.fingerCurl > 0f ? grip : HandGripProfile.Handle;
+        public HandGripProfile Grip => grip.objectRadius > 0f ? grip : HandGripProfile.Handle;
         public float ContactDistance => Mathf.Max(0.36f, contactDistance);
         public float ApproachSpeed => Mathf.Max(0.3f, approachSpeed);
         public float ApproachTimeout => Mathf.Max(0.4f, approachTimeout);

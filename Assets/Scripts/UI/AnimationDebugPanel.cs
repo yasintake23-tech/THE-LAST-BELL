@@ -57,6 +57,7 @@ namespace TheLastBell.UI
         private TextMeshProUGUI neutralLightBtnLabel;
         private TextMeshProUGUI gizmoBtnLabel;
         private TextMeshProUGUI telemetryText;
+        private bool interactionDiagnostics;
         private Slider timelineSlider;
         private Slider speedSlider;
         private Slider camDistSlider;
@@ -144,6 +145,7 @@ namespace TheLastBell.UI
         {
             if (!isBuilt) EnsureBuilt();
             isPanelOpen = open;
+            InteractionFocus.LogDiagnostics = open && interactionDiagnostics;
             if (panelRoot != null) panelRoot.SetActive(open);
             if (open)
             {
@@ -383,6 +385,15 @@ namespace TheLastBell.UI
                 float relYaw = playerController != null ? playerController.RelativeLookYaw : 0f;
                 float pitch = playerController != null ? playerController.DesiredLookPitch : 0f;
 
+                if (interactionDiagnostics)
+                {
+                    var focus = playerController != null ? playerController.GetComponent<InteractionFocus>() : null;
+                    var clips = anim.GetCurrentAnimatorClipInfo(0);
+                    string clip = clips.Length > 0 && clips[0].clip != null ? clips[0].clip.name : stateName;
+                    telemetryText.text = (focus != null ? focus.DiagnosticSummary : "Etkileşim: bekliyor") +
+                        $"\nKlip: {clip}";
+                    return;
+                }
                 telemetryText.text =
                     $"{stateName} | Grounded:{grounded} | Hız:{vel:F2}m/s\n" +
                     $"Bakış RelYaw:{relYaw:F1}° Pitch:{pitch:F1}° | WallPull:{(proceduralController != null ? proceduralController.WallPullback01 : 0f):F2}\n" +
@@ -673,6 +684,18 @@ namespace TheLastBell.UI
                     w => animController?.SetManualLayerWeight(layerIdx, w));
             }
 
+            var diagnosticRow = CreateHorizontalRow(body, 35f, 5f);
+            CreateRowButton(diagnosticRow, "ETKİLEŞİM / HAREKET", 245f,
+                new Color(0.16f, 0.23f, 0.21f, 0.95f), () =>
+                {
+                    interactionDiagnostics = !interactionDiagnostics;
+                    InteractionFocus.LogDiagnostics = isPanelOpen && interactionDiagnostics;
+                    if (interactionDiagnostics && playerController != null)
+                    {
+                        var focus = playerController.GetComponent<InteractionFocus>();
+                        if (focus != null) Debug.Log("[Interaction] " + focus.RecentTransitions);
+                    }
+                });
             // 10. Canlı Telemetri Kutusu
             var telObj = new GameObject("Telemetry_Box", typeof(RectTransform), typeof(Image));
             telObj.transform.SetParent(body, false);

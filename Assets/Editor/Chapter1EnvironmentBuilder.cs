@@ -1287,7 +1287,18 @@ namespace TheLastBell.Editor
                 var handTarget = new GameObject("Door_Handle_Target").transform;
                 var handlePivot = importedHandle != null && importedHandle.IsChildOf(rightPivot) ? rightPivot : leftPivot;
                 handTarget.SetParent(handlePivot, false);
-                handTarget.position = importedHandle != null ? importedHandle.position : leftPivot.TransformPoint(new Vector3(0.44f, 0.95f, -0.09f));
+                var handleRenderers = handlePivot.GetComponentsInChildren<Renderer>(true);
+                var exteriorGrip = handleRenderers.FirstOrDefault(r => r.name.EndsWith("HandleGrip_Ext", StringComparison.Ordinal));
+                var interiorGrip = handleRenderers.FirstOrDefault(r => r.name.EndsWith("HandleGrip_Int", StringComparison.Ordinal));
+                handTarget.position = exteriorGrip != null ? exteriorGrip.bounds.center : importedHandle != null ?
+                    importedHandle.position : handlePivot.TransformPoint(new Vector3(0.44f, 0.95f, -0.09f));
+                handTarget.rotation = Quaternion.LookRotation(-doorway.transform.forward, doorway.transform.up);
+                if (interiorGrip != null)
+                {
+                    var insideTarget = new GameObject("Door_Handle_Opposite").transform;
+                    insideTarget.SetParent(handlePivot, false);
+                    insideTarget.SetPositionAndRotation(interiorGrip.bounds.center, Quaternion.LookRotation(doorway.transform.forward, doorway.transform.up));
+                }
 
                 foreach (string oldVisual in new[] { "Door_Visual_L", "Door_Visual_R" })
                 {

@@ -119,6 +119,9 @@ namespace TheLastBell.Player
         // Sinematik / Senaryolu Bakış Geçersiz Kılma (Bölüm 13)
         private Vector3 guidedVelocity;
         private int guidedMoveFrame = -10;
+        public const float InteractionTurnDegreesPerSecond = 135f;
+        private bool interactionHeadingOwned;
+        private float interactionYaw, interactionPitch;
         private bool scriptedGazeActive = false;
         private float scriptedGazeYaw = 0f;
         private float scriptedGazePitch = 0f;
@@ -167,6 +170,14 @@ namespace TheLastBell.Player
             scriptedGazeYaw = worldYaw;
             scriptedGazePitch = Mathf.Clamp(pitch, minPitch, maxPitch);
             scriptedGazeBlend = Mathf.Clamp01(blend);
+        }
+
+        public void SetInteractionHeading(bool active, float yaw = 0f, float pitch = 0f)
+        {
+            interactionHeadingOwned = active;
+            interactionYaw = yaw;
+            interactionPitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+            if (active) isTurningInPlace = false;
         }
 
         public void MoveForInteraction(Vector3 planarStep, float deltaTime)
@@ -284,11 +295,25 @@ namespace TheLastBell.Player
         public void StepController(float deltaTime)
         {
             float dt = Mathf.Max(0.0001f, deltaTime);
-            SyncExternalRotationIfChanged();
-            HandleLook(dt);
+            if (interactionHeadingOwned)
+            {
+                float boundedDelta = Mathf.Max(0f, deltaTime);
+                float yaw = Mathf.MoveTowardsAngle(transform.eulerAngles.y, interactionYaw, InteractionTurnDegreesPerSecond * boundedDelta);
+                transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+                lastKnownBodyYaw = yaw;
+                desiredLookYaw = Mathf.MoveTowardsAngle(desiredLookYaw, interactionYaw, 160f * boundedDelta);
+                cameraPitch = Mathf.MoveTowards(cameraPitch, interactionPitch, 95f * boundedDelta);
+                if (cameraHolder != null)
+                    cameraHolder.localRotation = Quaternion.Euler(cameraPitch, Mathf.DeltaAngle(yaw, desiredLookYaw), 0f);
+            }
+            else
+            {
+                SyncExternalRotationIfChanged();
+                HandleLook(dt);
+            }
             if (!AllowMovement)
             {
-                if (scriptedGazeActive && controller.enabled)
+                if ((interactionHeadingOwned || scriptedGazeActive) && controller.enabled)
                 {
                     UpdateCrouchHeight(dt);
                     Vector3 local = Time.frameCount - guidedMoveFrame <= 1
