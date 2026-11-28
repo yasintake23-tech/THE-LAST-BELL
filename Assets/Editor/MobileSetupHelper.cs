@@ -298,15 +298,15 @@ namespace TheLastBell.Editor
                     }
                 }
 
-                // Stamina barını sol alt joystick ile çakışmayacak şekilde sol üste al
-                var staminaT = canvasGO.transform.Find("Stamina_Bar_Container");
-                if (staminaT != null && staminaT is RectTransform stRt)
+                // Keep the stamina meter in the safe area, clear of objectives, inventory and subtitles.
+                var staminaT = FindChildRecursive(canvasGO.transform, "Stamina_Bar_Container");
+                if (staminaT is RectTransform stRt)
                 {
-                    stRt.anchorMin = new Vector2(0.035f, 0.93f);
-                    stRt.anchorMax = new Vector2(0.035f, 0.93f);
-                    stRt.pivot = new Vector2(0f, 0.5f);
-                    stRt.anchoredPosition = Vector2.zero;
-                    stRt.sizeDelta = new Vector2(300f, 14f);
+                    var safeRoot = canvasGO.transform.Find("Mobile_Controls_Root");
+                    if (safeRoot != null) stRt.SetParent(safeRoot, false);
+                    stRt.anchorMin = stRt.anchorMax = stRt.pivot = new Vector2(0.5f, 0f);
+                    stRt.anchoredPosition = new Vector2(0f, 50f);
+                    stRt.sizeDelta = new Vector2(250f, 9f);
                 }
 
                 var hud = UnityEngine.Object.FindAnyObjectByType<PlayerHUD>(FindObjectsInactive.Include);

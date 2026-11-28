@@ -14,7 +14,6 @@ namespace TheLastBell.Gameplay
         [SerializeField] private ChapterObjectiveManager objectives;
         [SerializeField] private VideoPlayer video;
         [SerializeField] private Shader screenShader;
-        [SerializeField] private Transform viewingPosition;
         [SerializeField] private Transform screenCenter;
         [SerializeField] private float screenRatio;
         [SerializeField] private string streamingFile;
@@ -31,13 +30,12 @@ namespace TheLastBell.Gameplay
         public bool HasPlayed { get; private set; }
 
         public void Configure(AbandonedTelevisionController crt, ChapterObjectiveManager objective, VideoPlayer player,
-            Shader shader, Transform view, Transform center, float ratio, string fileName)
+            Shader shader, Transform center, float ratio, string fileName)
         {
             television = crt;
             objectives = objective;
             video = player;
             screenShader = shader;
-            viewingPosition = view;
             screenCenter = center;
             screenRatio = ratio;
             streamingFile = fileName;
@@ -58,13 +56,20 @@ namespace TheLastBell.Gameplay
         {
             running = true;
             ended = failed = paused = false;
-            Vector3 destination = viewingPosition.position;
-            if (Vector3.Distance(destination, interactor.transform.position) < 1.65f)
+            var approachProfile = GetComponent<InteractionTarget>();
+            if (approachProfile != null)
             {
-                for (float t = 0f; t < 1f && PlanarDistance(interactor.transform.position, destination) > 0.075f; t += ActiveDelta)
+                var approach = new InteractionApproach(interactor.gameObject, approachProfile, screenCenter, focus);
+                while (!approach.Arrived && !approach.Blocked)
                 {
-                    focus.MoveTowards(destination, 0.76f, ActiveDelta);
+                    approach.Step(ActiveDelta);
                     yield return null;
+                }
+                if (!approach.Arrived)
+                {
+                    Cleanup();
+                    interactor.ShowStatusMessage(PhysicalContact.ObstructionMessage);
+                    yield break;
                 }
             }
 
@@ -127,7 +132,6 @@ namespace TheLastBell.Gameplay
         }
 
         private float ActiveDelta => backgrounded ? 0f : Time.deltaTime;
-        private static float PlanarDistance(Vector3 a, Vector3 b) => Vector3.ProjectOnPlane(a - b, Vector3.up).magnitude;
         private static void Prepared(VideoPlayer player)
         {
             if (player.audioTrackCount > 0) player.SetTargetAudioSource(0, player.GetComponent<AudioSource>());

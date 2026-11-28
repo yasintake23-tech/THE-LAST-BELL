@@ -1156,6 +1156,10 @@ namespace TheLastBell.Editor
                 UnityEngine.Object.DestroyImmediate(pSpot.gameObject);
             }
 
+            var pickupProfile = festek.GetComponent<InteractionTarget>();
+            if (pickupProfile == null || !InteractionApproach.CanApproachFrom(player, pickupProfile,
+                new Vector3(festek.transform.position.x, 0.025f, festek.transform.position.z - 1.2f)))
+                failures.Add("The recovered floor Feştek has no clear candidate from normal walking distance.");
             // Step 7: Left-hand pickup with right-hand flashlight retained.
             var spotLight = GameObject.Find("SpotLight")?.GetComponent<Light>();
             if (flashPhys != null) flashPhys.AttachToHand();
@@ -1253,9 +1257,9 @@ namespace TheLastBell.Editor
             if (!tvCtrl.IsPoweredOn || tvCtrl.ScreenLocalLight == null || !tvCtrl.ScreenLocalLight.enabled)
                 failures.Add("AbandonedTelevisionController or its local glow light did not activate when electricity restored.");
             var inventory = player.GetComponent<PlayerInventory>();
-            if (inventory == null || inventory.PhysicalItems.Count != 0 ||
+            if (inventory == null || inventory.PhysicalItems.Count != 1 || !inventory.IsEquipped(festek) ||
                 objMgr.CurrentState != ChapterObjectiveState.RemoveFestek)
-                failures.Add("Power restoration did not leave the device seated with a separate removal objective.");
+                failures.Add("Power restoration did not preserve the originally collected item and the removal objective.");
             if (!socket.RemoveForVerification(player) || socket.RemoveForVerification(player) ||
                 !socket.IsActivated || !powerMgr.IsPowerRestored || !tvCtrl.IsPoweredOn || socket.SeatedFestek != null ||
                 festek.CurrentState != FestekItemState.HeldInLeftHand ||
@@ -1378,6 +1382,12 @@ namespace TheLastBell.Editor
                 camera.transform.position = threshold.TransformPoint(new Vector3(0.37f, 1.52f, 0.54f));
                 camera.transform.LookAt(socket.InsertionAnchor.position);
                 RenderAndSave(camera, 1280, 720, "Logs/Screenshots/Chapter1_Elevator_Interior.png", log);
+                camera.transform.position = threshold.TransformPoint(new Vector3(0.10f, 1.52f, -1.06f));
+                camera.transform.LookAt(threshold.TransformPoint(new Vector3(0f, 2.78f, 0.14f)));
+                RenderAndSave(camera, 1024, 576, "Logs/Screenshots/Chapter1_Elevator_Upper_Entrance.png", log);
+                camera.transform.position = threshold.TransformPoint(new Vector3(0.05f, 1.36f, 0.89f));
+                camera.transform.LookAt(threshold.TransformPoint(new Vector3(0f, 2.42f, 1.54f)));
+                RenderAndSave(camera, 1024, 576, "Logs/Screenshots/Chapter1_Elevator_Ceiling.png", log);
                 var room = finale.Awakening.parent.gameObject;
                 room.SetActive(true);
                 camera.transform.position = finale.Awakening.position + new Vector3(0f, 0.23f, -1.54f);
@@ -1426,6 +1436,17 @@ namespace TheLastBell.Editor
                     failures.Add($"Sedan outside verified size, ground contact or spawn location: {car.size}, min y {car.min.y:F3}.");
                 if (!sedan.GetComponentsInChildren<Renderer>().Any(renderer => renderer.name == "Sedan_rubber"))
                     failures.Add("The replacement sedan is missing its tire mesh.");
+                var painted = sedan.GetComponentsInChildren<MeshRenderer>().FirstOrDefault(r => r.name == "Sedan_paint");
+                if (painted == null || painted.sharedMaterials.Length < 2 ||
+                    !painted.sharedMaterials.Any(m => m != null && m.mainTexture != null && m.mainTexture.name == "Sedan_paint_weathered"))
+                    failures.Add("The sedan's painted submesh is still untextured.");
+                foreach (var renderer in sedan.GetComponentsInChildren<MeshRenderer>())
+                {
+                    Mesh mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+                    if (mesh != null && (renderer.sharedMaterials.Length != mesh.subMeshCount ||
+                        renderer.sharedMaterials.Any(m => m == null || m.shader == null || m.shader.name != "Standard")))
+                        failures.Add($"Sedan submesh material assignment incomplete for {renderer.name}.");
+                }
             }
 
             if (before == failures.Count)
@@ -1517,6 +1538,10 @@ namespace TheLastBell.Editor
                 objective.CurrentState != ChapterObjectiveState.EnterBuilding)
                 failures.Add($"Could not approach the entrance from the scene spawn (z={actualStart:F2} -> {player.transform.position.z:F2}).");
 
+            InvokePrivate(interactor, "CheckForInteractable");
+            if (interactor.CurrentInteractable != entrance || !button.IsInteractable())
+                failures.Add("The approach range did not offer the entrance before the player touched the blocker.");
+
             for (int i = 0; i < 22; i++) actor.Move(new Vector3(0f, -0.04f, 0.10f));
             if (player.transform.position.z >= 0f)
                 failures.Add("The character crossed the threshold while the door was closed.");
@@ -1566,6 +1591,114 @@ namespace TheLastBell.Editor
 
             if (failures.Count == previousFailures)
                 log.AppendLine("  Entrance: actual spawn approach, closed collision, mobile Button press, both hinge rotations, interruption recovery, open collision and Turkish objective update passed.");
+            VerifyClassroomDoors(player, actor, interactor, camera, canvas, button, pointer, screenshot, log, failures);
+            VerifyApproachObstacles(log, failures);
+        }
+
+        private static void VerifyClassroomDoors(GameObject player, CharacterController actor, PlayerInteractor interactor,
+            Camera camera, Canvas canvas, Button action, PointerEventData pointer, Camera screenshot, StringBuilder log,
+            List<string> failures)
+        {
+            int before = failures.Count;
+            Vector3 oldPosition = player.transform.position;
+            Quaternion oldRotation = player.transform.rotation;
+            Quaternion oldCamera = camera.transform.rotation;
+            bool oldCanvas = canvas.gameObject.activeSelf;
+            var clock = typeof(PlayerInteractor).GetField("lastInteractTime", BindingFlags.NonPublic | BindingFlags.Instance);
+            foreach (string id in new[] { "C101", "C102", "C103", "Lounge" })
+            {
+                var door = GameObject.Find("ClassroomDoor_" + id)?.GetComponent<DoorInteractable>();
+                if (door == null)
+                {
+                    failures.Add("No physical door for " + id + ".");
+                    continue;
+                }
+                InvokePrivate(door, "Awake");
+                Transform arch = door.transform;
+                Vector3 entry = arch.TransformPoint(new Vector3(0f, 0.025f, -1.05f));
+                actor.enabled = false;
+                player.transform.SetPositionAndRotation(entry, Quaternion.LookRotation(arch.forward));
+                camera.transform.rotation = player.transform.rotation;
+                actor.enabled = true;
+                canvas.gameObject.SetActive(true);
+                clock?.SetValue(interactor, float.NegativeInfinity);
+                Physics.SyncTransforms();
+                InvokePrivate(interactor, "CheckForInteractable");
+                if (interactor.CurrentInteractable != door || !action.IsInteractable())
+                {
+                    failures.Add(id + " wasn't selectable from its corridor approach.");
+                    continue;
+                }
+
+                if (screenshot != null && id == "C101")
+                {
+                    screenshot.transform.position = arch.TransformPoint(new Vector3(-0.40f, 1.40f, -1.53f));
+                    screenshot.transform.LookAt(arch.TransformPoint(new Vector3(0.08f, 1.2f, 0f)));
+                    RenderAndSave(screenshot, 1024, 576, "Logs/Screenshots/Chapter1_ClassroomDoor_Corridor.png", log);
+                }
+                ExecuteEvents.Execute(action.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+                door.StepDoor(1.8f);
+                Physics.SyncTransforms();
+                if (!door.IsOpen) failures.Add(id + " did not open through the mobile action button.");
+                for (int i = 0; i < 24; i++) actor.Move(arch.forward * 0.10f + Vector3.down * 0.035f);
+                if (arch.InverseTransformPoint(player.transform.position).z < 0.37f)
+                    failures.Add(id + " remains blocked after the mobile action opened its leaf.");
+                if (screenshot != null && id == "C101")
+                {
+                    screenshot.transform.position = arch.TransformPoint(new Vector3(0.30f, 1.47f, 1.48f));
+                    screenshot.transform.LookAt(arch.TransformPoint(new Vector3(-0.24f, 1.22f, 0.04f)));
+                    RenderAndSave(screenshot, 1024, 576, "Logs/Screenshots/Chapter1_ClassroomDoor_Interior.png", log);
+                }
+                door.SetOpenImmediate(false);
+            }
+            actor.enabled = false;
+            player.transform.SetPositionAndRotation(oldPosition, oldRotation);
+            actor.enabled = true;
+            camera.transform.rotation = oldCamera;
+            clock?.SetValue(interactor, float.NegativeInfinity);
+            canvas.gameObject.SetActive(oldCanvas);
+            Physics.SyncTransforms();
+            if (before == failures.Count)
+                log.AppendLine("  Four existing room doors offered a mobile action and became traversable (EditMode collision and Button path).");
+        }
+
+        private static void VerifyApproachObstacles(StringBuilder log, List<string> failures)
+        {
+            var fixture = new GameObject("_Verification_Approach_Obstacle");
+            fixture.transform.position = new Vector3(100f, 0f, 100f);
+            try
+            {
+                GameObject Part(string name, Vector3 position)
+                {
+                    var part = new GameObject(name);
+                    part.transform.SetParent(fixture.transform, false);
+                    part.transform.localPosition = position;
+                    return part;
+                }
+                var ground = Part("Floor", new Vector3(0f, -0.10f, 0f)).AddComponent<BoxCollider>();
+                ground.size = new Vector3(6f, 0.20f, 6f);
+                var walker = Part("Actor", new Vector3(0f, 0.01f, -1.78f));
+                var capsule = walker.AddComponent<CharacterController>();
+                capsule.height = 1.75f;
+                capsule.radius = 0.29f;
+                capsule.center = Vector3.up * 0.875f;
+                var grip = Part("Grip", new Vector3(0f, 1.02f, 0f)).AddComponent<InteractionTarget>();
+                grip.ConfigurePhysicalContact(2.35f, 0.52f, HandGripProfile.Handle);
+                var obstruction = Part("Side-steppable", new Vector3(0f, 0.64f, -1.08f)).AddComponent<BoxCollider>();
+                obstruction.size = new Vector3(0.25f, 1.28f, 0.33f);
+                Physics.SyncTransforms();
+                bool alternative = InteractionApproach.CanAcquire(walker, grip);
+                obstruction.size = new Vector3(5.65f, 2.65f, 0.33f);
+                obstruction.center = Vector3.up * 0.30f;
+                Physics.SyncTransforms();
+                bool sealedWall = !InteractionApproach.CanAcquire(walker, grip);
+                if (!alternative || !sealedWall) failures.Add("Approach planning did not distinguish a small detour from a sealed wall.");
+                else log.AppendLine("  Shared approach acquisition allows a short detour and rejects a solid wall.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(fixture);
+            }
         }
 
         private static void VerifyInteractionFocus(GameObject player, Transform target, StringBuilder log, List<string> failures)

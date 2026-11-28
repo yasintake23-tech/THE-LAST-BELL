@@ -26,6 +26,8 @@ namespace TheLastBell.Interaction
         [Header("--- Fiziksel Hedefler ---")]
         [SerializeField] private Transform handTarget;
         [SerializeField] private Transform standAnchor;
+        [SerializeField] private Transform alternativeStandAnchor;
+        [SerializeField] private Transform oppositeGrip;
         [SerializeField] private PreferredInteractionHand preferredHand = PreferredInteractionHand.Left;
         [SerializeField] private RequiredInteractionPosture requiredPosture = RequiredInteractionPosture.Any;
 
@@ -42,7 +44,7 @@ namespace TheLastBell.Interaction
 
         [SerializeField] private HandGripProfile grip;
         [SerializeField] private float contactDistance = 0.55f;
-        [SerializeField] private float approachSpeed = 0.8f;
+        [SerializeField] private float approachSpeed = 1.04f;
         [SerializeField] private float approachTimeout = 0.85f;
         [SerializeField] private float reachDuration = 0.36f;
         public HandGripProfile Grip => grip.fingerCurl > 0f ? grip : HandGripProfile.Handle;
@@ -60,6 +62,20 @@ namespace TheLastBell.Interaction
 
         public Transform HandTarget => handTarget != null ? handTarget : transform;
         public Transform StandAnchor => standAnchor;
+        public Transform AlternativeStandAnchor => alternativeStandAnchor;
+
+        public Transform GetHandTarget(Vector3 actorPosition) => oppositeGrip != null &&
+            (actorPosition - oppositeGrip.position).sqrMagnitude < (actorPosition - HandTarget.position).sqrMagnitude
+            ? oppositeGrip : HandTarget;
+
+        public void ConfigureApproach(Transform stand, Transform alternative, Transform otherGrip = null,
+            RequiredInteractionPosture posture = RequiredInteractionPosture.Any)
+        {
+            standAnchor = stand;
+            alternativeStandAnchor = alternative;
+            oppositeGrip = otherGrip;
+            requiredPosture = posture;
+        }
         public PreferredInteractionHand PreferredHand => preferredHand;
         public RequiredInteractionPosture RequiredPosture => requiredPosture;
         public float MaxReachDistance => maxReachDistance;
@@ -70,10 +86,11 @@ namespace TheLastBell.Interaction
         public float ContactNormalizedTime => contactNormalizedTime;
         public float ReleaseNormalizedTime => releaseNormalizedTime;
 
-        public bool IsWithinReach(Vector3 characterPosition)
+        public bool IsWithinReach(Vector3 characterPosition, Transform gripPoint = null)
         {
-            Vector3 targetPos = HandTarget.position;
+            Vector3 targetPos = (gripPoint != null ? gripPoint : HandTarget).position;
             Vector3 delta = targetPos - characterPosition;
+            if (Mathf.Abs(delta.y) > 2.15f) return false;
             delta.y = 0f;
             return delta.magnitude <= maxReachDistance;
         }

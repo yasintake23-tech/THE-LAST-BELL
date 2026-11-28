@@ -65,6 +65,8 @@ namespace TheLastBell.Interaction
             if (mainLeverPivot == null) mainLeverPivot = FindDeepChild(transform, "Main_Lever_Pivot");
             if (leverHandTarget == null) leverHandTarget = FindDeepChild(transform, "Lever_Hand_Target");
 
+            if (mainLeverPivot != null && leverHandTarget != null && !leverHandTarget.IsChildOf(mainLeverPivot))
+                leverHandTarget.SetParent(mainLeverPivot, true);
             if (mainLeverPivot != null)
             {
                 initialLeverRot = mainLeverPivot.localRotation;
@@ -77,7 +79,8 @@ namespace TheLastBell.Interaction
                 if (leverInteractionTarget == null) leverInteractionTarget = gameObject.AddComponent<InteractionTarget>();
             }
             leverInteractionTarget.Configure(leverHandTarget != null ? leverHandTarget : transform, PreferredInteractionHand.Left, "PanelLeverPull", 0.90f, 0.25f, 0.78f);
-            leverInteractionTarget.ConfigurePhysicalContact(1.32f, 0.52f, HandGripProfile.Handle);
+            leverInteractionTarget.ConfigureApproach(null, null, posture: RequiredInteractionPosture.Standing);
+            leverInteractionTarget.ConfigurePhysicalContact(2.18f, 0.52f, HandGripProfile.Lever);
         }
 
         public string GetInteractionPrompt()
@@ -101,7 +104,7 @@ namespace TheLastBell.Interaction
                 contact = PhysicalContact.TryBegin(interactor.gameObject, leverInteractionTarget, this);
                 if (contact == null)
                 {
-                    interactor.ShowStatusMessage("Şalterin karşısına geçip biraz daha yaklaş.");
+                    interactor.ShowStatusMessage(PhysicalContact.ObstructionMessage);
                     return;
                 }
             }
@@ -123,7 +126,7 @@ namespace TheLastBell.Interaction
                 contact.End();
                 contact = null;
                 isOperating = false;
-                interactor?.ShowStatusMessage("Şalterin karşısına geçip biraz daha yaklaş.");
+                interactor?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
                 yield break;
             }
             pullCommitted = true;

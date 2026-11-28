@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using TheLastBell.Player;
 
@@ -38,8 +39,17 @@ namespace TheLastBell.Interaction
         private Quaternion openRotR;
 
         private InteractionTarget interactionTarget;
+        private Transform latchGrip;
+        private Quaternion latchRest;
+        private Transform oppositeLatch;
+        private Transform latchVisual;
+        private Transform oppositeVisual;
+        private Vector3 latchStart;
+        private Vector3 oppositeStart;
+        [SerializeField] private bool classroomDoor;
         private const float ContactDelay = 0.42f;
         private bool isAnimating;
+        private bool stowingItem;
         private PhysicalContact contact;
         private bool targetOpen;
         private bool latchPlayed;
@@ -74,6 +84,9 @@ namespace TheLastBell.Interaction
         private void OnDisable()
         {
             if (!isAnimating) return;
+            StopAllCoroutines();
+            if (stowingItem && interactionActor != null)
+                interactionActor.GetComponent<PlayerInventory>()?.CancelFocusedStorage();
             FinishDoor(contact == null || swingStarted ? targetOpen : isOpen);
         }
 
@@ -97,8 +110,28 @@ namespace TheLastBell.Interaction
                 handle = handleGo.transform;
             }
 
+            Transform back = handle.parent.Find("Door_Handle_Opposite");
+            if (back == null)
+            {
+                back = new GameObject("Door_Handle_Opposite").transform;
+                back.SetParent(handle.parent, false);
+                Vector3 mirrored = handle.localPosition;
+                mirrored.z = -mirrored.z;
+                back.localPosition = mirrored;
+                back.localRotation = handle.localRotation * Quaternion.Euler(0, 180, 0);
+            }
+            latchGrip = handle;
+            oppositeLatch = back;
+            latchVisual = handle.parent.Find("Door_Lever_Pivot");
+            oppositeVisual = handle.parent.Find("Door_Lever_Pivot_Back");
+            latchStart = handle.localPosition;
+            oppositeStart = back.localPosition;
+            latchRest = handle.localRotation;
+            interactionTarget.ConfigureApproach(null, null, back);
             interactionTarget.Configure(handle, PreferredInteractionHand.Left, "DoorOpen", 2.0f, 0.38f, 0.65f);
-            interactionTarget.ConfigurePhysicalContact(1.38f, 0.55f, HandGripProfile.Handle);
+            var grip = HandGripProfile.Handle;
+            if (classroomDoor) grip.wristAngles = new Vector3(7f, 5f, -10f);
+            interactionTarget.ConfigurePhysicalContact(2.38f, 0.51f, grip);
         }
 
         public string GetInteractionPrompt()
@@ -108,7 +141,7 @@ namespace TheLastBell.Interaction
             return isOpen ? "[E] - Kapıyı Kapat" : "[E] - Kapıyı Aç";
         }
 
-        public bool CanInteract() => !isAnimating;
+        public bool CanInteract() => isActiveAndEnabled && !isAnimating && (doorLeafLeft != null || doorLeafRight != null);
 
         public void Interact(PlayerInteractor interactor)
         {
@@ -128,15 +161,18 @@ namespace TheLastBell.Interaction
                 interactor.ShowStatusMessage(unlockedNotice);
             }
 
+            PlayerInventory stow = null;
             if (Application.isPlaying && interactor != null)
             {
-                EnsureDoorHandleTarget();
-                contact = PhysicalContact.TryBegin(interactor.gameObject, interactionTarget, this);
+                if (interactionTarget == null) EnsureDoorHandleTarget();
+                var animation = interactor.GetComponentInChildren<ProtagonistAnimationController>(true);
+                var inventory = interactor.GetComponent<PlayerInventory>();
+                if (animation != null && animation.IsHoldingFestek && inventory != null && inventory.EquippedItem != null)
+                    stow = inventory;
+                contact = PhysicalContact.TryBegin(interactor.gameObject, interactionTarget, this, allowOccupiedHand: stow != null);
                 if (contact == null)
                 {
-                    var animation = interactor.GetComponentInChildren<ProtagonistAnimationController>(true);
-                    interactor.ShowStatusMessage(animation != null && animation.IsHoldingFestek
-                        ? "Kapıyı açmak için sol elin boş olmalı." : "Kapı koluna biraz daha yaklaş.");
+                    interactor.ShowStatusMessage(PhysicalContact.ObstructionMessage);
                     return;
                 }
             }
@@ -148,12 +184,28 @@ namespace TheLastBell.Interaction
             latchPlayed = false;
             swingStarted = false;
             isAnimating = true;
+            if (stow != null)
+            {
+                stowingItem = true;
+                StartCoroutine(FreeLeftHand(stow));
+            }
+        }
+
+        private IEnumerator FreeLeftHand(PlayerInventory inventory)
+        {
+            yield return inventory.StoreEquippedForInteraction();
+            stowingItem = false;
+            if (inventory.EquippedItem != null)
+            {
+                interactionActor?.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Kapı kolu için sol el boşaltılamadı.");
+                FinishDoor(isOpen);
+            }
         }
 
         // Physical contact gates the swing in play mode. The editor also exercises the door mechanism directly.
         public void StepDoor(float deltaTime)
         {
-            if (!isAnimating) return;
+            if (!isAnimating || stowingItem) return;
             if (contact != null)
             {
                 contact.Step(deltaTime);
@@ -161,7 +213,7 @@ namespace TheLastBell.Interaction
                 {
                     if (contact.Failed)
                     {
-                        interactionActor?.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Kapı kolunun karşısına geç.");
+                        interactionActor?.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
                         FinishDoor(isOpen);
                     }
                     return;
@@ -174,12 +226,21 @@ namespace TheLastBell.Interaction
                 PlayDoorSound(handleLatchClip, 0.85f);
             }
 
-            if (elapsed < ContactDelay) return;
-            if (!targetOpen && interactionActor != null)
+            if (elapsed < ContactDelay)
+            {
+                if (classroomDoor && latchGrip != null)
+                {
+                    float depress = Mathf.Sin(Mathf.Clamp01(elapsed / ContactDelay) * Mathf.PI * 0.5f);
+                    SetLatch(-20f * depress);
+                }
+                return;
+            }
+            if (!targetOpen && interactionActor != null && !swingStarted)
             {
                 Vector3 actor = transform.InverseTransformPoint(interactionActor.position);
                 if (Mathf.Abs(actor.x) < 0.79f && actor.z > -0.45f && actor.z < 0.84f)
                 {
+                    interactionActor.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Kapının geçişi açık kalmalı.");
                     FinishDoor(true);
                     return;
                 }
@@ -191,8 +252,27 @@ namespace TheLastBell.Interaction
             }
 
             float progress = Mathf.Clamp01((elapsed - ContactDelay) / Mathf.Max(0.01f, transitionDuration));
+            contact?.FadeContact(1f - Mathf.InverseLerp(0.72f, 0.97f, progress));
+            if (classroomDoor) SetLatch(-20f * (1f - Mathf.InverseLerp(0.15f, 0.52f, progress)));
             ApplyPose(Mathf.SmoothStep(0f, 1f, targetOpen ? progress : 1f - progress));
             if (progress >= 1f) FinishDoor(targetOpen);
+        }
+
+        private void SetLatch(float degrees)
+        {
+            Quaternion movement = Quaternion.Euler(0, 0, degrees);
+            if (latchVisual != null && latchGrip != null)
+            {
+                latchVisual.localRotation = movement;
+                latchGrip.localPosition = latchVisual.localPosition + movement * (latchStart - latchVisual.localPosition);
+                latchGrip.localRotation = movement * latchRest;
+            }
+            if (oppositeVisual != null && oppositeLatch != null)
+            {
+                oppositeVisual.localRotation = movement;
+                oppositeLatch.localPosition = oppositeVisual.localPosition + movement * (oppositeStart - oppositeVisual.localPosition);
+                oppositeLatch.localRotation = movement;
+            }
         }
 
         private void ApplyPose(float openness)
@@ -209,8 +289,10 @@ namespace TheLastBell.Interaction
         {
             contact?.End();
             contact = null;
+            if (classroomDoor) SetLatch(0f);
             ApplyPose(open ? 1f : 0f);
             isAnimating = false;
+            stowingItem = false;
             interactionActor = null;
             if (isOpen == open) return;
             isOpen = open;
@@ -235,6 +317,13 @@ namespace TheLastBell.Interaction
             doorLeafRight = right;
             blockerCollider = blocker;
             poseInitialized = false;
+        }
+
+        public void ConfigureClassroomDoor()
+        {
+            classroomDoor = true;
+            openAngle = 94f;
+            EnsureDoorHandleTarget();
         }
 
         public void ConfigureAudio(AudioSource source, AudioClip latch, AudioClip openHinge, AudioClip closeHinge)

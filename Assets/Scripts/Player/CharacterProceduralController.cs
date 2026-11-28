@@ -532,29 +532,32 @@ namespace TheLastBell.Player
                 return;
             }
 
-            float forwardReach = Mathf.Lerp(0.42f, 0.18f, wallPullback01);
-            float verticalOffset = Mathf.Clamp(gazeDir.y * 0.22f, -0.18f, 0.22f);
-            float lateralOffset = Mathf.Lerp(0.18f, 0.12f, wallPullback01);
-
-            computedRightHandIkPos = shoulderR + gazeDir * forwardReach + rightVec * lateralOffset + upVec * (verticalOffset - 0.08f);
-            Vector3 toTarget = (smoothedFlashlightAimPoint - computedRightHandIkPos);
-            computedRightHandIkRot = toTarget.sqrMagnitude > 0.001f
-                ? Quaternion.LookRotation(toTarget.normalized, upVec)
-                : playerController.transform.rotation;
-
-            computedRightHandIkWeight = enableHandIK ? 0.72f : 0f;
-            animController.SetRightHandAimIK(computedRightHandIkPos, computedRightHandIkRot, computedRightHandIkWeight);
-
-            if (animController.RightHandSocket != null)
+            float forwardReach = Mathf.Lerp(0.39f, 0.18f, wallPullback01);
+            float verticalOffset = Mathf.Clamp(gazeDir.y * 0.29f, -0.23f, 0.24f);
+            Vector3 flatAim = Vector3.ProjectOnPlane(gazeDir, upVec).normalized;
+            if (flatAim.sqrMagnitude < 0.5f) flatAim = playerController.transform.forward;
+            Vector3 gripPosition = shoulderR + flatAim * forwardReach + rightVec * 0.12f + upVec * (verticalOffset - 0.085f);
+            Vector3 beam = (smoothedFlashlightAimPoint - gripPosition).normalized;
+            Vector3 stableUp = Vector3.Cross(beam, rightVec);
+            if (stableUp.sqrMagnitude < 0.1f) stableUp = upVec;
+            Quaternion beamRotation = Quaternion.LookRotation(beam.sqrMagnitude > 0.5f ? beam : flatAim, stableUp);
+            Transform mount = animController.RightHandSocket;
+            if (mount != null && mount.parent != null)
             {
-                Vector3 sockToAim = smoothedFlashlightAimPoint - animController.RightHandSocket.position;
-                if (sockToAim.sqrMagnitude > 0.01f)
-                {
-                    Quaternion desiredWorldRot = Quaternion.LookRotation(sockToAim.normalized, upVec);
-                    animController.RightHandSocket.rotation = Quaternion.Slerp(
-                        animController.RightHandSocket.rotation, desiredWorldRot, 1f - Mathf.Exp(-flashlightAimSmooth * dt));
-                }
+                // Solve the wrist for the fixed grip socket. Rotating the socket itself twists the torch through the fingers.
+                Transform wrist = mount.parent;
+                Quaternion wristRotation = beamRotation * Quaternion.Inverse(mount.localRotation);
+                Vector3 wristToMount = Quaternion.Inverse(wrist.rotation) * (mount.position - wrist.position);
+                computedRightHandIkRot = wristRotation;
+                computedRightHandIkPos = gripPosition - wristRotation * wristToMount;
             }
+            else
+            {
+                computedRightHandIkPos = gripPosition;
+                computedRightHandIkRot = beamRotation;
+            }
+            computedRightHandIkWeight = enableHandIK ? 0.87f : 0f;
+            animController.SetRightHandAimIK(computedRightHandIkPos, computedRightHandIkRot, computedRightHandIkWeight);
         }
 
         private void UpdateDebugVisuals()

@@ -44,11 +44,12 @@ namespace TheLastBell.Interaction
         private float lastImpactAudioTime = -10f;
         private bool hasNotifiedFloorDiscovery;
         private bool pickingUp;
-        private bool restoreStanding;
         private float droppedAt;
-        private FirstPersonController reachingMovement;
-        private InteractionFocus focus;
-        private ProtagonistAnimationController reachingAnimator;
+        private PhysicalContact pickupContact;
+        private FirstPersonController recoveryActor;
+        private bool sweptRestingFloor;
+        [SerializeField] private InventoryItemDefinition inventoryDefinition;
+        public void ConfigureInventoryItem(InventoryItemDefinition definition) => inventoryDefinition = definition;
         private Renderer highlightRenderer;
         private MaterialPropertyBlock highlight;
         public bool HasLanded => hasNotifiedFloorDiscovery;
@@ -109,14 +110,28 @@ namespace TheLastBell.Interaction
                 if (pickupInteractionTarget == null) pickupInteractionTarget = gameObject.AddComponent<InteractionTarget>();
             }
             pickupInteractionTarget.Configure(gripPoint != null ? gripPoint : transform, PreferredInteractionHand.Left, "PickUp", 0.75f, 0.30f, 0.70f);
-            pickupInteractionTarget.ConfigurePhysicalContact(1.03f, 0.43f, HandGripProfile.Device);
+            pickupInteractionTarget.ConfigurePhysicalContact(2.10f, 0.39f, HandGripProfile.ForDevice(DeviceGripAction.Pickup));
+            pickupInteractionTarget.ConfigureApproach(null, null, posture: RequiredInteractionPosture.Crouching);
         }
 
         private void Update()
         {
             if (currentState == FestekItemState.DroppedPhysics)
             {
-                EnforceReachableSafetyBounds();
+                if (!pickingUp) EnforceReachableSafetyBounds();
+                if (!hasNotifiedFloorDiscovery && Time.time - droppedAt > 1.4f &&
+                    itemRigidbody != null && itemRigidbody.linearVelocity.sqrMagnitude < 0.08f)
+                    NotifyFloorDiscovery();
+                if (!pickingUp && !sweptRestingFloor && hasNotifiedFloorDiscovery && Time.time - droppedAt > 2.0f &&
+                    itemRigidbody != null && itemRigidbody.linearVelocity.sqrMagnitude < 0.035f)
+                {
+                    sweptRestingFloor = true;
+                    if (recoveryActor == null) recoveryActor = FindAnyObjectByType<FirstPersonController>();
+                    Vector3 recoveryStand = new Vector3(safeFloorRecoveryPoint.x, 0.025f, safeFloorRecoveryPoint.z - 0.60f);
+                    if (recoveryActor != null && Vector3.Distance(transform.position, safeFloorRecoveryPoint) > 0.32f &&
+                        !InteractionApproach.CanApproachFrom(recoveryActor.gameObject, pickupInteractionTarget, recoveryStand))
+                        RecoverToOpenFloor();
+                }
                 SetHighlight(hasNotifiedFloorDiscovery && !pickingUp
                     ? 0.33f + 0.18f * Mathf.Sin(Time.time * 3f) : 0f);
             }
@@ -149,6 +164,7 @@ namespace TheLastBell.Interaction
             transform.SetParent(null, true);
             currentState = FestekItemState.DroppedPhysics;
             droppedAt = Time.time;
+            sweptRestingFloor = false;
             ApplyPhysicsForState(currentState);
 
             if (itemRigidbody != null)
@@ -171,11 +187,7 @@ namespace TheLastBell.Interaction
                 bool floorContact = false;
                 for (int i = 0; i < collision.contactCount; i++)
                     floorContact |= collision.GetContact(i).normal.y > 0.55f;
-                if (floorContact)
-                {
-                    hasNotifiedFloorDiscovery = true;
-                    ChapterObjectiveManager.Instance?.NotifyFestekDiscoveredOnFloor();
-                }
+                if (floorContact) NotifyFloorDiscovery();
             }
 
             float speed = collision.relativeVelocity.magnitude;
@@ -191,6 +203,13 @@ namespace TheLastBell.Interaction
             }
         }
 
+        private void NotifyFloorDiscovery()
+        {
+            if (hasNotifiedFloorDiscovery) return;
+            hasNotifiedFloorDiscovery = true;
+            ChapterObjectiveManager.Instance?.NotifyFestekDiscoveredOnFloor();
+        }
+
         private void SetHighlight(float intensity)
         {
             if (highlightRenderer == null || highlight == null) return;
@@ -203,6 +222,9 @@ namespace TheLastBell.Interaction
         {
             if (currentState != FestekItemState.DroppedPhysics || playerRoot == null) return;
             if (!AttachToLeftHand(playerRoot)) return;
+            var inventory = playerRoot.GetComponent<PlayerInventory>();
+            if (inventoryDefinition != null && inventory != null)
+                inventory.TryCollectEquipped(inventoryDefinition, this);
 
             if (Application.isPlaying && itemAudioSource != null && pickupClip != null)
             {
@@ -250,57 +272,40 @@ namespace TheLastBell.Interaction
 
         private IEnumerator ReachAndLift(GameObject player)
         {
-            pickingUp = true;
-            focus = InteractionFocus.Begin(player, transform, this);
-            reachingAnimator = player.GetComponentInChildren<ProtagonistAnimationController>(true);
-            if (focus == null)
+            while (pickupContact != null && !pickupContact.Ready && !pickupContact.Failed)
             {
-                pickingUp = false;
-                reachingAnimator = null;
-                yield break;
-            }
-            reachingMovement = player.GetComponent<FirstPersonController>();
-            restoreStanding = reachingMovement != null && !reachingMovement.IsCrouching;
-            if (restoreStanding) reachingMovement.SetCrouch(true);
-            Transform grip = gripPoint != null ? gripPoint : transform;
-            for (float t = 0f; t < 0.9f; t += Time.deltaTime)
-            {
-                Vector3 offset = Vector3.ProjectOnPlane(grip.position - player.transform.position, Vector3.up);
-                if (offset.magnitude <= 0.43f) break;
-                focus.MoveTowards(grip.position - offset.normalized * 0.43f, 0.70f, Time.deltaTime);
+                pickupContact.Step(Time.deltaTime);
                 yield return null;
             }
-            reachingAnimator?.TriggerItemPickup();
-            if (reachingAnimator != null) reachingAnimator.IsPosingFestek = true;
-            for (float elapsed = 0f; elapsed < 0.76f; elapsed += Time.deltaTime)
+            if (pickupContact == null) yield break;
+            if (pickupContact.Ready) PickupIntoLeftHand(player);
+            else
             {
-                float blend = Mathf.SmoothStep(0f, 1f, elapsed / 0.58f);
-                reachingAnimator?.PoseLeftHandForDevice(grip.position, transform.rotation, blend);
-                reachingAnimator?.SetLowReach(blend);
-                yield return null;
+                // Physics can leave the object under a cabinet or up against a wall.
+                // Keep the item in the puzzle by falling again at the authored open floor point.
+                if (Vector3.Distance(transform.position, safeFloorRecoveryPoint) > 0.28f) RecoverToOpenFloor();
+                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
             }
-            if (reachingAnimator != null && reachingAnimator.LeftHandFestekSocket != null &&
-                Vector3.Distance(reachingAnimator.LeftHandFestekSocket.position, grip.position) <= 0.14f)
-                PickupIntoLeftHand(player);
-            else player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Feştek’e biraz daha yaklaş.");
             FinishReach();
+        }
+
+        private void RecoverToOpenFloor()
+        {
+            Vector3 safe = safeFloorRecoveryPoint + Vector3.up * 0.12f;
+            if (Physics.Raycast(safe + Vector3.up * 0.65f, Vector3.down, out var floor, 1.2f, Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore) && floor.normal.y > 0.7f)
+                safe.y = floor.point.y + 0.085f;
+            itemRigidbody.linearVelocity = Vector3.zero;
+            itemRigidbody.angularVelocity = Vector3.zero;
+            itemRigidbody.position = safe;
+            itemRigidbody.rotation = Quaternion.Euler(0f, 34f, 0f);
+            itemRigidbody.WakeUp();
         }
 
         private void FinishReach()
         {
-            if (reachingAnimator != null)
-            {
-                reachingAnimator.SetLowReach(0f);
-                reachingAnimator.ClearPhysicalContact(PreferredInteractionHand.Left);
-                reachingAnimator.ClearLeftHandInteractTarget();
-                reachingAnimator.IsPosingFestek = false;
-            }
-            reachingAnimator = null;
-            if (restoreStanding && reachingMovement != null) reachingMovement.SetCrouch(false);
-            restoreStanding = false;
-            reachingMovement = null;
-            focus?.End();
-            focus = null;
+            pickupContact?.End();
+            pickupContact = null;
             pickingUp = false;
         }
 
@@ -364,11 +369,13 @@ namespace TheLastBell.Interaction
         public void Interact(PlayerInteractor interactor)
         {
             if (!CanInteract() || interactor == null) return;
-            if (!pickupInteractionTarget.IsWithinReach(interactor.transform.position))
+            pickupContact = PhysicalContact.TryBegin(interactor.gameObject, pickupInteractionTarget, this, transform);
+            if (pickupContact == null)
             {
-                interactor.ShowStatusMessage("Feştek’e biraz daha yaklaş.");
+                interactor.ShowStatusMessage(PhysicalContact.ObstructionMessage);
                 return;
             }
+            pickingUp = true;
             StartCoroutine(ReachAndLift(interactor.gameObject));
         }
 

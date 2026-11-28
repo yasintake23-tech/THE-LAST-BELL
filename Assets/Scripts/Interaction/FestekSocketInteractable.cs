@@ -43,6 +43,8 @@ namespace TheLastBell.Interaction
         private Quaternion itemToHandRotation;
         private float turn;
         private int notch;
+        [SerializeField] private InteractionTarget approachProfile;
+        private bool approachReached;
         private bool removing;
         [SerializeField] private bool elevatorSocket;
         public bool AllowElevatorUse { get; set; }
@@ -64,6 +66,9 @@ namespace TheLastBell.Interaction
             socketAudioSource = source;
             socketInsertClip = insert;
             buttonClickClip = click;
+            approachProfile = GetComponent<InteractionTarget>() ?? gameObject.AddComponent<InteractionTarget>();
+            approachProfile.Configure(insertionTransform, PreferredInteractionHand.Left, "Feştek", 1.24f, 0.60f, 0.96f);
+            approachProfile.ConfigurePhysicalContact(2.16f, 0.56f, HandGripProfile.ForDevice(DeviceGripAction.ElectricalSeat));
         }
 
         public void ConfigureInventoryItem(InventoryItemDefinition definition) => inventoryItem = definition;
@@ -80,7 +85,7 @@ namespace TheLastBell.Interaction
         {
             var manager = ChapterObjectiveManager.Instance;
             return manager != null && (manager.CurrentState == ChapterObjectiveState.LocateFestekSocket ||
-                manager.CurrentState == ChapterObjectiveState.InsertFestek) ? "[E] - Feştek’i tak" : "[E] - Yuvayı incele";
+                manager.CurrentState == ChapterObjectiveState.InsertFestek) ? "[E] - Feştek yuvasını kullan" : "[E] - Yuvayı incele";
         }
 
         private void Update()
@@ -112,17 +117,10 @@ namespace TheLastBell.Interaction
             var controller = player.GetComponentInChildren<ProtagonistAnimationController>(true);
             controller?.InitializeIfNeeded();
             if (controller == null || controller.LeftHandFestekSocket == null) return;
-            Vector3 toSocket = insertionTransform.position - player.transform.position;
-            if (new Vector2(toSocket.x, toSocket.z).sqrMagnitude > 1.16f * 1.16f)
-            {
-                interactor.ShowStatusMessage("İşlem için yuvaya biraz daha yaklaş.");
-                return;
-            }
-
             if (CanRemove)
             {
                 var inventory = player.GetComponent<PlayerInventory>();
-                if (controller.IsHoldingFestek || inventory == null || inventory.EquippedItem != null)
+                if (controller.IsHoldingFestek || inventory == null || (inventory.EquippedItem != null && !inventory.IsEquipped(seatedFestek)))
                 {
                     interactor.ShowStatusMessage("Feştek’i çıkarmak için sol elin boş olmalı.");
                     return;
@@ -134,15 +132,14 @@ namespace TheLastBell.Interaction
             if (socketState == FestekSocketState.SeatedReadyToActivate)
             {
                 if (seatedFestek == null || !BeginFocus(player, controller)) return;
-                OpenRotationPanel();
+                StartCoroutine(ApproachForRotation(player));
                 return;
             }
 
             var item = controller.LeftHandFestekSocket.GetComponentInChildren<FestekItem>();
             if (item == null || item.CurrentState != FestekItemState.HeldInLeftHand)
             {
-                interactor.ShowStatusMessage(elevatorSocket ? "Feştek’i envanterden eline al." :
-                    "Yuvaya uygun metal bir bağlantı parçası gerekiyor.");
+                if (BeginFocus(player, controller)) StartCoroutine(InspectSocket(interactor));
                 return;
             }
 
@@ -170,19 +167,49 @@ namespace TheLastBell.Interaction
 
         private IEnumerator ApproachSocket(GameObject player)
         {
-            for (float t = 0f; t < 0.95f && focus != null && focus.IsFocused; t += Time.deltaTime)
+            approachReached = false;
+            if (approachProfile == null) approachProfile = GetComponent<InteractionTarget>();
+            if (approachProfile == null)
             {
-                Vector3 offset = Vector3.ProjectOnPlane(insertionTransform.position - player.transform.position, Vector3.up);
-                if (offset.magnitude <= 0.57f) yield break;
-                focus.MoveTowards(insertionTransform.position - offset.normalized * 0.57f, 0.75f, Time.deltaTime);
+                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
+                yield break;
+            }
+            var approach = new InteractionApproach(player, approachProfile, insertionTransform, focus);
+            while (!approach.Arrived && !approach.Blocked)
+            {
+                approach.Step(Time.deltaTime);
                 yield return null;
             }
+            approachReached = approach.Arrived;
+            if (!approachReached)
+                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
+        }
+
+        private IEnumerator InspectSocket(PlayerInteractor interactor)
+        {
+            yield return ApproachSocket(interactor.gameObject);
+            if (approachReached)
+                interactor.ShowStatusMessage("Bu yuvayı kullanmak için Feştek’i envanterden eline al.");
+            ReleaseFocus();
+        }
+
+        private IEnumerator ApproachForRotation(GameObject player)
+        {
+            yield return ApproachSocket(player);
+            if (approachReached) OpenRotationPanel();
+            else ReleaseFocus();
         }
 
         private IEnumerator RemovePoweredDevice(GameObject player, PlayerInventory inventory)
         {
             removing = true;
             yield return ApproachSocket(player);
+            if (!approachReached)
+            {
+                removing = false;
+                ReleaseFocus();
+                yield break;
+            }
             Transform hand = animation.LeftHandFestekSocket.parent;
             Transform device = seatedFestek.transform;
             Vector3 seatedPosition = device.localPosition;
@@ -233,10 +260,10 @@ namespace TheLastBell.Interaction
 
         private bool TransferPoweredDevice(GameObject player, PlayerInventory inventory)
         {
-            if (seatedFestek == null || inventory == null || inventoryItem == null || inventory.EquippedItem != null)
+            if (seatedFestek == null || inventory == null || inventoryItem == null || (inventory.EquippedItem != null && !inventory.IsEquipped(seatedFestek)))
                 return false;
             if (!seatedFestek.AttachToLeftHand(player)) return false;
-            if (!inventory.TryCollectEquipped(inventoryItem, seatedFestek))
+            if (!inventory.IsEquipped(seatedFestek) && !inventory.TryCollectEquipped(inventoryItem, seatedFestek))
             {
                 seatedFestek.SeatIntoSocket(insertionTransform, player, notify: false);
                 SetTurn(RequiredTurn);
@@ -258,6 +285,12 @@ namespace TheLastBell.Interaction
             socketState = FestekSocketState.Inserting;
             ChapterObjectiveManager.Instance?.NotifyFestekInserting();
             yield return ApproachSocket(player);
+            if (!approachReached)
+            {
+                socketState = FestekSocketState.Empty;
+                ReleaseFocus();
+                yield break;
+            }
             Vector3 offset = item.InsertionAlignPoint != null
                 ? Quaternion.Inverse(item.transform.rotation) * (item.InsertionAlignPoint.position - item.transform.position)
                 : Vector3.zero;
@@ -283,10 +316,12 @@ namespace TheLastBell.Interaction
                 settle += Time.deltaTime;
                 yield return null;
             }
-            if (!IsAligned(item, end, aligned))
+            if (!IsAligned(item, end, aligned) &&
+                (Vector3.Distance(item.transform.position, end) > 0.15f ||
+                 !animation.CanReachByArm(PreferredInteractionHand.Left, end, 0.12f)))
             {
                 socketState = FestekSocketState.Empty;
-                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Yuvanın karşısına geçip biraz daha yaklaş.");
+                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage(PhysicalContact.ObstructionMessage);
                 ReleaseFocus();
                 yield break;
             }
@@ -313,8 +348,11 @@ namespace TheLastBell.Interaction
         {
             if (animation == null || wrist == null) return;
             wrist.SetPositionAndRotation(itemPosition + itemRotation * itemToHandOffset, itemRotation * itemToHandRotation);
+            DeviceGripAction action = removing || socketState == FestekSocketState.Withdrawing || IsActivated
+                ? DeviceGripAction.Withdraw : socketState == FestekSocketState.Activating ? DeviceGripAction.Turn :
+                    elevatorSocket ? DeviceGripAction.ElevatorSeat : DeviceGripAction.ElectricalSeat;
             animation.SetPhysicalWrist(PreferredInteractionHand.Left, wrist.position, wrist.rotation,
-                inventoryItem != null ? inventoryItem.Grip : HandGripProfile.Device, weight);
+                HandGripProfile.ForDevice(action), weight);
         }
 
         private void OpenRotationPanel()

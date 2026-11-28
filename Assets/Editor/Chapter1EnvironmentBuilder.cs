@@ -340,8 +340,8 @@ namespace TheLastBell.Editor
                 if (skyMat == null) { skyMat = new Material(skyShader); AssetDatabase.CreateAsset(skyMat, skyPath); }
                 skyMat.shader = skyShader;
                 skyMat.SetTexture("_Tex", hdrCube);
-                skyMat.SetColor("_Tint", new Color(0.26f, 0.34f, 0.50f, 1f));
-                skyMat.SetFloat("_Exposure", 0.39f);
+                skyMat.SetColor("_Tint", new Color(0.44f, 0.43f, 0.39f, 1f));
+                skyMat.SetFloat("_Exposure", 0.44f);
                 skyMat.SetFloat("_Rotation", 165f);
                 EditorUtility.SetDirty(skyMat);
                 dict["Skybox"] = skyMat;
@@ -661,6 +661,9 @@ namespace TheLastBell.Editor
             DressCourseInterior(mats, intGroup.transform);
             AddArchitecturalRepairs(mats, intGroup.transform);
             PlaceCourseProps(mats, intGroup.transform, extGroup.transform);
+            InstallClassroomDoors(mats, intGroup.transform);
+            CompleteDoorwayArchitecture(mats, intGroup.transform);
+            GrowBoundaryVerge(mats, extGroup.transform);
 
             // 4F. Personel & Arşiv Odası (Teachers_Lounge): Pano -> Feştek Fiziksel Düşüş -> Yuva -> Sağdaki CRT TV
             BuildPuzzleRoomAndPowerChain(mats, puzzleGroup.transform, sysGroup.transform, mainEntranceDoor, poweredFixtures);
@@ -683,14 +686,14 @@ namespace TheLastBell.Editor
             }
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.23f, 0.25f, 0.28f);
+            RenderSettings.ambientSkyColor = new Color(0.225f, 0.223f, 0.235f);
             RenderSettings.ambientEquatorColor = new Color(0.115f, 0.12f, 0.13f);
             RenderSettings.ambientGroundColor = new Color(0.045f, 0.05f, 0.065f);
 
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = new Color(0.12f, 0.13f, 0.16f);
-            RenderSettings.fogDensity = 0.017f;
+            RenderSettings.fogColor = new Color(0.145f, 0.140f, 0.131f);
+            RenderSettings.fogDensity = 0.0195f;
 
             // Alacakaranlık ay/ufuk yönlü ışığı (yumuşak gölgeli tek dış ana ışık)
             GameObject moonGo = GameObject.Find("Moonlight_Directional");
@@ -792,26 +795,7 @@ namespace TheLastBell.Editor
             const string sedanPath = "Assets/Environment/External/Models/graphite_sedan/";
             var sedan = InstantiateFbx(sedanPath + "GraphiteSedan.fbx", "Protagonist_ArrivedSedan",
                 parent, new Vector3(2.85f, 0f, -17.6f), Quaternion.Euler(0f, -18f, 0f), Vector3.one, true);
-            foreach (var renderer in sedan.GetComponentsInChildren<MeshRenderer>())
-            {
-                string part = renderer.name;
-                Material material;
-                if (part == "Sedan_glass")
-                    material = mats["CarGlass"];
-                else if (part == "Sedan_clearlens")
-                    material = mats["CarHeadlight"];
-                else if (part == "Sedan_redlens")
-                    material = mats["CarTaillight"];
-                else
-                {
-                    float metal = part == "Sedan_chrome" || part == "Sedan_steel" ? 0.36f : 0.10f;
-                    material = CreateCustomPbrMat("Mat_Graphite_" + part, sedanPath + part + "_diff.png",
-                        null, null, Color.white, part == "Sedan_paint" ? 0.42f : 0.25f);
-                    material.SetFloat("_Metallic", metal);
-                    EditorUtility.SetDirty(material);
-                }
-                renderer.sharedMaterial = material;
-            }
+            RepairSedanMaterials(sedan, sedanPath, mats);
             var carBounds = BoundsIn(sedan.transform);
             var sedanModel = sedan.transform.GetChild(0);
             sedanModel.localPosition -= new Vector3(carBounds.center.x, carBounds.min.y, carBounds.center.z);
@@ -1695,6 +1679,7 @@ namespace TheLastBell.Editor
 
             var festekDefinition = CreateFestekInventoryDefinition();
             socketInteract.ConfigureInventoryItem(festekDefinition);
+            festekComp.ConfigureInventoryItem(festekDefinition);
 
             GameObject objMgrGo = new GameObject("ChapterObjectiveManager");
             objMgrGo.transform.SetParent(sysParent, false);
@@ -1742,7 +1727,8 @@ namespace TheLastBell.Editor
             definition.Configure("chapter1.festek", "Feştek", "Eski tip devre köprüsü.",
                 AssetDatabase.LoadAllAssetsAtPath(iconPath).OfType<Sprite>().FirstOrDefault(),
                 AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Environment/Original/Festek/Festek_Device.fbx"),
-                HandGripProfile.Device, true, AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath));
+                HandGripProfile.ForDevice(DeviceGripAction.Carry), true, AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath),
+                HandGripProfile.ForDevice(DeviceGripAction.Pocket));
             EditorUtility.SetDirty(definition);
             return definition;
         }
@@ -1971,6 +1957,7 @@ namespace TheLastBell.Editor
             "SchoolDesk_01" => 0.8826f,
             "desk_lamp_arm_01" => 0.8790f,
             "FestekSocket_Unit" => 0.7800f,
+            "Classroom_Service_Door" => 2.190f,
             "Elevator_Cab" => 2.605f,
             "Elevator_Leaf" => 2.370f,
             "binder_notebook" => 0.5840f,

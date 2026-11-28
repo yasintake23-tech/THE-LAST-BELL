@@ -38,7 +38,6 @@ namespace TheLastBell.Interaction
         [SerializeField] private Vector3 handLocalPosition = Vector3.zero;
         [SerializeField] private Vector3 handLocalEuler = Vector3.zero;
 
-        private FlashlightPhysicalState stateBeforeLeftTransfer = FlashlightPhysicalState.HeldInRig;
 
         public FlashlightPhysicalState CurrentState => currentState;
         public bool IsTransferredToLeftHand => currentState == FlashlightPhysicalState.HeldInLeftHandBone;
@@ -144,11 +143,6 @@ namespace TheLastBell.Interaction
         public void TransferToLeftHand()
         {
             if (currentState == FlashlightPhysicalState.DroppedPhysics) return;
-            if (currentState != FlashlightPhysicalState.HeldInLeftHandBone)
-            {
-                stateBeforeLeftTransfer = currentState;
-            }
-
             if (leftHandAttachPoint == null && animController != null)
             {
                 animController.InitializeIfNeeded();
@@ -172,9 +166,7 @@ namespace TheLastBell.Interaction
         {
             if (currentState != FlashlightPhysicalState.HeldInLeftHandBone) return;
             animController?.SetLeftHandFlashlightHeld(false);
-            bool preferHand = (stateBeforeLeftTransfer == FlashlightPhysicalState.HeldInHandBone) ||
-                              (CameraModeController.Instance != null && CameraModeController.Instance.IsThirdPerson);
-            if (preferHand && handAttachPoint != null)
+            if (handAttachPoint != null)
             {
                 AttachToHand();
             }
@@ -217,8 +209,7 @@ namespace TheLastBell.Interaction
                 TransferToLeftHand();
                 return;
             }
-            bool useHand = attachToHandBone || (CameraModeController.Instance != null && CameraModeController.Instance.IsThirdPerson);
-            if (useHand && handAttachPoint != null)
+            if (handAttachPoint != null)
             {
                 AttachToHand();
             }

@@ -67,7 +67,11 @@ namespace TheLastBell.Editor
             video.SetTargetAudioSource(0, videoSource);
             // The player owns the video speaker; the TV wrapper owns the interactable and its collider.
             var screening = tv.AddComponent<TelevisionScreening>();
-            screening.Configure(crt, objectives, video, screenShader, watch.transform, focus.transform, ratio, videoFile);
+            screening.Configure(crt, objectives, video, screenShader, focus.transform, ratio, videoFile);
+            var watching = tv.AddComponent<InteractionTarget>();
+            watching.Configure(focus.transform, PreferredInteractionHand.Either, "", 1.2f, 0f, 1f);
+            watching.ConfigureApproach(watch.transform, null);
+            watching.ConfigurePhysicalContact(2.4f, 1.05f, HandGripProfile.Handle);
 
             foreach (string name in new[] { "Elevator_Door_L", "Elevator_Door_R", "Elevator_Frame_Top", "Elevator_Frame_L",
                 "Elevator_Frame_R", "Elevator_Barricade_Barrel", "Shaft_Floor", "Shaft_Ceiling" })

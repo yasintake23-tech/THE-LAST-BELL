@@ -157,6 +157,8 @@ namespace TheLastBell.Player
             public Transform wrist;
             public Vector3 palmInWristMetres;
             public Quaternion gripFrameInWrist;
+            public Vector3 thumbRollAxis;
+            public bool right;
             public HumanBodyBones[] digits;
             public Quaternion[] bindRotations;
             public Vector3[] bendAxes;
@@ -277,6 +279,21 @@ namespace TheLastBell.Player
             }
             leftCalibration ??= CalibrateHand(true);
             rightCalibration ??= CalibrateHand(false);
+            if (rightHandAttachSocket != null && rightCalibration != null)
+            {
+                var index = animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
+                var little = animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
+                if (index != null && little != null)
+                {
+                    Vector3 axis = (index.position - little.position).normalized;
+                    Vector3 support = rightHand.rotation * rightCalibration.gripFrameInWrist * Vector3.back;
+                    Vector3 knuckles = (index.position + little.position) * 0.5f;
+                    if (axis.sqrMagnitude > 0.5f)
+                        rightHandAttachSocket.SetPositionAndRotation(
+                            Vector3.Lerp(rightHand.position, knuckles, 0.71f) + support * 0.024f,
+                            Quaternion.LookRotation(axis, support));
+                }
+            }
             if (leftHand != null && leftHandFlashlightSocket == null)
             {
                 Transform existingLeft = leftHand.Find("LeftHand_Flashlight_Socket");
@@ -303,7 +320,7 @@ namespace TheLastBell.Player
             Vector3 palm = middle != null ? Vector3.Lerp(wrist.position, middle.position, 0.74f) : wrist.position;
             var hand = new HandCalibration
             {
-                wrist = wrist, palmInWristMetres = Quaternion.Inverse(wrist.rotation) * (palm - wrist.position),
+                wrist = wrist, right = !left, palmInWristMetres = Quaternion.Inverse(wrist.rotation) * (palm - wrist.position),
                 digits = new HumanBodyBones[15], bindRotations = new Quaternion[15], bendAxes = new Vector3[15]
             };
             var index = animator.GetBoneTransform(left ? HumanBodyBones.LeftIndexProximal : HumanBodyBones.RightIndexProximal);
@@ -318,6 +335,7 @@ namespace TheLastBell.Player
                 if (normal.sqrMagnitude > 0.5f)
                     hand.gripFrameInWrist = Quaternion.Inverse(wrist.rotation) * Quaternion.LookRotation(normal, alongFinger);
             }
+            Vector3 palmNormal = wrist.rotation * hand.gripFrameInWrist * Vector3.forward;
             int thumb = (int)(left ? HumanBodyBones.LeftThumbProximal : HumanBodyBones.RightThumbProximal);
             for (int i = 0; i < hand.digits.Length; i++)
             {
@@ -326,6 +344,12 @@ namespace TheLastBell.Player
                 var joint = animator.GetBoneTransform(id);
                 if (joint == null) continue;
                 hand.bindRotations[i] = joint.localRotation;
+                if (i == 0)
+                {
+                    Transform thumbSecond = animator.GetBoneTransform((HumanBodyBones)((int)id + 1));
+                    if (thumbSecond != null)
+                        hand.thumbRollAxis = joint.InverseTransformDirection((thumbSecond.position - joint.position).normalized);
+                }
                 if (i % 3 == 2)
                 {
                     Transform middleJoint = animator.GetBoneTransform((HumanBodyBones)((int)id - 1));
@@ -335,7 +359,7 @@ namespace TheLastBell.Player
                 }
                 var next = animator.GetBoneTransform((HumanBodyBones)((int)id + 1));
                 if (next == null) continue;
-                Vector3 inward = palm - joint.position;
+                Vector3 inward = i < 3 ? palm - joint.position : -palmNormal;
                 var bend = Vector3.Cross(next.position - joint.position, inward);
                 if (bend.sqrMagnitude > 0.00000001f)
                     hand.bendAxes[i] = joint.InverseTransformDirection(bend.normalized);
@@ -350,7 +374,9 @@ namespace TheLastBell.Player
             var hand = side == PreferredInteractionHand.Right ? rightCalibration : leftCalibration;
             if (hand == null) return;
             Quaternion rotation = point.rotation * Quaternion.Euler(profile.wristAngles) * Quaternion.Inverse(hand.gripFrameInWrist);
-            SetPhysicalWrist(side, point.position - rotation * hand.palmInWristMetres, rotation, profile, weight);
+            Vector3 contact = point.TransformPoint(profile.palmOffset);
+            Vector3 surface = point.forward * Mathf.Min(profile.objectRadius, 0.028f) * 0.55f;
+            SetPhysicalWrist(side, contact + surface - rotation * hand.palmInWristMetres, rotation, profile, weight);
         }
 
         public void SetPhysicalWrist(PreferredInteractionHand side, Vector3 position, Quaternion rotation,
@@ -363,13 +389,13 @@ namespace TheLastBell.Player
 
         public void SetLowReach(float weight) => lowReach = Mathf.Clamp01(weight);
 
-        public void PoseLeftHandForDevice(Vector3 gripCentre, Quaternion deviceRotation, float weight)
+        public void PoseLeftHandForDevice(Vector3 gripCentre, Quaternion deviceRotation, float weight, HandGripProfile? profile = null)
         {
             if (LeftHandFestekSocket == null) return;
             Transform wrist = LeftHandFestekSocket.parent;
             Quaternion rotation = deviceRotation * Quaternion.Inverse(LeftHandFestekSocket.localRotation);
             Vector3 offset = Quaternion.Inverse(wrist.rotation) * (LeftHandFestekSocket.position - wrist.position);
-            SetPhysicalWrist(PreferredInteractionHand.Left, gripCentre - rotation * offset, rotation, HandGripProfile.Device, weight);
+            SetPhysicalWrist(PreferredInteractionHand.Left, gripCentre - rotation * offset, rotation, profile ?? HandGripProfile.Device, weight);
         }
 
         public bool IsPalmNear(PreferredInteractionHand side, Vector3 position, float tolerance)
@@ -377,6 +403,18 @@ namespace TheLastBell.Player
             var hand = side == PreferredInteractionHand.Right ? rightCalibration : leftCalibration;
             return hand != null && hand.wrist != null &&
                 Vector3.Distance(hand.wrist.position + hand.wrist.rotation * hand.palmInWristMetres, position) <= tolerance;
+        }
+
+        public bool CanReachByArm(PreferredInteractionHand side, Vector3 contact, float tolerance)
+        {
+            if (animator == null || !animator.isHuman) return false;
+            bool right = side == PreferredInteractionHand.Right;
+            Transform shoulder = animator.GetBoneTransform(right ? HumanBodyBones.RightUpperArm : HumanBodyBones.LeftUpperArm);
+            Transform elbow = animator.GetBoneTransform(right ? HumanBodyBones.RightLowerArm : HumanBodyBones.LeftLowerArm);
+            Transform wrist = animator.GetBoneTransform(right ? HumanBodyBones.RightHand : HumanBodyBones.LeftHand);
+            if (shoulder == null || elbow == null || wrist == null) return false;
+            float arm = Vector3.Distance(shoulder.position, elbow.position) + Vector3.Distance(elbow.position, wrist.position);
+            return Vector3.Distance(shoulder.position, contact) <= arm + tolerance + 0.075f;
         }
 
         public void ClearPhysicalContact(PreferredInteractionHand side)
@@ -392,10 +430,15 @@ namespace TheLastBell.Player
             {
                 if (hand.bendAxes[i].sqrMagnitude < 0.5f) continue;
                 int segment = i % 3;
-                float curl = i < 3 ? (segment == 2 ? 18f : 29f) * grip.thumbCurl :
-                    (segment == 0 ? 37f : segment == 1 ? 52f : 24f) * grip.fingerCurl;
-                animator.SetBoneLocalRotation(hand.digits[i], hand.bindRotations[i] *
-                    Quaternion.AngleAxis(curl * weight, hand.bendAxes[i]));
+                Vector3 limits = grip.fingerJointLimits.sqrMagnitude > 0.01f ? grip.fingerJointLimits : new Vector3(37, 52, 24);
+                Vector3 thumb = grip.thumbOpposition.sqrMagnitude > 0.01f ? grip.thumbOpposition : new Vector3(17, 27, 18);
+                float bias = grip.fingerBias.sqrMagnitude > 0.01f ? grip.fingerBias[Mathf.Max(0, i / 3 - 1)] : 1f;
+                float curl = i < 3 ? thumb[segment] * grip.thumbCurl : limits[segment] * grip.fingerCurl * bias;
+                Quaternion flexion = Quaternion.AngleAxis(Mathf.Min(curl * weight, limits[segment]), hand.bendAxes[i]);
+                Quaternion opposition = i == 0 && hand.thumbRollAxis.sqrMagnitude > 0.5f
+                    ? Quaternion.AngleAxis((hand.right ? -1f : 1f) * 24f * grip.thumbCurl * weight, hand.thumbRollAxis)
+                    : Quaternion.identity;
+                animator.SetBoneLocalRotation(hand.digits[i], hand.bindRotations[i] * opposition * flexion);
             }
         }
 
@@ -773,8 +816,8 @@ namespace TheLastBell.Player
             if (layerIndex == 0 && lowReach > 0f && !IsFullBodyOverrideActive)
             {
                 Transform actor = transform.root;
-                animator.bodyPosition += actor.forward * (0.15f * lowReach) - Vector3.up * (0.22f * lowReach);
-                animator.bodyRotation = Quaternion.AngleAxis(22f * lowReach, actor.right) * animator.bodyRotation;
+                animator.bodyPosition += actor.forward * (0.16f * lowReach) - Vector3.up * (0.31f * lowReach);
+                animator.bodyRotation = Quaternion.AngleAxis(29f * lowReach, actor.right) * animator.bodyRotation;
             }
 
             // Layer 0: Foot IK (yalnızca yerdeyken ve tam gövde override yokken)
@@ -823,7 +866,9 @@ namespace TheLastBell.Player
             if (layerIndex == idxLeftArm)
             {
                 if (IsHoldingFestek || IsPosingFestek)
-                    ApplyGrip(leftCalibration, HandGripProfile.Device, IsHoldingFestek ? 1f : dynamicLeftHandIkWeight);
+                    ApplyGrip(leftCalibration, HandGripProfile.ForDevice(CameraModeController.Instance != null &&
+                        CameraModeController.Instance.IsFreeOrbit ? DeviceGripAction.Inspect : DeviceGripAction.Carry),
+                        IsHoldingFestek ? 1f : dynamicLeftHandIkWeight);
                 if (leftHandInteractTarget != null)
                 {
                     float w = dynamicLeftHandIkWeight > 0.01f

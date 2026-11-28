@@ -30,6 +30,7 @@ namespace TheLastBell.Player
 
         public IReadOnlyList<PhysicalItem> PhysicalItems => physicalItems;
         public PhysicalItem EquippedItem { get; private set; }
+        public bool IsEquipped(IInventoryPhysicalItem item) => EquippedItem != null && ReferenceEquals(EquippedItem.Instance, item);
         public bool IsTransferring => transferring;
         public event Action PhysicalItemsChanged;
         public event Action<InventoryItemDefinition> PhysicalItemStored;
@@ -52,6 +53,7 @@ namespace TheLastBell.Player
         public void ToggleEquipment(PhysicalItem selected)
         {
             if (transferring || selected == null || !physicalItems.Contains(selected)) return;
+            if (EquippedItem?.Instance is FestekItem seated && seated.CurrentState == FestekItemState.SeatedInSocket) return;
             if (!Application.isPlaying)
             {
                 ChangeImmediately(selected == EquippedItem ? null : selected);
@@ -97,7 +99,7 @@ namespace TheLastBell.Player
                     for (float t = 0f; t < next.Definition.PocketDuration; t += Time.deltaTime)
                     {
                         pose.SetPhysicalWrist(PreferredInteractionHand.Left, pocketTarget.position, pocketTarget.rotation,
-                            next.Definition.Grip, 1f - Mathf.SmoothStep(0f, 1f, t / next.Definition.PocketDuration));
+                            next.Definition.PocketGrip, 1f - Mathf.SmoothStep(0f, 1f, t / next.Definition.PocketDuration));
                         yield return null;
                     }
                 }
@@ -105,7 +107,15 @@ namespace TheLastBell.Player
             EndTransfer();
         }
 
-        public IEnumerator StoreEquippedForCinematic()
+        public IEnumerator StoreEquippedForCinematic() => StoreDuringFocus(requireContact: false);
+        public IEnumerator StoreEquippedForInteraction() => StoreDuringFocus(requireContact: true);
+
+        public void CancelFocusedStorage()
+        {
+            if (transferring && interactionLock == null) EndTransfer();
+        }
+
+        private IEnumerator StoreDuringFocus(bool requireContact)
         {
             if (EquippedItem == null || transferring) yield break;
             if (!Application.isPlaying)
@@ -117,13 +127,19 @@ namespace TheLastBell.Player
             pose?.InitializeIfNeeded();
             Transform wrist = pose != null && pose.LeftHandFestekSocket != null ? pose.LeftHandFestekSocket.parent : null;
             transferring = true;
-            if (wrist != null)
+            try
             {
-                pose.IsPosingFestek = true;
-                yield return ReachPocket(wrist, GetPocket(), EquippedItem.Definition);
+                if (wrist != null)
+                {
+                    pose.IsPosingFestek = true;
+                    yield return ReachPocket(wrist, GetPocket(), EquippedItem.Definition);
+                }
+                if (!requireContact || (wrist != null && IsAtPocket(wrist, GetPocket()))) CommitStorage();
             }
-            CommitStorage();
-            EndTransfer();
+            finally
+            {
+                if (transferring) EndTransfer();
+            }
         }
 
         private IEnumerator ReachPocket(Transform wrist, Transform target, InventoryItemDefinition definition)
@@ -138,10 +154,10 @@ namespace TheLastBell.Player
                 Vector3 path = Vector3.Lerp(Vector3.Lerp(from, wayPoint, blend),
                     Vector3.Lerp(wayPoint, target.localPosition, blend), blend);
                 pose.SetPhysicalWrist(PreferredInteractionHand.Left, transform.TransformPoint(path),
-                    Quaternion.Slerp(transform.rotation * fromRotation, target.rotation, blend), definition.Grip, 1f);
+                    Quaternion.Slerp(transform.rotation * fromRotation, target.rotation, blend), definition.PocketGrip, 1f);
                 yield return null;
             }
-            pose.SetPhysicalWrist(PreferredInteractionHand.Left, target.position, target.rotation, definition.Grip, 1f);
+            pose.SetPhysicalWrist(PreferredInteractionHand.Left, target.position, target.rotation, definition.PocketGrip, 1f);
             yield return null;
             yield return null;
         }

@@ -15,6 +15,7 @@ namespace TheLastBell.Player
         [SerializeField] private GameObject model;
         [SerializeField] private bool questItem;
         [SerializeField] private HandGripProfile grip;
+        [SerializeField] private HandGripProfile pocketGrip;
         [SerializeField, Min(0.2f)] private float pocketDuration = 0.72f;
 
         public string ItemId => itemId;
@@ -33,10 +34,11 @@ namespace TheLastBell.Player
         public GameObject Model => model;
         public bool IsQuestItem => questItem;
         public HandGripProfile Grip => grip.fingerCurl > 0f ? grip : HandGripProfile.Device;
+        public HandGripProfile PocketGrip => pocketGrip.fingerCurl > 0f ? pocketGrip : Grip;
         public float PocketDuration => Mathf.Max(0.2f, pocketDuration);
 
         public void Configure(string id, string title, string details, Sprite itemIcon, GameObject physicalModel,
-            HandGripProfile handGrip, bool isQuestItem, Texture2D fallbackTexture = null)
+            HandGripProfile handGrip, bool isQuestItem, Texture2D fallbackTexture = null, HandGripProfile storageGrip = default)
         {
             itemId = id;
             displayName = title;
@@ -45,6 +47,7 @@ namespace TheLastBell.Player
             iconTexture = fallbackTexture;
             model = physicalModel;
             grip = handGrip;
+            pocketGrip = storageGrip;
             questItem = isQuestItem;
         }
     }

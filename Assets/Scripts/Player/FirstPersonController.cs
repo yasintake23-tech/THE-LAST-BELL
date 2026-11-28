@@ -288,8 +288,9 @@ namespace TheLastBell.Player
             HandleLook(dt);
             if (!AllowMovement)
             {
-                if (scriptedGazeActive)
+                if (scriptedGazeActive && controller.enabled)
                 {
+                    UpdateCrouchHeight(dt);
                     Vector3 local = Time.frameCount - guidedMoveFrame <= 1
                         ? transform.InverseTransformDirection(guidedVelocity) : Vector3.zero;
                     float speed = Mathf.Clamp(local.z / 1.3f, -1f, 1f);
@@ -444,6 +445,11 @@ namespace TheLastBell.Player
                 SetCrouch(true);
             }
 
+            UpdateCrouchHeight(dt);
+        }
+
+        private void UpdateCrouchHeight(float dt)
+        {
             // CharacterController yükseklik ve merkez lerp
             float targetHeight = isCrouching ? crouchHeight : standingHeight;
             controller.height = Mathf.Lerp(controller.height, targetHeight, dt * crouchTransitionSpeed);
