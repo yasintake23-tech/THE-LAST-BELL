@@ -1004,7 +1004,8 @@ namespace TheLastBell.Editor
                             float rLift = rToeEnd.position.y - rToeBase.position.y;
                             if (lLift > 0.004f || rLift > 0.004f || lToeEnd.position.y < 0.012f)
                             {
-                                failures.Add($"Toe alignment check failed: LeftToeLift={lLift:F4}m, RightToeLift={rLift:F4}m, LToeEndY={lToeEnd.position.y:F4}m.");
+                                var leftAnkle = anim.GetBoneTransform(HumanBodyBones.LeftFoot);
+                                failures.Add($"Toe alignment check failed: LeftToeLift={lLift:F4}m, RightToeLift={rLift:F4}m, LToeEndY={lToeEnd.position.y:F4}m, LAnkleY={leftAnkle.position.y:F4}m, enabled={procCtrl.enableToeAlignment}, fullOverride={animCtrl.IsFullBodyOverrideActive}.");
                             }
                             else
                             {

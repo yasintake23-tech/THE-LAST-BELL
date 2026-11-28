@@ -352,15 +352,14 @@ namespace TheLastBell.Player
         {
             if (footBone == null || toeBone == null) return;
 
-            float footRelY = footBone.position.y - rootY;
-            // Sadece ayak zemine temas halindeyken / yakınken düzelt (havadaki adımı bozma)
-            if (footRelY > 0.165f) return;
-
-            float stanceWeight = Mathf.Clamp01((0.165f - footRelY) / 0.055f);
-
-            // 1. Aşama: Ayak bileği (LeftFoot/RightFoot) yukarı dikilmişse tarak kemiğini (ToeBase) doğal taban yüksekliğine (~4.4cm) indir
             Vector3 anklePos = footBone.position;
             Vector3 ballPos = toeBone.position;
+            // A pitched ankle can be high while the ball of the foot is still near the floor.
+            float contactHeight = Mathf.Min(anklePos.y, ballPos.y + 0.025f) - rootY;
+            float stanceWeight = Mathf.InverseLerp(0.165f, 0.11f, contactHeight);
+            if (stanceWeight <= 0f) return;
+
+            // 1. Aşama: Ayak bileği (LeftFoot/RightFoot) yukarı dikilmişse tarak kemiğini (ToeBase) doğal taban yüksekliğine (~4.4cm) indir
             Vector3 ankleToBall = ballPos - anklePos;
             float desiredBallY = rootY + 0.044f;
             if (ballPos.y > desiredBallY + 0.002f && ankleToBall.sqrMagnitude > 0.001f)
