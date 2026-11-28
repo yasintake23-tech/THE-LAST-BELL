@@ -1198,14 +1198,14 @@ namespace TheLastBell.Editor
                 camMode.SetCameraMode(CameraViewMode.FirstPerson);
             }
 
-            // Step 8-13: Approach Socket -> Insert Feştek -> Press Activation Button -> Restore Power -> TV Turns ON -> Milestone Complete!
+            // Seat, reverse, cancel, restore power, remove the quest item, then store it.
             objMgr.EvaluateSpatialProgression(new Vector3(5.65f, 0.02f, 8.0f));
             if (objMgr.CurrentState != ChapterObjectiveState.InsertFestek)
                 failures.Add($"Expected InsertFestek near socket, got {objMgr.CurrentState}.");
 
             socket.ApplyRotationDelta(90f);
-            if (socket.IsActivated || powerMgr.IsPowerRestored)
-                failures.Add("An empty socket accepted a turn.");
+            if (socket.IsActivated || powerMgr.IsPowerRestored || socket.RemoveForVerification(player))
+                failures.Add("An empty socket accepted a turn or removal.");
             socket.SeatForVerification(festek, player);
             if (socket.IsActivated || powerMgr.IsPowerRestored || objMgr.CurrentState != ChapterObjectiveState.ActivateFestek)
                 failures.Add("Insertion restored power before the device was turned.");
@@ -1251,13 +1251,43 @@ namespace TheLastBell.Editor
                 failures.Add("FacilityPowerManager.IsPowerRestored is false after Feştek activation.");
             if (!tvCtrl.IsPoweredOn || tvCtrl.ScreenLocalLight == null || !tvCtrl.ScreenLocalLight.enabled)
                 failures.Add("AbandonedTelevisionController or its local glow light did not activate when electricity restored.");
+            var inventory = player.GetComponent<PlayerInventory>();
+            if (inventory == null || inventory.PhysicalItems.Count != 0 ||
+                objMgr.CurrentState != ChapterObjectiveState.RemoveFestek)
+                failures.Add("Power restoration did not leave the device seated with a separate removal objective.");
+            if (!socket.RemoveForVerification(player) || socket.RemoveForVerification(player) ||
+                !socket.IsActivated || !powerMgr.IsPowerRestored || !tvCtrl.IsPoweredOn || socket.SeatedFestek != null ||
+                festek.CurrentState != FestekItemState.HeldInLeftHand ||
+                animCtrl == null || !festek.transform.IsChildOf(animCtrl.LeftHandFestekSocket) ||
+                objMgr.CurrentState != ChapterObjectiveState.StoreFestek)
+                failures.Add("Powered removal failed, duplicated the item, lost left-hand attachment, or changed facility power.");
+
+            var entry = inventory != null ? inventory.EquippedItem : null;
+            if (entry == null || inventory.PhysicalItems.Count != 1 || !entry.Definition.IsQuestItem ||
+                entry.Definition.ItemId != "chapter1.festek" || entry.Definition.Model == null || entry.Definition.Icon == null ||
+                inventory.TryCollectEquipped(entry.Definition, festek))
+                failures.Add("The Feştek inventory definition is incomplete or allowed a duplicate.");
+            if (entry != null)
+            {
+                inventory.ToggleEquipment(entry);
+                if (inventory.EquippedItem != null || festek.CurrentState != FestekItemState.Stored || festek.gameObject.activeSelf)
+                    failures.Add("Storing did not retain the same inactive Feştek instance in the pocket.");
+                inventory.ToggleEquipment(entry);
+                if (inventory.EquippedItem != entry || festek.CurrentState != FestekItemState.HeldInLeftHand ||
+                    !festek.gameObject.activeSelf || animCtrl == null || !festek.transform.IsChildOf(animCtrl.LeftHandFestekSocket))
+                    failures.Add("Drawing the quest item did not restore its left-hand attachment.");
+                inventory.ToggleEquipment(entry);
+                if (inventory.EquippedItem != null || inventory.PhysicalItems.Count != 1 ||
+                    festek.CurrentState != FestekItemState.Stored || !powerMgr.IsPowerRestored || !tvCtrl.IsPoweredOn)
+                    failures.Add("Re-storing a quest item changed the power state or duplicated the entry.");
+            }
             if (objMgr.CurrentState != ChapterObjectiveState.ChapterMilestoneComplete)
                 failures.Add($"Expected final state ChapterMilestoneComplete, got {objMgr.CurrentState}.");
             if (fpc != null && !fpc.AllowMovement)
                 failures.Add("Player movement was locked at ChapterMilestoneComplete (player must remain in control!).");
 
             if (failures.Count == puzzleStartFailures)
-                sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Left-Hand Pickup + Right-Hand Flashlight -> Socket Insert, Reverse, Withdraw, Reinsert & 90-Degree Turn -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
+                sb.AppendLine("  Chapter I Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Left-Hand Pickup + Right-Hand Flashlight -> Socket Insert, Reverse, Withdraw, Reinsert & 90-Degree Turn -> Power Restored -> Powered Removal -> Pocket Storage & Re-equip -> CRT TV Active -> ChapterMilestoneComplete OK");
 
             if (canRender && shotCam != null)
             {

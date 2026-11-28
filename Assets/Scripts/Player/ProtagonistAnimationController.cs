@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
+using TheLastBell.Interaction;
 
 namespace TheLastBell.Player
 {
@@ -143,16 +144,30 @@ namespace TheLastBell.Player
         public AnimationClip CurrentPreviewClip => currentPreviewClip;
         public Transform RightHandSocket => rightHandAttachSocket;
         public Transform RightHandFestekSocket => rightHandFestekSocket;
-        private static readonly HumanBodyBones[] FestekFingerJoints =
+        private struct WristContact
         {
-            HumanBodyBones.LeftIndexProximal, HumanBodyBones.LeftIndexIntermediate,
-            HumanBodyBones.LeftMiddleProximal, HumanBodyBones.LeftMiddleIntermediate,
-            HumanBodyBones.LeftRingProximal, HumanBodyBones.LeftRingIntermediate,
-            HumanBodyBones.LeftLittleProximal, HumanBodyBones.LeftLittleIntermediate
-        };
-        private readonly Quaternion[] festekFingerLocal = new Quaternion[FestekFingerJoints.Length];
-        private readonly Vector3[] festekFingerAxis = new Vector3[FestekFingerJoints.Length];
-        private bool festekGripCalibrated;
+            public Vector3 position;
+            public Quaternion rotation;
+            public float weight;
+            public HandGripProfile grip;
+        }
+
+        private sealed class HandCalibration
+        {
+            public Transform wrist;
+            public Vector3 palmInWristMetres;
+            public Quaternion gripFrameInWrist;
+            public HumanBodyBones[] digits;
+            public Quaternion[] bindRotations;
+            public Vector3[] bendAxes;
+        }
+
+        private WristContact leftContact;
+        private float lowReach;
+        private WristContact rightContact;
+        private HandCalibration leftCalibration;
+        private HandCalibration rightCalibration;
+
         public Transform LeftHandFestekSocket { get; private set; }
         public bool IsHoldingFestek { get; set; }
         public bool IsPosingFestek { get; set; }
@@ -258,19 +273,8 @@ namespace TheLastBell.Player
                         Quaternion.LookRotation(across, palmNormal));
                 }
             }
-            if (LeftHandFestekSocket != null && !festekGripCalibrated)
-            {
-                for (int i = 0; i < FestekFingerJoints.Length; i++)
-                {
-                    var joint = animator.GetBoneTransform(FestekFingerJoints[i]);
-                    var next = animator.GetBoneTransform((HumanBodyBones)((int)FestekFingerJoints[i] + 1));
-                    if (joint == null || next == null) continue;
-                    festekFingerLocal[i] = joint.localRotation;
-                    Vector3 curlAxis = Vector3.Cross(next.position - joint.position, LeftHandFestekSocket.position - joint.position);
-                    festekFingerAxis[i] = joint.InverseTransformDirection(curlAxis.normalized);
-                }
-                festekGripCalibrated = true;
-            }
+            leftCalibration ??= CalibrateHand(true);
+            rightCalibration ??= CalibrateHand(false);
             if (leftHand != null && leftHandFlashlightSocket == null)
             {
                 Transform existingLeft = leftHand.Find("LeftHand_Flashlight_Socket");
@@ -287,6 +291,125 @@ namespace TheLastBell.Player
                     leftHandFlashlightSocket = lsock.transform;
                 }
             }
+        }
+
+        private HandCalibration CalibrateHand(bool left)
+        {
+            var wrist = animator.GetBoneTransform(left ? HumanBodyBones.LeftHand : HumanBodyBones.RightHand);
+            if (wrist == null) return null;
+            var middle = animator.GetBoneTransform(left ? HumanBodyBones.LeftMiddleProximal : HumanBodyBones.RightMiddleProximal);
+            Vector3 palm = middle != null ? Vector3.Lerp(wrist.position, middle.position, 0.74f) : wrist.position;
+            var hand = new HandCalibration
+            {
+                wrist = wrist, palmInWristMetres = Quaternion.Inverse(wrist.rotation) * (palm - wrist.position),
+                digits = new HumanBodyBones[15], bindRotations = new Quaternion[15], bendAxes = new Vector3[15]
+            };
+            var index = animator.GetBoneTransform(left ? HumanBodyBones.LeftIndexProximal : HumanBodyBones.RightIndexProximal);
+            var little = animator.GetBoneTransform(left ? HumanBodyBones.LeftLittleProximal : HumanBodyBones.RightLittleProximal);
+            hand.gripFrameInWrist = Quaternion.identity;
+            if (index != null && little != null && (palm - wrist.position).sqrMagnitude > 0.00001f)
+            {
+                Vector3 alongFinger = (palm - wrist.position).normalized;
+                Vector3 across = (index.position - little.position).normalized;
+                if (!left) across = -across;
+                Vector3 normal = Vector3.Cross(across, alongFinger).normalized;
+                if (normal.sqrMagnitude > 0.5f)
+                    hand.gripFrameInWrist = Quaternion.Inverse(wrist.rotation) * Quaternion.LookRotation(normal, alongFinger);
+            }
+            int thumb = (int)(left ? HumanBodyBones.LeftThumbProximal : HumanBodyBones.RightThumbProximal);
+            for (int i = 0; i < hand.digits.Length; i++)
+            {
+                HumanBodyBones id = (HumanBodyBones)(thumb + i);
+                hand.digits[i] = id;
+                var joint = animator.GetBoneTransform(id);
+                if (joint == null) continue;
+                hand.bindRotations[i] = joint.localRotation;
+                if (i % 3 == 2)
+                {
+                    Transform middleJoint = animator.GetBoneTransform((HumanBodyBones)((int)id - 1));
+                    if (middleJoint != null)
+                        hand.bendAxes[i] = joint.InverseTransformDirection(middleJoint.TransformDirection(hand.bendAxes[i - 1]));
+                    continue;
+                }
+                var next = animator.GetBoneTransform((HumanBodyBones)((int)id + 1));
+                if (next == null) continue;
+                Vector3 inward = palm - joint.position;
+                var bend = Vector3.Cross(next.position - joint.position, inward);
+                if (bend.sqrMagnitude > 0.00000001f)
+                    hand.bendAxes[i] = joint.InverseTransformDirection(bend.normalized);
+            }
+            return hand;
+        }
+
+        public void SetPhysicalContact(PreferredInteractionHand side, Transform point, HandGripProfile profile, float weight)
+        {
+            if (point == null) return;
+            InitializeIfNeeded();
+            var hand = side == PreferredInteractionHand.Right ? rightCalibration : leftCalibration;
+            if (hand == null) return;
+            Quaternion rotation = point.rotation * Quaternion.Euler(profile.wristAngles) * Quaternion.Inverse(hand.gripFrameInWrist);
+            SetPhysicalWrist(side, point.position - rotation * hand.palmInWristMetres, rotation, profile, weight);
+        }
+
+        public void SetPhysicalWrist(PreferredInteractionHand side, Vector3 position, Quaternion rotation,
+            HandGripProfile grip, float weight)
+        {
+            var request = new WristContact { position = position, rotation = rotation, weight = Mathf.Clamp01(weight), grip = grip };
+            if (side == PreferredInteractionHand.Right) rightContact = request;
+            else leftContact = request;
+        }
+
+        public void SetLowReach(float weight) => lowReach = Mathf.Clamp01(weight);
+
+        public void PoseLeftHandForDevice(Vector3 gripCentre, Quaternion deviceRotation, float weight)
+        {
+            if (LeftHandFestekSocket == null) return;
+            Transform wrist = LeftHandFestekSocket.parent;
+            Quaternion rotation = deviceRotation * Quaternion.Inverse(LeftHandFestekSocket.localRotation);
+            Vector3 offset = Quaternion.Inverse(wrist.rotation) * (LeftHandFestekSocket.position - wrist.position);
+            SetPhysicalWrist(PreferredInteractionHand.Left, gripCentre - rotation * offset, rotation, HandGripProfile.Device, weight);
+        }
+
+        public bool IsPalmNear(PreferredInteractionHand side, Vector3 position, float tolerance)
+        {
+            var hand = side == PreferredInteractionHand.Right ? rightCalibration : leftCalibration;
+            return hand != null && hand.wrist != null &&
+                Vector3.Distance(hand.wrist.position + hand.wrist.rotation * hand.palmInWristMetres, position) <= tolerance;
+        }
+
+        public void ClearPhysicalContact(PreferredInteractionHand side)
+        {
+            if (side == PreferredInteractionHand.Right) rightContact = default;
+            else leftContact = default;
+        }
+
+        private void ApplyGrip(HandCalibration hand, HandGripProfile grip, float weight)
+        {
+            if (hand == null || hand.wrist == null) return;
+            for (int i = 0; i < hand.digits.Length; i++)
+            {
+                if (hand.bendAxes[i].sqrMagnitude < 0.5f) continue;
+                int segment = i % 3;
+                float curl = i < 3 ? (segment == 2 ? 18f : 29f) * grip.thumbCurl :
+                    (segment == 0 ? 37f : segment == 1 ? 52f : 24f) * grip.fingerCurl;
+                animator.SetBoneLocalRotation(hand.digits[i], hand.bindRotations[i] *
+                    Quaternion.AngleAxis(curl * weight, hand.bendAxes[i]));
+            }
+        }
+
+        private void ApplyWrist(WristContact contact, bool right)
+        {
+            var goal = right ? AvatarIKGoal.RightHand : AvatarIKGoal.LeftHand;
+            var elbow = right ? AvatarIKHint.RightElbow : AvatarIKHint.LeftElbow;
+            Vector3 hint = contact.grip.elbowOffset;
+            if (!right) hint.x = -hint.x;
+            animator.SetIKPositionWeight(goal, contact.weight);
+            animator.SetIKRotationWeight(goal, contact.weight);
+            animator.SetIKPosition(goal, contact.position);
+            animator.SetIKRotation(goal, contact.rotation);
+            animator.SetIKHintPositionWeight(elbow, contact.weight * 0.64f);
+            animator.SetIKHintPosition(elbow, transform.root.TransformPoint(hint));
+            ApplyGrip(right ? rightCalibration : leftCalibration, contact.grip, contact.weight);
         }
 
         private void Update()
@@ -311,8 +434,8 @@ namespace TheLastBell.Player
             bool fullOverride = IsFullBodyOverrideActive;
 
             float targetUpper = fullOverride ? 0f : (fearLevel > 0.05f ? fearLevel : 0f);
-            float targetRight = (!fullOverride && (flashlightEquipped || rightHandHoldingCustomItem || dynamicRightHandIkWeight > 0.01f)) ? 1f : 0f;
-            float targetLeft = (!fullOverride && (leftArmTimer > 0f || leftHandHoldingFlashlight || IsHoldingFestek || IsPosingFestek || leftHandAimIkWeight > 0.01f)) ? 1f : 0f;
+            float targetRight = (!fullOverride && (flashlightEquipped || rightHandHoldingCustomItem || rightContact.weight > 0.01f || dynamicRightHandIkWeight > 0.01f)) ? 1f : 0f;
+            float targetLeft = (!fullOverride && (leftArmTimer > 0f || leftContact.weight > 0.01f || leftHandHoldingFlashlight || IsHoldingFestek || IsPosingFestek || leftHandAimIkWeight > 0.01f)) ? 1f : 0f;
             float targetHead = (!fullOverride && (headLookTimer > 0f || lookTargetOverride != null)) ? 1f : 0f;
             float targetAdd = (!fullOverride && fearLevel > 0.1f) ? Mathf.Clamp01(fearLevel * 0.45f) : 0f;
             float targetFull = fullOverride ? 1f : 0f;
@@ -645,6 +768,13 @@ namespace TheLastBell.Player
         {
             if (animator == null || !animator.isHuman || isIsolatedPreview) return;
 
+            if (layerIndex == 0 && lowReach > 0f && !IsFullBodyOverrideActive)
+            {
+                Transform actor = transform.root;
+                animator.bodyPosition += actor.forward * (0.15f * lowReach) - Vector3.up * (0.22f * lowReach);
+                animator.bodyRotation = Quaternion.AngleAxis(22f * lowReach, actor.right) * animator.bodyRotation;
+            }
+
             // Layer 0: Foot IK (yalnızca yerdeyken ve tam gövde override yokken)
             if (layerIndex == 0 && enableFootIK && isGroundedCached && !IsFullBodyOverrideActive)
             {
@@ -661,6 +791,17 @@ namespace TheLastBell.Player
                 animator.SetLookAtPosition(lookTargetOverride.position);
             }
 
+            if (layerIndex == idxRightArm && rightContact.weight > 0.01f)
+            {
+                ApplyWrist(rightContact, true);
+                return;
+            }
+            if (layerIndex == idxLeftArm && leftContact.weight > 0.01f)
+            {
+                ApplyWrist(leftContact, false);
+                return;
+            }
+
             // Layer 2: RightArm_Flashlight -> Dinamik fener nişan alma veya sağ el özel nesne (Feştek / şalter) IK'sı
             if (layerIndex == idxRightArm && (flashlightEquipped || rightHandHoldingCustomItem || dynamicRightHandIkWeight > 0.01f))
             {
@@ -671,6 +812,8 @@ namespace TheLastBell.Player
                     animator.SetIKPosition(AvatarIKGoal.RightHand, rightHandIkTargetPos);
                     animator.SetIKRotationWeight(AvatarIKGoal.RightHand, w * 0.72f);
                     animator.SetIKRotation(AvatarIKGoal.RightHand, rightHandIkTargetRot);
+                    if (flashlightEquipped && !leftHandHoldingFlashlight)
+                        ApplyGrip(rightCalibration, HandGripProfile.Flashlight, 0.92f);
                 }
             }
 
@@ -678,16 +821,7 @@ namespace TheLastBell.Player
             if (layerIndex == idxLeftArm)
             {
                 if (IsHoldingFestek || IsPosingFestek)
-                {
-                    float grip = IsHoldingFestek ? 1f : dynamicLeftHandIkWeight;
-                    for (int i = 0; i < FestekFingerJoints.Length; i++)
-                    {
-                        if (festekFingerAxis[i].sqrMagnitude < 0.5f) continue;
-                        float curl = (i % 2 == 0 ? 27f : 39f) * grip;
-                        animator.SetBoneLocalRotation(FestekFingerJoints[i],
-                            festekFingerLocal[i] * Quaternion.AngleAxis(curl, festekFingerAxis[i]));
-                    }
-                }
+                    ApplyGrip(leftCalibration, HandGripProfile.Device, IsHoldingFestek ? 1f : dynamicLeftHandIkWeight);
                 if (leftHandInteractTarget != null)
                 {
                     float w = dynamicLeftHandIkWeight > 0.01f

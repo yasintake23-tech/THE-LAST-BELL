@@ -28,6 +28,7 @@ namespace TheLastBell.Interaction
         [SerializeField] private AudioSource socketAudioSource;
         [SerializeField] private AudioClip socketInsertClip;
         [SerializeField] private AudioClip buttonClickClip;
+        [SerializeField] private InventoryItemDefinition inventoryItem;
 
         private FestekItem seatedFestek;
         private GameObject carrier;
@@ -42,6 +43,7 @@ namespace TheLastBell.Interaction
         private Quaternion itemToHandRotation;
         private float turn;
         private int notch;
+        private bool removing;
         public FestekSocketState SocketState => socketState;
         public bool IsActivated => socketState == FestekSocketState.Activated;
         public FestekItem SeatedFestek => seatedFestek;
@@ -60,8 +62,13 @@ namespace TheLastBell.Interaction
             buttonClickClip = click;
         }
 
+        public void ConfigureInventoryItem(InventoryItemDefinition definition) => inventoryItem = definition;
+
+        private bool CanRemove => IsActivated && seatedFestek != null && !removing && focus == null &&
+            powerManager != null && powerManager.IsPowerRestored;
+
         public string GetInteractionPrompt() => socketState == FestekSocketState.SeatedReadyToActivate
-            ? "[E] - Feştek’i çevir" : socketState == FestekSocketState.Empty ? GetEmptyPrompt() : "";
+            ? "[E] - Feştek’i çevir" : socketState == FestekSocketState.Empty ? GetEmptyPrompt() : CanRemove ? "[E] - Feştek’i çıkar" : "";
 
         private static string GetEmptyPrompt()
         {
@@ -72,7 +79,7 @@ namespace TheLastBell.Interaction
 
         private void Update()
         {
-            if (statusLensRenderer == null || IsActivated) return;
+            if (statusLensRenderer == null) return;
             var player = ChapterObjectiveManager.Instance;
             bool guiding = socketState == FestekSocketState.Empty && player != null &&
                 (player.CurrentState == ChapterObjectiveState.InsertFestek ||
@@ -80,11 +87,16 @@ namespace TheLastBell.Interaction
             if (lensProperties == null) lensProperties = new MaterialPropertyBlock();
             statusLensRenderer.GetPropertyBlock(lensProperties);
             float glow = guiding ? 0.17f + 0.12f * Mathf.Sin(Time.time * 2.8f) : 0f;
-            lensProperties.SetColor(LensEmission, new Color(0.80f, 0.56f, 0.26f) * glow);
+            if (IsActivated)
+            {
+                float strength = CanRemove ? 0.83f + 0.17f * Mathf.Sin(Time.time * 2.4f) : 1f;
+                lensProperties.SetColor(LensEmission, new Color(0.26f, 0.68f, 0.28f) * strength);
+            }
+            else lensProperties.SetColor(LensEmission, new Color(0.80f, 0.56f, 0.26f) * glow);
             statusLensRenderer.SetPropertyBlock(lensProperties);
         }
 
-        public bool CanInteract() => socketState == FestekSocketState.Empty || socketState == FestekSocketState.SeatedReadyToActivate;
+        public bool CanInteract() => socketState == FestekSocketState.Empty || socketState == FestekSocketState.SeatedReadyToActivate || CanRemove;
 
         public void Interact(PlayerInteractor interactor)
         {
@@ -96,7 +108,19 @@ namespace TheLastBell.Interaction
             Vector3 toSocket = insertionTransform.position - player.transform.position;
             if (new Vector2(toSocket.x, toSocket.z).sqrMagnitude > 1.16f * 1.16f)
             {
-                interactor.ShowStatusMessage("Feştek’i takmak için yuvaya biraz daha yaklaş.");
+                interactor.ShowStatusMessage("İşlem için yuvaya biraz daha yaklaş.");
+                return;
+            }
+
+            if (CanRemove)
+            {
+                var inventory = player.GetComponent<PlayerInventory>();
+                if (controller.IsHoldingFestek || inventory == null || inventory.EquippedItem != null)
+                {
+                    interactor.ShowStatusMessage("Feştek’i çıkarmak için sol elin boş olmalı.");
+                    return;
+                }
+                if (inventoryItem != null && BeginFocus(player, controller)) StartCoroutine(RemovePoweredDevice(player, inventory));
                 return;
             }
 
@@ -136,10 +160,96 @@ namespace TheLastBell.Interaction
             return true;
         }
 
+        private IEnumerator ApproachSocket(GameObject player)
+        {
+            for (float t = 0f; t < 0.95f && focus != null && focus.IsFocused; t += Time.deltaTime)
+            {
+                Vector3 offset = Vector3.ProjectOnPlane(insertionTransform.position - player.transform.position, Vector3.up);
+                if (offset.magnitude <= 0.57f) yield break;
+                focus.MoveTowards(insertionTransform.position - offset.normalized * 0.57f, 0.75f, Time.deltaTime);
+                yield return null;
+            }
+        }
+
+        private IEnumerator RemovePoweredDevice(GameObject player, PlayerInventory inventory)
+        {
+            removing = true;
+            yield return ApproachSocket(player);
+            Transform hand = animation.LeftHandFestekSocket.parent;
+            Transform device = seatedFestek.transform;
+            Vector3 seatedPosition = device.localPosition;
+            for (float t = 0f; t < 0.48f; t += Time.deltaTime)
+            {
+                PoseHand(device.position, device.rotation, Mathf.SmoothStep(0f, 1f, t / 0.48f));
+                yield return null;
+            }
+            PoseHand(device.position, device.rotation);
+            yield return null;
+            if (Vector3.Distance(wrist.position, hand.position) <= 0.13f)
+            {
+                Play(socketInsertClip, 0.48f);
+                for (float t = 0f; t < 0.45f; t += Time.deltaTime)
+                {
+                    device.localPosition = seatedPosition - Vector3.forward * (0.15f * Mathf.SmoothStep(0f, 1f, t / 0.45f));
+                    PoseHand(device.position, device.rotation);
+                    yield return null;
+                }
+                device.localPosition = seatedPosition - Vector3.forward * 0.15f;
+                PoseHand(device.position, device.rotation);
+                yield return null;
+                if (Vector3.Distance(wrist.position, hand.position) <= 0.10f && TransferPoweredDevice(player, inventory))
+                {
+                    for (float t = 0f; t < 0.26f; t += Time.deltaTime)
+                    {
+                        PoseHand(device.position, device.rotation, 1f - Mathf.Clamp01(t / 0.26f));
+                        yield return null;
+                    }
+                }
+            }
+            if (seatedFestek != null)
+            {
+                Vector3 from = device.localPosition;
+                for (float t = 0f; t < 0.24f; t += Time.deltaTime)
+                {
+                    float blend = Mathf.SmoothStep(0f, 1f, t / 0.24f);
+                    device.localPosition = Vector3.Lerp(from, seatedPosition, blend);
+                    PoseHand(device.position, device.rotation, 1f - blend);
+                    yield return null;
+                }
+                SetTurn(RequiredTurn);
+                player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Feştek’i çıkarmak için yuvanın karşısına geç.");
+            }
+            removing = false;
+            ReleaseFocus();
+        }
+
+        private bool TransferPoweredDevice(GameObject player, PlayerInventory inventory)
+        {
+            if (seatedFestek == null || inventory == null || inventoryItem == null || inventory.EquippedItem != null)
+                return false;
+            if (!seatedFestek.AttachToLeftHand(player)) return false;
+            if (!inventory.TryCollectEquipped(inventoryItem, seatedFestek))
+            {
+                seatedFestek.SeatIntoSocket(insertionTransform, player, notify: false);
+                SetTurn(RequiredTurn);
+                return false;
+            }
+            seatedFestek = null;
+            ChapterObjectiveManager.Instance?.NotifyFestekRemoved();
+            return true;
+        }
+
+        public bool RemoveForVerification(GameObject player)
+        {
+            return !Application.isPlaying && CanRemove && player != null &&
+                TransferPoweredDevice(player, player.GetComponent<PlayerInventory>());
+        }
+
         private IEnumerator Insert(FestekItem item, GameObject player)
         {
             socketState = FestekSocketState.Inserting;
             ChapterObjectiveManager.Instance?.NotifyFestekInserting();
+            yield return ApproachSocket(player);
             Vector3 offset = item.InsertionAlignPoint != null
                 ? Quaternion.Inverse(item.transform.rotation) * (item.InsertionAlignPoint.position - item.transform.position)
                 : Vector3.zero;
@@ -191,11 +301,12 @@ namespace TheLastBell.Interaction
             socketState = FestekSocketState.SeatedReadyToActivate;
         }
 
-        private void PoseHand(Vector3 itemPosition, Quaternion itemRotation)
+        private void PoseHand(Vector3 itemPosition, Quaternion itemRotation, float weight = 1f)
         {
             if (animation == null || wrist == null) return;
             wrist.SetPositionAndRotation(itemPosition + itemRotation * itemToHandOffset, itemRotation * itemToHandRotation);
-            animation.SetLeftHandInteractionIK(wrist, 1f);
+            animation.SetPhysicalWrist(PreferredInteractionHand.Left, wrist.position, wrist.rotation,
+                inventoryItem != null ? inventoryItem.Grip : HandGripProfile.Device, weight);
         }
 
         private void OpenRotationPanel()
@@ -317,7 +428,7 @@ namespace TheLastBell.Interaction
         {
             for (float elapsed = 0f; elapsed < 0.32f; elapsed += Time.deltaTime)
             {
-                animation?.SetLeftHandInteractionIK(wrist, 1f - elapsed / 0.32f);
+                if (seatedFestek != null) PoseHand(seatedFestek.transform.position, seatedFestek.transform.rotation, 1f - elapsed / 0.32f);
                 yield return null;
             }
             ReleaseFocus();
@@ -330,6 +441,7 @@ namespace TheLastBell.Interaction
             if (socketState == FestekSocketState.Activating) socketState = FestekSocketState.SeatedReadyToActivate;
             if (animation != null)
             {
+                animation.ClearPhysicalContact(PreferredInteractionHand.Left);
                 animation.ClearLeftHandInteractTarget();
                 animation.IsPosingFestek = false;
             }
@@ -341,6 +453,8 @@ namespace TheLastBell.Interaction
         private void OnDisable()
         {
             StopAllCoroutines();
+            if (removing && seatedFestek != null) SetTurn(RequiredTurn);
+            removing = false;
             if (socketState == FestekSocketState.Inserting) socketState = FestekSocketState.Empty;
             if (socketState == FestekSocketState.Withdrawing) CompleteWithdrawal();
             else ReleaseFocus();

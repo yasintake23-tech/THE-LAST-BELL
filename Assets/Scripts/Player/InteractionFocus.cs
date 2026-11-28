@@ -16,14 +16,18 @@ namespace TheLastBell.Player
         private bool movementWasAllowed;
         private bool interactionWasEnabled;
         private bool wasFrozen;
+        private bool steerGaze;
         public bool IsFocused => owner != null;
+        public bool IsOwnedBy(Component requester) => requester != null && owner == requester;
 
-        public static InteractionFocus Begin(GameObject player, Transform target, Component requester)
+        public static InteractionFocus Begin(GameObject player, Transform target, Component requester, bool steerGaze = true)
         {
+            if (player == null || requester == null) return null;
             var focus = player.GetComponent<InteractionFocus>();
             if (focus == null) focus = player.AddComponent<InteractionFocus>();
             if (focus.IsFocused) return null;
             focus.owner = requester;
+            focus.steerGaze = steerGaze;
             focus.subject = target;
             focus.gameplayCamera = Camera.main;
             focus.movement = player.GetComponent<FirstPersonController>();
@@ -41,7 +45,7 @@ namespace TheLastBell.Player
                 focus.interactionWasEnabled = focus.interactor.enabled;
                 focus.interactor.enabled = false;
             }
-            focus.cameraMode = Application.isPlaying ? player.GetComponent<CameraModeController>() : null;
+            focus.cameraMode = Application.isPlaying && steerGaze ? player.GetComponent<CameraModeController>() : null;
             if (focus.cameraMode != null)
             {
                 focus.previousMode = focus.cameraMode.CurrentMode;
@@ -60,12 +64,24 @@ namespace TheLastBell.Player
                 return;
             }
 
-            if (movement == null) return;
+            if (movement == null || !steerGaze) return;
             Vector3 eye = gameplayCamera != null ? gameplayCamera.transform.position : movement.transform.position + Vector3.up * 1.6f;
             Vector3 offset = subject.position - eye;
             float yaw = Mathf.Atan2(offset.x, offset.z) * Mathf.Rad2Deg;
             float pitch = Mathf.Atan2(-offset.y, new Vector2(offset.x, offset.z).magnitude) * Mathf.Rad2Deg;
             movement.SetScriptedGazeOverride(true, yaw, pitch, 0.35f);
+        }
+
+        public void MoveTowards(Vector3 destination, float speed, float deltaTime)
+        {
+            if (owner == null || movement == null) return;
+            Vector3 offset = Vector3.ProjectOnPlane(destination - transform.position, Vector3.up);
+            movement.MoveForInteraction(Vector3.ClampMagnitude(offset, speed * deltaTime), deltaTime);
+        }
+
+        public void Follow(Transform target)
+        {
+            if (owner != null && target != null) subject = target;
         }
 
         public void End()

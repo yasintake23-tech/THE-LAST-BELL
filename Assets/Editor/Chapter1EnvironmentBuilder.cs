@@ -1693,10 +1693,15 @@ namespace TheLastBell.Editor
                 AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Chapter1/SFX_Festek_SocketInsert.wav"),
                 AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Chapter1/SFX_Festek_ButtonClick.wav"));
 
+            var festekDefinition = CreateFestekInventoryDefinition();
+            socketInteract.ConfigureInventoryItem(festekDefinition);
+
             GameObject objMgrGo = new GameObject("ChapterObjectiveManager");
             objMgrGo.transform.SetParent(sysParent, false);
             var objMgr = objMgrGo.AddComponent<ChapterObjectiveManager>();
             Transform playerT = GameObject.Find("Player_Protagonist")?.transform;
+            if (playerT != null && playerT.GetComponent<PlayerInventory>() == null)
+                playerT.gameObject.AddComponent<PlayerInventory>();
             objMgr.Configure(playerT, mainEntranceDoor, panelGo.transform, socketGo.transform);
             var voice = CreateAudioEmitter(sysParent, "Protagonist_Inner_Voice", Vector3.zero, 1f, 1f, "Dialogue");
             voice.spatialBlend = 0f;
@@ -1711,6 +1716,33 @@ namespace TheLastBell.Editor
                 LoadDialogue("Entrance", new SubtitleSegment(0f, 2.65f, "Burası düşündüğümden daha kötü hâle gelmiş.")),
                 LoadDialogue("Inside", new SubtitleSegment(0f, 2.56f, "Hadi ama, elektrik de yokmuş."),
                     new SubtitleSegment(2.74f, 4.30f, "En iyisi panoyu arayayım.")));
+        }
+
+        private static InventoryItemDefinition CreateFestekInventoryDefinition()
+        {
+            const string iconPath = "Assets/UI/Inventory_Festek.png";
+            if (AssetImporter.GetAtPath(iconPath) is TextureImporter importer &&
+                (importer.textureType != TextureImporterType.Sprite || importer.mipmapEnabled))
+            {
+                importer.textureType = TextureImporterType.Sprite;
+                importer.spriteImportMode = SpriteImportMode.Single;
+                importer.mipmapEnabled = false;
+                importer.SaveAndReimport();
+            }
+
+            string path = $"{MAT_DIR}/QuestItem_Festek.asset";
+            var definition = AssetDatabase.LoadAssetAtPath<InventoryItemDefinition>(path);
+            if (definition == null)
+            {
+                definition = ScriptableObject.CreateInstance<InventoryItemDefinition>();
+                AssetDatabase.CreateAsset(definition, path);
+            }
+            definition.Configure("chapter1.festek", "Feştek", "Eski tip devre köprüsü.",
+                AssetDatabase.LoadAssetAtPath<Sprite>(iconPath),
+                AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Environment/Original/Festek/Festek_Device.fbx"),
+                HandGripProfile.Device, true);
+            EditorUtility.SetDirty(definition);
+            return definition;
         }
 
         private static DialogueLine LoadDialogue(string id, params SubtitleSegment[] subtitles)

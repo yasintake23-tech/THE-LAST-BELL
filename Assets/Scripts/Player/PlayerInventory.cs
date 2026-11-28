@@ -8,7 +8,7 @@ namespace TheLastBell.Player
     /// THE LAST BELL - Oyuncu Envanter ve Grev Eyas Yneticisi.
     /// Toplanan anahtarlar, fener pilleri ve incelenen belgeleri saklar.
     /// </summary>
-    public class PlayerInventory : MonoBehaviour
+    public partial class PlayerInventory : MonoBehaviour
     {
         [Header("--- Kaynaklar ---")]
         [SerializeField] private int flashlightBatteries = 1;

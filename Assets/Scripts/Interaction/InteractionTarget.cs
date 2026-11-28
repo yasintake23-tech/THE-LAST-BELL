@@ -40,6 +40,24 @@ namespace TheLastBell.Interaction
         [SerializeField] [Range(0f, 1f)] private float contactNormalizedTime = 0.38f;
         [SerializeField] [Range(0f, 1f)] private float releaseNormalizedTime = 0.65f;
 
+        [SerializeField] private HandGripProfile grip;
+        [SerializeField] private float contactDistance = 0.55f;
+        [SerializeField] private float approachSpeed = 0.8f;
+        [SerializeField] private float approachTimeout = 0.85f;
+        [SerializeField] private float reachDuration = 0.36f;
+        public HandGripProfile Grip => grip.fingerCurl > 0f ? grip : HandGripProfile.Handle;
+        public float ContactDistance => Mathf.Max(0.36f, contactDistance);
+        public float ApproachSpeed => Mathf.Max(0.3f, approachSpeed);
+        public float ApproachTimeout => Mathf.Max(0.4f, approachTimeout);
+        public float ReachDuration => Mathf.Max(0.25f, reachDuration);
+
+        public void ConfigurePhysicalContact(float startRange, float closeRange, HandGripProfile profile)
+        {
+            maxReachDistance = startRange;
+            contactDistance = closeRange;
+            grip = profile;
+        }
+
         public Transform HandTarget => handTarget != null ? handTarget : transform;
         public Transform StandAnchor => standAnchor;
         public PreferredInteractionHand PreferredHand => preferredHand;

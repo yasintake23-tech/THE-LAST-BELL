@@ -22,7 +22,9 @@ namespace TheLastBell.Gameplay
         ActivateFestek = 9,
         RestoreElectricity = 10,
         TelevisionActivation = 11,
-        ChapterMilestoneComplete = 12
+        ChapterMilestoneComplete = 12,
+        RemoveFestek = 13,
+        StoreFestek = 14
     }
 
     /// <summary>
@@ -50,6 +52,8 @@ namespace TheLastBell.Gameplay
         private float introTime = -1f;
         private float objectiveChangeTime = float.NegativeInfinity;
         private bool entranceOpened;
+        private bool televisionReady;
+        private bool festekStored;
         [SerializeField] private AudioSource objectiveAudio;
         [SerializeField] private AudioClip objectiveCue;
         private string pendingObjective;
@@ -141,14 +145,14 @@ namespace TheLastBell.Gameplay
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
             objectiveHudGroup = MakeHudGroup("Chapter_Objective_Tracker", safeArea,
-                new Vector2(0f, 1f), new Vector2(28f, -27f), new Vector2(330f, 88f));
+                new Vector2(0f, 1f), new Vector2(28f, -27f), new Vector2(370f, 94f));
             var background = objectiveHudGroup.gameObject.AddComponent<Image>();
             background.color = new Color(0.035f, 0.047f, 0.055f, 0.87f);
             background.raycastTarget = false;
             objectiveHeader = MakeLabel("Objective_Header", objectiveHudGroup.transform, font, 17,
                 TextAnchor.MiddleLeft, new Vector2(15, 54), new Vector2(-13, -6), "GÖREV");
             objectiveHeader.color = new Color(0.84f, 0.75f, 0.58f);
-            objectiveHudText = MakeLabel("Objective_Label", objectiveHudGroup.transform, font, 22,
+            objectiveHudText = MakeLabel("Objective_Label", objectiveHudGroup.transform, font, 26,
                 TextAnchor.MiddleLeft, new Vector2(15, 4), new Vector2(-13, -29), "");
 
             introGroup = MakeHudGroup("Chapter_Introduction", safeArea, new Vector2(0.5f, 1f),
@@ -338,12 +342,15 @@ namespace TheLastBell.Gameplay
 
         public void NotifyTelevisionActivated()
         {
-            AdvanceTo(ChapterObjectiveState.TelevisionActivation, null);
+            televisionReady = true;
+            if (currentState == ChapterObjectiveState.RestoreElectricity)
+                SetObjective(ChapterObjectiveState.RemoveFestek, null);
         }
 
         public void NotifyMilestoneComplete()
         {
-            AdvanceTo(ChapterObjectiveState.ChapterMilestoneComplete,
+            if (!televisionReady || !festekStored || IsMilestoneComplete) return;
+            SetObjective(ChapterObjectiveState.ChapterMilestoneComplete,
                 "Köşedeki eski televizyon kendi kendine açıldı... Yalnız değilim ya da biri az önce buradaydı.");
         }
 
@@ -351,6 +358,19 @@ namespace TheLastBell.Gameplay
         {
             if (nextState <= currentState) return;
             SetObjective(nextState, statusThought);
+        }
+
+        public void NotifyFestekRemoved()
+        {
+            if (currentState == ChapterObjectiveState.RemoveFestek)
+                SetObjective(ChapterObjectiveState.StoreFestek, null);
+        }
+
+        public void NotifyFestekStored()
+        {
+            if (currentState != ChapterObjectiveState.StoreFestek) return;
+            festekStored = true;
+            NotifyMilestoneComplete();
         }
 
         public void NotifyFestekWithdrawn()
@@ -402,6 +422,10 @@ namespace TheLastBell.Gameplay
                     return "Feştek’i çevirerek elektriği aç.";
                 case ChapterObjectiveState.RestoreElectricity:
                     return "Elektriğin gelmesini bekle.";
+                case ChapterObjectiveState.RemoveFestek:
+                    return "Feştek’i yuvadan çıkar.";
+                case ChapterObjectiveState.StoreFestek:
+                    return "Feştek’i cebine koy.";
                 case ChapterObjectiveState.TelevisionActivation:
                     return "Televizyonu kontrol et.";
                 case ChapterObjectiveState.ChapterMilestoneComplete:

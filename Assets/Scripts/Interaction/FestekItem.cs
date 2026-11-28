@@ -11,7 +11,8 @@ namespace TheLastBell.Interaction
         CradledInPanel = 0,
         DroppedPhysics = 1,
         HeldInLeftHand = 2,
-        SeatedInSocket = 3
+        SeatedInSocket = 3,
+        Stored = 4
     }
 
     /// <summary>
@@ -20,7 +21,7 @@ namespace TheLastBell.Interaction
     /// erişilemez konuma kaçarsa güvenli zemine döner ve sol elde taşınır.
     /// </summary>
     [DisallowMultipleComponent]
-    public class FestekItem : MonoBehaviour, IInteractable
+    public class FestekItem : MonoBehaviour, IInteractable, IInventoryPhysicalItem
     {
         [Header("--- Durum & Referans Noktaları ---")]
         [SerializeField] private FestekItemState currentState = FestekItemState.CradledInPanel;
@@ -108,6 +109,7 @@ namespace TheLastBell.Interaction
                 if (pickupInteractionTarget == null) pickupInteractionTarget = gameObject.AddComponent<InteractionTarget>();
             }
             pickupInteractionTarget.Configure(gripPoint != null ? gripPoint : transform, PreferredInteractionHand.Left, "PickUp", 0.75f, 0.30f, 0.70f);
+            pickupInteractionTarget.ConfigurePhysicalContact(1.03f, 0.43f, HandGripProfile.Device);
         }
 
         private void Update()
@@ -211,6 +213,22 @@ namespace TheLastBell.Interaction
             OnStateChanged?.Invoke(currentState);
         }
 
+        public bool TryEquip(GameObject player)
+        {
+            if (!AttachToLeftHand(player)) return false;
+            gameObject.SetActive(true);
+            return true;
+        }
+
+        public void StoreAt(Transform pocket)
+        {
+            currentState = FestekItemState.Stored;
+            ApplyPhysicsForState(currentState);
+            transform.SetParent(pocket, true);
+            gameObject.SetActive(false);
+            OnStateChanged?.Invoke(currentState);
+        }
+
         public bool AttachToLeftHand(GameObject playerRoot)
         {
             if (playerRoot == null) return false;
@@ -244,15 +262,27 @@ namespace TheLastBell.Interaction
             reachingMovement = player.GetComponent<FirstPersonController>();
             restoreStanding = reachingMovement != null && !reachingMovement.IsCrouching;
             if (restoreStanding) reachingMovement.SetCrouch(true);
+            Transform grip = gripPoint != null ? gripPoint : transform;
+            for (float t = 0f; t < 0.9f; t += Time.deltaTime)
+            {
+                Vector3 offset = Vector3.ProjectOnPlane(grip.position - player.transform.position, Vector3.up);
+                if (offset.magnitude <= 0.43f) break;
+                focus.MoveTowards(grip.position - offset.normalized * 0.43f, 0.70f, Time.deltaTime);
+                yield return null;
+            }
             reachingAnimator?.TriggerItemPickup();
             if (reachingAnimator != null) reachingAnimator.IsPosingFestek = true;
             for (float elapsed = 0f; elapsed < 0.76f; elapsed += Time.deltaTime)
             {
-                reachingAnimator?.SetLeftHandInteractionIK(gripPoint != null ? gripPoint : transform,
-                    Mathf.SmoothStep(0f, 1f, elapsed / 0.58f));
+                float blend = Mathf.SmoothStep(0f, 1f, elapsed / 0.58f);
+                reachingAnimator?.PoseLeftHandForDevice(grip.position, transform.rotation, blend);
+                reachingAnimator?.SetLowReach(blend);
                 yield return null;
             }
-            PickupIntoLeftHand(player);
+            if (reachingAnimator != null && reachingAnimator.LeftHandFestekSocket != null &&
+                Vector3.Distance(reachingAnimator.LeftHandFestekSocket.position, grip.position) <= 0.14f)
+                PickupIntoLeftHand(player);
+            else player.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Feştek’e biraz daha yaklaş.");
             FinishReach();
         }
 
@@ -260,6 +290,8 @@ namespace TheLastBell.Interaction
         {
             if (reachingAnimator != null)
             {
+                reachingAnimator.SetLowReach(0f);
+                reachingAnimator.ClearPhysicalContact(PreferredInteractionHand.Left);
                 reachingAnimator.ClearLeftHandInteractTarget();
                 reachingAnimator.IsPosingFestek = false;
             }
@@ -281,7 +313,7 @@ namespace TheLastBell.Interaction
             }
         }
 
-        public void SeatIntoSocket(Transform socketInsertionTransform, GameObject playerRoot)
+        public void SeatIntoSocket(Transform socketInsertionTransform, GameObject playerRoot, bool notify = true)
         {
             if (socketInsertionTransform != null)
             {
@@ -300,7 +332,7 @@ namespace TheLastBell.Interaction
                 if (animCtrl != null) animCtrl.IsHoldingFestek = false;
             }
 
-            ChapterObjectiveManager.Instance?.NotifyFestekSeated();
+            if (notify) ChapterObjectiveManager.Instance?.NotifyFestekSeated();
             OnStateChanged?.Invoke(currentState);
         }
 
@@ -332,6 +364,11 @@ namespace TheLastBell.Interaction
         public void Interact(PlayerInteractor interactor)
         {
             if (!CanInteract() || interactor == null) return;
+            if (!pickupInteractionTarget.IsWithinReach(interactor.transform.position))
+            {
+                interactor.ShowStatusMessage("Feştek’e biraz daha yaklaş.");
+                return;
+            }
             StartCoroutine(ReachAndLift(interactor.gameObject));
         }
 

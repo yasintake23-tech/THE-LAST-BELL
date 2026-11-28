@@ -40,6 +40,7 @@ namespace TheLastBell.Interaction
         private InteractionTarget interactionTarget;
         private const float ContactDelay = 0.42f;
         private bool isAnimating;
+        private PhysicalContact contact;
         private bool targetOpen;
         private bool latchPlayed;
         private bool swingStarted;
@@ -72,7 +73,8 @@ namespace TheLastBell.Interaction
 
         private void OnDisable()
         {
-            if (isAnimating) FinishDoor(true);
+            if (!isAnimating) return;
+            FinishDoor(contact == null || swingStarted ? targetOpen : isOpen);
         }
 
         private void EnsureDoorHandleTarget()
@@ -96,6 +98,7 @@ namespace TheLastBell.Interaction
             }
 
             interactionTarget.Configure(handle, PreferredInteractionHand.Left, "DoorOpen", 2.0f, 0.38f, 0.65f);
+            interactionTarget.ConfigurePhysicalContact(1.38f, 0.55f, HandGripProfile.Handle);
         }
 
         public string GetInteractionPrompt()
@@ -125,6 +128,19 @@ namespace TheLastBell.Interaction
                 interactor.ShowStatusMessage(unlockedNotice);
             }
 
+            if (Application.isPlaying && interactor != null)
+            {
+                EnsureDoorHandleTarget();
+                contact = PhysicalContact.TryBegin(interactor.gameObject, interactionTarget, this);
+                if (contact == null)
+                {
+                    var animation = interactor.GetComponentInChildren<ProtagonistAnimationController>(true);
+                    interactor.ShowStatusMessage(animation != null && animation.IsHoldingFestek
+                        ? "Kapıyı açmak için sol elin boş olmalı." : "Kapı koluna biraz daha yaklaş.");
+                    return;
+                }
+            }
+
             InitializePose();
             targetOpen = !isOpen;
             interactionActor = interactor != null ? interactor.transform : null;
@@ -132,19 +148,25 @@ namespace TheLastBell.Interaction
             latchPlayed = false;
             swingStarted = false;
             isAnimating = true;
-
-            if (interactor == null) return;
-            EnsureDoorHandleTarget();
-            var procedural = interactor.GetComponentInChildren<CharacterProceduralController>(true);
-            var animation = interactor.GetComponentInChildren<ProtagonistAnimationController>(true);
-            if (procedural != null && (animation == null || !animation.IsHoldingFestek) && interactionTarget.IsWithinReach(interactor.transform.position))
-                procedural.BeginEnvironmentalInteraction(interactionTarget);
         }
 
-        // The same clock drives the game and editor verification. IK is a visual follower.
+        // Physical contact gates the swing in play mode. The editor also exercises the door mechanism directly.
         public void StepDoor(float deltaTime)
         {
             if (!isAnimating) return;
+            if (contact != null)
+            {
+                contact.Step(deltaTime);
+                if (!contact.Ready)
+                {
+                    if (contact.Failed)
+                    {
+                        interactionActor?.GetComponent<PlayerInteractor>()?.ShowStatusMessage("Kapı kolunun karşısına geç.");
+                        FinishDoor(isOpen);
+                    }
+                    return;
+                }
+            }
             elapsed += Mathf.Max(0f, deltaTime);
             if (!latchPlayed && elapsed >= ContactDelay * 0.6f)
             {
@@ -185,6 +207,8 @@ namespace TheLastBell.Interaction
 
         private void FinishDoor(bool open)
         {
+            contact?.End();
+            contact = null;
             ApplyPose(open ? 1f : 0f);
             isAnimating = false;
             interactionActor = null;

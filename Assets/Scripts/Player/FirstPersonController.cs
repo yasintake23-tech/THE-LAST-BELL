@@ -117,6 +117,8 @@ namespace TheLastBell.Player
         private float turnAnimCooldown = 0f;
 
         // Sinematik / Senaryolu Bakış Geçersiz Kılma (Bölüm 13)
+        private Vector3 guidedVelocity;
+        private int guidedMoveFrame = -10;
         private bool scriptedGazeActive = false;
         private float scriptedGazeYaw = 0f;
         private float scriptedGazePitch = 0f;
@@ -165,6 +167,15 @@ namespace TheLastBell.Player
             scriptedGazeYaw = worldYaw;
             scriptedGazePitch = Mathf.Clamp(pitch, minPitch, maxPitch);
             scriptedGazeBlend = Mathf.Clamp01(blend);
+        }
+
+        public void MoveForInteraction(Vector3 planarStep, float deltaTime)
+        {
+            if (controller == null || !controller.enabled || AllowMovement || deltaTime <= 0f) return;
+            Vector3 before = transform.position;
+            controller.Move(planarStep + Vector3.down * (1.5f * deltaTime));
+            guidedVelocity = Vector3.ProjectOnPlane(transform.position - before, Vector3.up) / deltaTime;
+            guidedMoveFrame = Time.frameCount;
         }
 
         private void Awake()
@@ -278,7 +289,12 @@ namespace TheLastBell.Player
             {
                 if (scriptedGazeActive)
                 {
-                    animController?.UpdateLocomotionParameters(0f, 0f, 0f, 1f, isCrouching, controller.isGrounded, false);
+                    Vector3 local = Time.frameCount - guidedMoveFrame <= 1
+                        ? transform.InverseTransformDirection(guidedVelocity) : Vector3.zero;
+                    float speed = Mathf.Clamp(local.z / 1.3f, -1f, 1f);
+                    float strafe = Mathf.Clamp(local.x / 1.3f, -1f, 1f);
+                    animController?.UpdateLocomotionParameters(speed, strafe, Mathf.Clamp01(local.magnitude / 1.3f),
+                        0.72f, isCrouching, controller.isGrounded, false);
                 }
                 return;
             }

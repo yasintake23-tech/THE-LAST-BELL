@@ -37,6 +37,8 @@ namespace TheLastBell.Interaction
         private Quaternion initialLeverRot;
         private Quaternion pulledLeverRot;
         private bool isOperating;
+        private bool pullCommitted;
+        private PhysicalContact contact;
         private InteractionFocus focus;
 
         public bool HasOperated => hasOperated;
@@ -74,7 +76,8 @@ namespace TheLastBell.Interaction
                 leverInteractionTarget = GetComponent<InteractionTarget>();
                 if (leverInteractionTarget == null) leverInteractionTarget = gameObject.AddComponent<InteractionTarget>();
             }
-            leverInteractionTarget.Configure(leverHandTarget != null ? leverHandTarget : transform, PreferredInteractionHand.Right, "PanelLeverPull", 0.90f, 0.25f, 0.78f);
+            leverInteractionTarget.Configure(leverHandTarget != null ? leverHandTarget : transform, PreferredInteractionHand.Left, "PanelLeverPull", 0.90f, 0.25f, 0.78f);
+            leverInteractionTarget.ConfigurePhysicalContact(1.32f, 0.52f, HandGripProfile.Handle);
         }
 
         public string GetInteractionPrompt()
@@ -92,12 +95,14 @@ namespace TheLastBell.Interaction
         {
             if (!CanInteract()) return;
 
-            if (interactor != null)
+            InitializeIfNeeded();
+            if (interactor != null && Application.isPlaying)
             {
-                var proc = interactor.GetComponentInChildren<CharacterProceduralController>(true);
-                if (proc != null && leverInteractionTarget != null)
+                contact = PhysicalContact.TryBegin(interactor.gameObject, leverInteractionTarget, this);
+                if (contact == null)
                 {
-                    proc.BeginEnvironmentalInteraction(leverInteractionTarget);
+                    interactor.ShowStatusMessage("Şalterin karşısına geçip biraz daha yaklaş.");
+                    return;
                 }
             }
 
@@ -107,7 +112,21 @@ namespace TheLastBell.Interaction
         private IEnumerator OperateLeverRoutine(PlayerInteractor interactor)
         {
             isOperating = true;
-            InitializeIfNeeded();
+            pullCommitted = false;
+            while (contact != null && !contact.Ready && !contact.Failed)
+            {
+                contact.Step(Time.deltaTime);
+                yield return null;
+            }
+            if (contact != null && contact.Failed)
+            {
+                contact.End();
+                contact = null;
+                isOperating = false;
+                interactor?.ShowStatusMessage("Şalterin karşısına geçip biraz daha yaklaş.");
+                yield break;
+            }
+            pullCommitted = true;
 
             if (panelAudioSource != null && leverPullClip != null)
             {
@@ -125,12 +144,19 @@ namespace TheLastBell.Interaction
                     mainLeverPivot.localRotation = Quaternion.Slerp(initialLeverRot, pulledLeverRot, t);
                 }
 
-                if (!releasedFestek && t >= 0.68f)
+                contact?.Step(Time.deltaTime);
+                if (!releasedFestek && t >= 0.92f)
                 {
                     releasedFestek = true;
                     if (interactor != null && cradledFestek != null)
                     {
-                        focus = InteractionFocus.Begin(interactor.gameObject, cradledFestek.transform, this);
+                        if (contact != null)
+                        {
+                            focus = contact.Focus;
+                            contact.End(cradledFestek.transform);
+                            contact = null;
+                        }
+                        else focus = InteractionFocus.Begin(interactor.gameObject, cradledFestek.transform, this);
                         yield return new WaitForSeconds(0.46f);
                     }
                     TriggerFestekDrop();
@@ -142,6 +168,8 @@ namespace TheLastBell.Interaction
             if (mainLeverPivot != null) mainLeverPivot.localRotation = pulledLeverRot;
             if (!releasedFestek) TriggerFestekDrop();
 
+            contact?.End();
+            contact = null;
             hasOperated = true;
             isOperating = false;
             if (focus != null)
@@ -160,13 +188,15 @@ namespace TheLastBell.Interaction
         private void OnDisable()
         {
             StopAllCoroutines();
-            if (isOperating)
+            contact?.End();
+            contact = null;
+            if (isOperating && pullCommitted)
             {
                 if (mainLeverPivot != null) mainLeverPivot.localRotation = pulledLeverRot;
                 TriggerFestekDrop();
                 hasOperated = true;
-                isOperating = false;
             }
+            isOperating = false;
             focus?.End();
             focus = null;
         }
