@@ -160,7 +160,9 @@ namespace TheLastBell.Interaction
             festek.transform.SetParent(null, true);
             Vector3 startPos = approachPos;
             Quaternion startRot = insertRot;
-            Vector3 alignLocal = festek.InsertionAlignPoint != null ? festek.transform.InverseTransformPoint(festek.InsertionAlignPoint.position) : Vector3.zero;
+            Vector3 alignLocal = festek.InsertionAlignPoint != null
+                ? Vector3.Scale(festek.transform.InverseTransformPoint(festek.InsertionAlignPoint.position), festek.transform.localScale)
+                : Vector3.zero;
             Vector3 seatedTargetPos = insertionTransform != null
                 ? insertionTransform.TransformPoint(-alignLocal)
                 : transform.position;
@@ -221,7 +223,7 @@ namespace TheLastBell.Interaction
             yield return new WaitForSeconds(0.18f);
 
             if (activationButtonMesh != null)
-                activationButtonMesh.localPosition = Vector3.Lerp(pressedLocal, buttonRestLocalPos, 0.55f);
+                activationButtonMesh.localPosition = buttonRestLocalPos;
 
             proc?.ClearRightHandExplicitOverride();
 

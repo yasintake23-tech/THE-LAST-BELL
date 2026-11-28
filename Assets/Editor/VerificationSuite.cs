@@ -975,7 +975,7 @@ namespace TheLastBell.Editor
             var camMode = player != null ? player.GetComponent<CameraModeController>() : null;
             var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(ProtagonistAnimationSetup.REGISTRY_PATH);
 
-            if (anim != null && procCtrl != null && registry != null)
+            if (anim != null && animCtrl != null && procCtrl != null && registry != null)
             {
                 player.transform.position = Vector3.zero;
                 player.transform.rotation = Quaternion.identity;
@@ -987,26 +987,34 @@ namespace TheLastBell.Editor
                 if (idleV2 != null)
                 {
                     anim.Rebind();
-                    idleV2.SampleAnimation(anim.gameObject, idleV2.length * 0.25f);
-                    procCtrl.StepProcedural(0.02f);
-
-                    Transform lToeBase = anim.GetBoneTransform(HumanBodyBones.LeftToes);
-                    Transform rToeBase = anim.GetBoneTransform(HumanBodyBones.RightToes);
-                    Transform lToeEnd = lToeBase != null && lToeBase.childCount > 0 ? lToeBase.GetChild(0) : null;
-                    Transform rToeEnd = rToeBase != null && rToeBase.childCount > 0 ? rToeBase.GetChild(0) : null;
-
-                    if (lToeBase != null && lToeEnd != null && rToeBase != null && rToeEnd != null)
+                    animCtrl.StartIsolatedPreview(idleV2, true);
+                    try
                     {
-                        float lLift = lToeEnd.position.y - lToeBase.position.y;
-                        float rLift = rToeEnd.position.y - rToeBase.position.y;
-                        if (lLift > 0.004f || rLift > 0.004f || lToeEnd.position.y < 0.012f)
+                        animCtrl.SetPreviewNormalizedTime(0.25f);
+                        procCtrl.StepProcedural(0.02f);
+
+                        Transform lToeBase = anim.GetBoneTransform(HumanBodyBones.LeftToes);
+                        Transform rToeBase = anim.GetBoneTransform(HumanBodyBones.RightToes);
+                        Transform lToeEnd = lToeBase != null && lToeBase.childCount > 0 ? (lToeBase.Find("LeftToe_End") ?? lToeBase.GetChild(0)) : null;
+                        Transform rToeEnd = rToeBase != null && rToeBase.childCount > 0 ? (rToeBase.Find("RightToe_End") ?? rToeBase.GetChild(0)) : null;
+
+                        if (lToeBase != null && lToeEnd != null && rToeBase != null && rToeEnd != null)
                         {
-                            failures.Add($"Toe alignment check failed: LeftToeLift={lLift:F4}m, RightToeLift={rLift:F4}m, LToeEndY={lToeEnd.position.y:F4}m.");
+                            float lLift = lToeEnd.position.y - lToeBase.position.y;
+                            float rLift = rToeEnd.position.y - rToeBase.position.y;
+                            if (lLift > 0.004f || rLift > 0.004f || lToeEnd.position.y < 0.012f)
+                            {
+                                failures.Add($"Toe alignment check failed: LeftToeLift={lLift:F4}m, RightToeLift={rLift:F4}m, LToeEndY={lToeEnd.position.y:F4}m.");
+                            }
+                            else
+                            {
+                                sb.AppendLine($"  Toe & Sole Alignment OK: LToeBaseY={lToeBase.position.y:F3}m -> LToeEndY={lToeEnd.position.y:F3}m (lift={lLift:F4}m), RToeEndY={rToeEnd.position.y:F3}m");
+                            }
                         }
-                        else
-                        {
-                            sb.AppendLine($"  Toe & Sole Alignment OK: LToeBaseY={lToeBase.position.y:F3}m -> LToeEndY={lToeEnd.position.y:F3}m (lift={lLift:F4}m), RToeEndY={rToeEnd.position.y:F3}m");
-                        }
+                    }
+                    finally
+                    {
+                        animCtrl.StopIsolatedPreview();
                     }
                 }
             }

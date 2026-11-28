@@ -195,7 +195,7 @@ namespace TheLastBell.Interaction
                 Vector3 gripOffset = gripPoint != null ? transform.InverseTransformPoint(gripPoint.position) : Vector3.zero;
                 transform.SetParent(rightFestekSock, false);
                 transform.localRotation = Quaternion.identity;
-                transform.localPosition = -gripOffset;
+                transform.localPosition = -Vector3.Scale(gripOffset, transform.localScale);
             }
 
             currentState = FestekItemState.HeldInRightHand;
@@ -219,7 +219,7 @@ namespace TheLastBell.Interaction
                 Vector3 alignOffset = insertionAlignPoint != null ? transform.InverseTransformPoint(insertionAlignPoint.position) : Vector3.zero;
                 transform.SetParent(socketInsertionTransform, false);
                 transform.localRotation = Quaternion.identity;
-                transform.localPosition = -alignOffset;
+                transform.localPosition = -Vector3.Scale(alignOffset, transform.localScale);
             }
 
             currentState = FestekItemState.SeatedInSocket;

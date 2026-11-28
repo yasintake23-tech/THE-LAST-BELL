@@ -382,6 +382,7 @@ namespace TheLastBell.Editor
 
             dict["CarPaint"] = CreateSimpleStandardMat("Mat_Car_SlatePaint", new Color(0.15f, 0.19f, 0.25f, 1f), 0.68f, 0.68f);
             dict["CarTrim"] = CreateSimpleStandardMat("Mat_Car_TrimRubber", new Color(0.09f, 0.09f, 0.10f, 1f), 0.05f, 0.28f);
+            dict["ClassroomGlass"] = CreateTransparentStandardMat("Mat_Classroom_BrokenGlass", new Color(0.36f, 0.43f, 0.52f, 0.24f), 0f, 0.58f);
             dict["CarGlass"] = CreateTransparentStandardMat("Mat_Car_TintedGlass", new Color(0.06f, 0.09f, 0.12f, 0.76f), 0.15f, 0.90f);
             dict["CarInterior"] = CreateSimpleStandardMat("Mat_Car_InteriorDark", new Color(0.12f, 0.12f, 0.14f, 1f), 0.0f, 0.20f);
             dict["CarRim"] = CreateSimpleStandardMat("Mat_Car_AlloyRim", new Color(0.58f, 0.60f, 0.64f, 1f), 0.82f, 0.68f);
@@ -705,6 +706,8 @@ namespace TheLastBell.Editor
             var stairL = GameObject.Find("Light_Staircase_Dim")?.GetComponent<Light>();
             if (stairL != null) stairL.color = new Color(0.38f, 0.48f, 0.68f);
 
+            CreateSubtleWindowFill("Courtyard_DuskFill", root, new Vector3(-1.5f, 4.5f, -13f), 19f, 1.35f);
+
             // Reflection Probes & LightProbeGroup
             CreateReflectionProbe("RefProbe_Courtyard", root, new Vector3(0f, 2.2f, -10f), new Vector3(32f, 10f, 26f), 0.55f);
             CreateReflectionProbe("RefProbe_Interior", root, new Vector3(2f, 2.0f, 8f), new Vector3(24f, 6f, 28f), 0.35f);
@@ -739,9 +742,14 @@ namespace TheLastBell.Editor
                 else if (n.EndsWith("_Floor") || n == "Corridor_Floor") mr.sharedMaterial = mats["FloorTiles"];
                 else if (n.EndsWith("_Ceiling") || n.Contains("Pillar") || n.Contains("Stair")) mr.sharedMaterial = mats["Concrete"];
                 else if (n.Contains("Wall") || n.Contains("Lintel")) mr.sharedMaterial = mats["Plaster"];
+                else if (n.StartsWith("Elevator_Door") || n.Contains("IronGate") || n.Contains("Locker")) mr.sharedMaterial = mats["RustedMetal"];
                 else if (n.Contains("Door") && !n.StartsWith("Door_Visual_")) mr.sharedMaterial = mats["PaintedWood"];
                 else if (n.Contains("Barricade") || n.Contains("Podium")) mr.sharedMaterial = mats["DarkWood"];
-                else if (n.StartsWith("Elevator_Door") || n.Contains("IronGate") || n.Contains("Locker")) mr.sharedMaterial = mats["RustedMetal"];
+                else if (n == "C101_Window_Glass_Frag" || n == "Corridor_Window_BrokenGlass")
+                {
+                    mr.sharedMaterial = mats["ClassroomGlass"];
+                    mr.shadowCastingMode = ShadowCastingMode.Off;
+                }
             }
 
             // C103 doğaüstü sembol çıkartmasını gizle (Bölüm I tamamen gerçekçi psikolojik ton)
@@ -992,7 +1000,7 @@ namespace TheLastBell.Editor
                 AssignPolyHavenMats(d, mats["SchoolDesk_01"], null);
 
                 float chairYaw = (i == 1) ? 162f : 180f;
-                Vector3 chairOff = (i == 1) ? new Vector3(0.14f, 0f, 0.58f) : new Vector3(0f, 0f, 0.48f);
+                Vector3 chairOff = (i == 1) ? new Vector3(0.14f, 0f, 0.78f) : new Vector3(0f, 0f, 0.70f);
                 var ch = InstantiateFbx("Assets/Environment/External/Models/SchoolChair_01/SchoolChair_01.fbx",
                     $"C101_RealChair_{i}", parent, dp + chairOff, Quaternion.Euler(0f, chairYaw, 0f), Vector3.one, isStatic: true);
                 AssignPolyHavenMats(ch, mats["SchoolChair_01"], null);

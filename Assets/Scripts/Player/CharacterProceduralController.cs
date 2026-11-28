@@ -382,19 +382,21 @@ namespace TheLastBell.Player
             Vector3 endPos = toeEndBone != null ? toeEndBone.position : (ballPos + (ballPos - footBone.position).normalized * 0.095f);
             Vector3 ballToTip = endPos - ballPos;
             float desiredTipY = Mathf.Clamp(ballPos.y - 0.006f, rootY + 0.028f, rootY + 0.042f);
-            if (endPos.y > desiredTipY + 0.001f && ballToTip.sqrMagnitude > 0.0004f)
-            {
-                Vector3 horiz2 = Vector3.ProjectOnPlane(ballToTip, Vector3.up);
-                if (horiz2.sqrMagnitude > 0.0002f)
-                {
-                    float len2 = ballToTip.magnitude;
-                    float dy2 = Mathf.Clamp(desiredTipY - ballPos.y, -len2 * 0.75f, len2 * 0.75f);
-                    float hMag2 = Mathf.Sqrt(Mathf.Max(0.0002f, len2 * len2 - dy2 * dy2));
-                    Vector3 targetVec2 = horiz2.normalized * hMag2 + Vector3.up * dy2;
-                    Quaternion deltaToe = Quaternion.FromToRotation(ballToTip.normalized, targetVec2.normalized);
-                    toeBone.rotation = Quaternion.Slerp(Quaternion.identity, deltaToe, stanceWeight) * toeBone.rotation;
-                }
-            }
+            if (endPos.y <= desiredTipY + 0.001f || ballToTip.sqrMagnitude < 0.000001f)
+                return;
+
+            Vector3 tipHeading = Vector3.ProjectOnPlane(ballToTip, Vector3.up);
+            if (tipHeading.sqrMagnitude < 0.000001f)
+                tipHeading = Vector3.ProjectOnPlane(ballPos - footBone.position, Vector3.up);
+            if (tipHeading.sqrMagnitude < 0.000001f)
+                tipHeading = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+
+            float toeLength = ballToTip.magnitude;
+            float targetRise = Mathf.Clamp(desiredTipY - ballPos.y, -toeLength * 0.75f, toeLength * 0.75f);
+            float targetRun = Mathf.Sqrt(toeLength * toeLength - targetRise * targetRise);
+            Vector3 targetTip = tipHeading.normalized * targetRun + Vector3.up * targetRise;
+            Quaternion deltaToe = Quaternion.FromToRotation(ballToTip, targetTip);
+            toeBone.rotation = Quaternion.Slerp(Quaternion.identity, deltaToe, stanceWeight) * toeBone.rotation;
         }
 
         private void UpdateEnvironmentalInteraction(float dt)
