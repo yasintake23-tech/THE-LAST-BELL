@@ -21,10 +21,9 @@ namespace TheLastBell.Editor
             foreach (var spec in properties)
             {
                 string path = folder + (spec.name == "paint" ? "Sedan_paint_weathered.png" : "Sedan_" + spec.name + "_diff.png");
-                var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                if (texture == null) throw new InvalidOperationException("Sedan texture is missing: " + path);
-                var material = CreateCustomPbrMat("Mat_Car_Refinish_" + spec.name, path, null, null, Color.white, spec.smooth);
-                material.SetFloat("_Metallic", spec.metal);
+                var texture = LoadRequiredQualityTexture(path);
+                var material = CreateSimpleStandardMat("Mat_Car_Refinish_" + spec.name, Color.white, spec.metal, spec.smooth);
+                material.mainTexture = texture;
                 EditorUtility.SetDirty(material);
                 palette.Add(spec.name, material);
             }
@@ -50,6 +49,23 @@ namespace TheLastBell.Editor
                 }
                 renderer.sharedMaterials = repaired;
             }
+        }
+
+        private static Texture2D LoadRequiredQualityTexture(string path)
+        {
+            var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (texture != null) return texture;
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+            texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (texture == null)
+            {
+                var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+                string settings = importer != null ? $"{importer.textureType}/{importer.textureShape}" : "no TextureImporter";
+                throw new InvalidOperationException(
+                    $"Could not load required Texture2D at {path} ({settings}, main asset: {AssetDatabase.GetMainAssetTypeAtPath(path)}).");
+            }
+            return texture;
         }
 
         private static void InstallClassroomDoors(Dictionary<string, Material> mats, Transform parent)
@@ -236,7 +252,7 @@ namespace TheLastBell.Editor
             string materialPath = MAT_DIR + "/Mat_Courtyard_Vergetone.mat";
             var mat = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
             if (mat == null) { mat = new Material(shader); AssetDatabase.CreateAsset(mat, materialPath); }
-            mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Environment/Original/Overgrowth/Verge_Leaf.png");
+            mat.mainTexture = LoadRequiredQualityTexture("Assets/Environment/Original/Overgrowth/Verge_Leaf.png");
             EditorUtility.SetDirty(mat);
             var meshObject = new GameObject("Combined_Ivy_Leaf_Litter_And_Scrub", typeof(MeshFilter), typeof(MeshRenderer));
             meshObject.transform.SetParent(patch, false);
