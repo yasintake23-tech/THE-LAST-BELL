@@ -251,7 +251,14 @@ namespace TheLastBell.Editor
 
                 AnimationClip clip = LoadPrimaryClip(fbxPath);
                 if (clip != null) result[spec.id] = clip;
-                else Debug.LogError($"[ProtagonistAnimationSetup] AnimationClip yüklenemedi: {fbxPath}");
+                else
+                {
+                    var allObjs = AssetDatabase.LoadAllAssetsAtPath(fbxPath);
+                    string objSummary = allObjs == null ? "null" : string.Join(", ", allObjs.Where(o => o != null).Select(o => $"{o.GetType().Name}:{o.name}"));
+                    int defCount = importer != null && importer.defaultClipAnimations != null ? importer.defaultClipAnimations.Length : -1;
+                    int clipCount = importer != null && importer.clipAnimations != null ? importer.clipAnimations.Length : -1;
+                    Debug.LogError($"[ProtagonistAnimationSetup] AnimationClip yüklenemedi: {fbxPath} | defClips={defCount}, clips={clipCount}, subAssets=[{objSummary}]");
+                }
             }
 
             Debug.Log($"[ProtagonistAnimationSetup] {result.Count}/{AllClipSpecs.Length} animasyon klibi (V2+V1) içe aktarıldı.");
