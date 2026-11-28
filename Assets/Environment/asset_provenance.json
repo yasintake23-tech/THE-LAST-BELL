@@ -381,18 +381,18 @@
       ]
     },
     {
-      "asset_name": "winter_evening",
-      "type": "Equirectangular Evening Skybox HDRI (2K)",
-      "source_url": "https://polyhaven.com/a/winter_evening",
-      "api_url": "https://api.polyhaven.com/files/winter_evening",
-      "author": "Sergej Majboroda",
+      "asset_name": "qwantani_dusk_2_puresky",
+      "type": "Equirectangular Outdoor Dusk Pure-Sky HDRI (2K)",
+      "source_url": "https://polyhaven.com/a/qwantani_dusk_2_puresky",
+      "api_url": "https://api.polyhaven.com/files/qwantani_dusk_2_puresky",
+      "author": "Greg Zaal, Jarod Guest",
       "license": "CC0 1.0 Universal (Public Domain)",
       "downloaded_files": [
-        "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/winter_evening_2k.hdr"
+        "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/qwantani_dusk_2_puresky_2k.hdr"
       ],
       "modifications": "Configured as Cubemap Skybox with blue-hour exposure for THE LAST BELL.",
       "unity_paths": [
-        "Assets/Environment/External/HDRI/winter_evening_2k.hdr"
+        "Assets/Environment/External/HDRI/qwantani_dusk_2_puresky_2k.hdr"
       ]
     },
     {

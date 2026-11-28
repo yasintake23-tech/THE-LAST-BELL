@@ -192,9 +192,8 @@ namespace TheLastBell.Interaction
             Transform rightFestekSock = animCtrl != null ? animCtrl.RightHandFestekSocket : null;
             if (rightFestekSock != null)
             {
+                Vector3 gripOffset = gripPoint != null ? transform.InverseTransformPoint(gripPoint.position) : Vector3.zero;
                 transform.SetParent(rightFestekSock, false);
-                // Grip_Point avuç içine tam oturacak ve uç (+Z) ileri bakacak şekilde hizala
-                Vector3 gripOffset = gripPoint != null ? gripPoint.localPosition : Vector3.zero;
                 transform.localRotation = Quaternion.identity;
                 transform.localPosition = -gripOffset;
             }
@@ -217,8 +216,8 @@ namespace TheLastBell.Interaction
         {
             if (socketInsertionTransform != null)
             {
+                Vector3 alignOffset = insertionAlignPoint != null ? transform.InverseTransformPoint(insertionAlignPoint.position) : Vector3.zero;
                 transform.SetParent(socketInsertionTransform, false);
-                Vector3 alignOffset = insertionAlignPoint != null ? insertionAlignPoint.localPosition : Vector3.zero;
                 transform.localRotation = Quaternion.identity;
                 transform.localPosition = -alignOffset;
             }

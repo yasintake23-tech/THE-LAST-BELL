@@ -160,7 +160,7 @@ namespace TheLastBell.Interaction
             festek.transform.SetParent(null, true);
             Vector3 startPos = approachPos;
             Quaternion startRot = insertRot;
-            Vector3 alignLocal = festek.InsertionAlignPoint != null ? festek.InsertionAlignPoint.localPosition : Vector3.zero;
+            Vector3 alignLocal = festek.InsertionAlignPoint != null ? festek.transform.InverseTransformPoint(festek.InsertionAlignPoint.position) : Vector3.zero;
             Vector3 seatedTargetPos = insertionTransform != null
                 ? insertionTransform.TransformPoint(-alignLocal)
                 : transform.position;

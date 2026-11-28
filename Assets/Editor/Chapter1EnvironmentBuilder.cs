@@ -323,19 +323,19 @@ namespace TheLastBell.Editor
         {
             var dict = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
 
-            // Skybox Cubemap Material
-            var hdrCube = AssetDatabase.LoadAssetAtPath<Cubemap>("Assets/Environment/External/HDRI/winter_evening_2k.hdr");
+            // Outdoor Blue-Hour Dusk Pure-Sky Cubemap Material (qwantani_dusk_2_puresky 2K CC0)
+            var hdrCube = AssetDatabase.LoadAssetAtPath<Cubemap>("Assets/Environment/External/HDRI/qwantani_dusk_2_puresky_2k.hdr");
             Shader skyShader = Shader.Find("Skybox/Cubemap");
             if (skyShader != null && hdrCube != null)
             {
-                string skyPath = $"{MAT_DIR}/Mat_Skybox_WinterEvening_BlueHour.mat";
+                string skyPath = $"{MAT_DIR}/Mat_Skybox_BlueHour_DuskSky.mat";
                 Material skyMat = AssetDatabase.LoadAssetAtPath<Material>(skyPath);
                 if (skyMat == null) { skyMat = new Material(skyShader); AssetDatabase.CreateAsset(skyMat, skyPath); }
                 skyMat.shader = skyShader;
                 skyMat.SetTexture("_Tex", hdrCube);
-                skyMat.SetColor("_Tint", new Color(0.36f, 0.43f, 0.56f, 1f));
-                skyMat.SetFloat("_Exposure", 0.62f);
-                skyMat.SetFloat("_Rotation", 145f);
+                skyMat.SetColor("_Tint", new Color(0.26f, 0.34f, 0.50f, 1f));
+                skyMat.SetFloat("_Exposure", 0.48f);
+                skyMat.SetFloat("_Rotation", 165f);
                 EditorUtility.SetDirty(skyMat);
                 dict["Skybox"] = skyMat;
             }
@@ -650,6 +650,8 @@ namespace TheLastBell.Editor
             if (mats.TryGetValue("Skybox", out Material skyMat) && skyMat != null)
             {
                 RenderSettings.skybox = skyMat;
+                var mainCam = Camera.main;
+                if (mainCam != null) mainCam.clearFlags = CameraClearFlags.Skybox;
             }
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
@@ -681,13 +683,13 @@ namespace TheLastBell.Editor
             GameObject extLampGo = GameObject.Find("Light_Courtyard_EntranceLamp");
             if (extLampGo != null)
             {
-                extLampGo.transform.position = new Vector3(0f, 3.95f, -1.35f);
+                extLampGo.transform.position = new Vector3(0f, 4.15f, -1.55f);
                 var l = extLampGo.GetComponent<Light>();
                 if (l != null)
                 {
                     l.color = new Color(0.92f, 0.72f, 0.46f);
-                    l.intensity = 0.85f;
-                    l.range = 6.8f;
+                    l.intensity = 1.45f;
+                    l.range = 8.5f;
                     l.shadows = LightShadows.None;
                     l.enabled = true;
                 }
@@ -853,15 +855,18 @@ namespace TheLastBell.Editor
                 }
             }
 
-            Transform existingDetailed = doorway.transform.Find("Detailed_Entrance_DoorSet");
-            if (existingDetailed != null) UnityEngine.Object.DestroyImmediate(existingDetailed.gameObject);
+            foreach (string oldNode in new[] { "Detailed_Entrance_DoorSet", "Hinge_Unity_L", "Hinge_Unity_R" })
+            {
+                Transform existingNode = doorway.transform.Find(oldNode);
+                if (existingNode != null) UnityEngine.Object.DestroyImmediate(existingNode.gameObject);
+            }
 
             // Mevcut 1.20m x 2.50m duvar açıklığına milimetrik uyacak ölçek (0.53 x 0.90 x 1.0); kanatlar içeri (+Z) açılır!
             GameObject doorModel = InstantiateFbx("Assets/Environment/Original/Doors/SchoolEntrance_DetailedDoor.fbx",
                 "Detailed_Entrance_DoorSet", doorway.transform, Vector3.zero, Quaternion.identity, new Vector3(0.53f, 0.90f, 1.0f), isStatic: false);
 
-            Transform leafL = null;
-            Transform leafR = null;
+            Transform hingePivotL = null;
+            Transform hingePivotR = null;
             if (doorModel != null)
             {
                 foreach (var r in doorModel.GetComponentsInChildren<Renderer>(true))
@@ -876,16 +881,39 @@ namespace TheLastBell.Editor
                         r.sharedMaterial = mats["PaintedWood"];
                 }
 
-                leafL = FindDeep(doorModel.transform, "DoorLeaf_L");
-                leafR = FindDeep(doorModel.transform, "DoorLeaf_R");
-                if (leafL != null)
+                Transform leafL = FindDeep(doorModel.transform, "DoorLeaf_L");
+                Transform leafR = FindDeep(doorModel.transform, "DoorLeaf_R");
+
+                if (leafL != null && leafR != null)
                 {
-                    Transform hTarget = FindDeep(leafL, "Door_Handle_Target");
-                    if (hTarget != null)
+                    var hlGo = new GameObject("Hinge_Unity_L");
+                    hlGo.transform.SetParent(doorway.transform, false);
+                    hlGo.transform.localPosition = new Vector3(-0.60f, 0f, 0f);
+                    hlGo.transform.localRotation = Quaternion.identity;
+                    leafL.SetParent(hlGo.transform, true);
+                    hingePivotL = hlGo.transform;
+
+                    var hrGo = new GameObject("Hinge_Unity_R");
+                    hrGo.transform.SetParent(doorway.transform, false);
+                    hrGo.transform.localPosition = new Vector3(0.60f, 0f, 0f);
+                    hrGo.transform.localRotation = Quaternion.identity;
+                    leafR.SetParent(hrGo.transform, true);
+                    hingePivotR = hrGo.transform;
+
+                    // Dış kapı kolu IK hedefini avlu (-Z) tarafındaki kolun tam üzerine sabitle
+                    Transform hTarget = FindDeep(hlGo.transform, "Door_Handle_Target");
+                    if (hTarget == null)
                     {
-                        Vector3 lp = hTarget.localPosition;
-                        hTarget.localPosition = new Vector3(lp.x, lp.y, -Mathf.Abs(lp.z));
+                        var htGo = new GameObject("Door_Handle_Target");
+                        htGo.transform.SetParent(hlGo.transform, false);
+                        hTarget = htGo.transform;
                     }
+                    else
+                    {
+                        hTarget.SetParent(hlGo.transform, true);
+                    }
+                    hTarget.localPosition = new Vector3(0.50f, 0.95f, -0.09f);
+                    hTarget.localRotation = Quaternion.identity;
                 }
             }
 
@@ -893,9 +921,9 @@ namespace TheLastBell.Editor
             if (doorInteract == null) doorInteract = doorway.AddComponent<DoorInteractable>();
 
             Collider blocker = doorway.GetComponent<BoxCollider>();
-            if (leafL != null && leafR != null)
+            if (hingePivotL != null && hingePivotR != null)
             {
-                doorInteract.Configure(leafL, leafR, blocker);
+                doorInteract.Configure(hingePivotL, hingePivotR, blocker);
             }
 
             AudioSource doorAudio = doorway.GetComponent<AudioSource>();
@@ -1079,12 +1107,12 @@ namespace TheLastBell.Editor
             // =========================================================================
             // 3. ÖZEL FEŞTEK CİHAZI (Başlangıçta panonun iç alt yuvasında durur!)
             // =========================================================================
-            Transform festekSpawnAnchor = FindDeep(panelGo.transform, "Festek_Spawn_Anchor") ?? panelGo.transform;
+            Transform festekSpawnAnchor = FindDeep(panelGo.transform, "Festek_Spawn_Anchor");
             GameObject festekGo = InstantiateFbx("Assets/Environment/Original/Festek/Festek_Device.fbx",
-                "Festek_CustomDevice", festekSpawnAnchor, Vector3.zero, Quaternion.identity, Vector3.one, isStatic: false);
-            if (festekSpawnAnchor == panelGo.transform)
+                "Festek_CustomDevice", panelGo.transform, new Vector3(-0.11f, -0.25f, 0.08f), Quaternion.identity, Vector3.one, isStatic: false);
+            if (festekSpawnAnchor != null)
             {
-                festekGo.transform.localPosition = new Vector3(-0.11f, -0.25f, 0.02f);
+                festekGo.transform.position = festekSpawnAnchor.position;
             }
 
             Renderer lod0Rend = null;
@@ -1234,9 +1262,16 @@ namespace TheLastBell.Editor
 
             var socketInteract = socketGo.AddComponent<FestekSocketInteractable>();
             Renderer lensRend = FindDeep(socketGo.transform, "Socket_StatusLens")?.GetComponent<Renderer>();
+            Transform rawInsertT = FindDeep(socketGo.transform, "Insertion_Transform");
+            var insertAnchorGo = new GameObject("Insertion_Unity_Anchor");
+            insertAnchorGo.transform.SetParent(socketGo.transform, false);
+            insertAnchorGo.transform.position = rawInsertT != null ? rawInsertT.position : socketGo.transform.position + socketGo.transform.forward * 0.06f;
+            // Feştek ucu (+Z) duvardaki yuva deliğine (-wrapper.forward) doğru kayar
+            insertAnchorGo.transform.rotation = Quaternion.LookRotation(-socketGo.transform.forward, Vector3.up);
+            insertAnchorGo.transform.localScale = Vector3.one;
             socketInteract.Configure(
                 FindDeep(socketGo.transform, "Insertion_Approach_Point"),
-                FindDeep(socketGo.transform, "Insertion_Transform"),
+                insertAnchorGo.transform,
                 FindDeep(socketGo.transform, "Activation_Button"),
                 FindDeep(socketGo.transform, "Button_Finger_Target"),
                 lensRend,
@@ -1300,21 +1335,26 @@ namespace TheLastBell.Editor
                 Debug.LogError($"[Chapter1EnvironmentBuilder] FBX yüklenemedi: {assetPath}");
                 return null;
             }
+            // Wrapper: placement lives here; the imported FBX root keeps its own
+            // importer-baked axis conversion (-90° X) and unit scale (e.g. 100x for cm FBX).
+            var wrapper = new GameObject(instanceName);
+            wrapper.transform.SetParent(parent, false);
+            wrapper.transform.localPosition = pos;
+            wrapper.transform.localRotation = rot;
+            wrapper.transform.localScale = scale;
+
             var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
-            inst.name = instanceName;
-            inst.transform.SetParent(parent, false);
-            inst.transform.localPosition = pos;
-            inst.transform.localRotation = rot;
-            inst.transform.localScale = scale;
+            inst.name = instanceName + "_Model";
+            inst.transform.SetParent(wrapper.transform, false);
 
             if (isStatic)
             {
-                foreach (var t in inst.GetComponentsInChildren<Transform>(true))
+                foreach (var t in wrapper.GetComponentsInChildren<Transform>(true))
                 {
                     GameObjectUtility.SetStaticEditorFlags(t.gameObject, StaticEditorFlags.BatchingStatic | StaticEditorFlags.ReflectionProbeStatic);
                 }
             }
-            return inst;
+            return wrapper;
         }
 
         private static void AssignPolyHavenMats(GameObject root, Material mainMat, Material glassMat)

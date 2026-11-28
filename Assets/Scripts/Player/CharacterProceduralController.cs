@@ -357,25 +357,43 @@ namespace TheLastBell.Player
             if (footRelY > 0.165f) return;
 
             float stanceWeight = Mathf.Clamp01((0.165f - footRelY) / 0.055f);
-            Vector3 toePos = toeBone.position;
-            Vector3 endPos = toeEndBone != null ? toeEndBone.position : (toePos + (toeBone.position - footBone.position).normalized * 0.095f);
 
-            Vector3 flatForward = Vector3.ProjectOnPlane(endPos - footBone.position, Vector3.up);
-            if (flatForward.sqrMagnitude < 0.0004f) return;
-            flatForward.Normalize();
-
-            Vector3 footRight = Vector3.Cross(Vector3.up, flatForward).normalized;
-            float toeSegLen = Mathf.Max(0.055f, Vector3.Distance(toePos, endPos));
-
-            // Doğal düz ayakkabı tabanında parmak ucu, tarak kemiğinin (ToeBase) ~6mm altında zemine paralel oturur
-            float desiredEndY = Mathf.Max(rootY + 0.022f, toePos.y - 0.006f);
-            float liftError = endPos.y - desiredEndY;
-            if (liftError > 0.001f)
+            // 1. Aşama: Ayak bileği (LeftFoot/RightFoot) yukarı dikilmişse tarak kemiğini (ToeBase) doğal taban yüksekliğine (~4.4cm) indir
+            Vector3 anklePos = footBone.position;
+            Vector3 ballPos = toeBone.position;
+            Vector3 ankleToBall = ballPos - anklePos;
+            float desiredBallY = rootY + 0.044f;
+            if (ballPos.y > desiredBallY + 0.002f && ankleToBall.sqrMagnitude > 0.001f)
             {
-                float sinAngle = Mathf.Clamp(liftError / toeSegLen, 0f, 0.42f);
-                float pitchDownDeg = Mathf.Asin(sinAngle) * Mathf.Rad2Deg * stanceWeight;
-                pitchDownDeg = Mathf.Clamp(pitchDownDeg, 0f, 22f);
-                toeBone.rotation = Quaternion.AngleAxis(pitchDownDeg, footRight) * toeBone.rotation;
+                Vector3 horiz1 = Vector3.ProjectOnPlane(ankleToBall, Vector3.up);
+                if (horiz1.sqrMagnitude > 0.0004f)
+                {
+                    float len1 = ankleToBall.magnitude;
+                    float dy1 = Mathf.Clamp(desiredBallY - anklePos.y, -len1 * 0.85f, len1 * 0.85f);
+                    float hMag1 = Mathf.Sqrt(Mathf.Max(0.0004f, len1 * len1 - dy1 * dy1));
+                    Vector3 targetVec1 = horiz1.normalized * hMag1 + Vector3.up * dy1;
+                    Quaternion deltaFoot = Quaternion.FromToRotation(ankleToBall.normalized, targetVec1.normalized);
+                    footBone.rotation = Quaternion.Slerp(Quaternion.identity, deltaFoot, stanceWeight) * footBone.rotation;
+                }
+            }
+
+            // 2. Aşama: Parmak ucu (LeftToe_End/RightToe_End) tarak kemiğinden yukarı kalkıksa zemine paralel (~3.8cm) yatır
+            ballPos = toeBone.position;
+            Vector3 endPos = toeEndBone != null ? toeEndBone.position : (ballPos + (ballPos - footBone.position).normalized * 0.095f);
+            Vector3 ballToTip = endPos - ballPos;
+            float desiredTipY = Mathf.Clamp(ballPos.y - 0.006f, rootY + 0.028f, rootY + 0.042f);
+            if (endPos.y > desiredTipY + 0.001f && ballToTip.sqrMagnitude > 0.0004f)
+            {
+                Vector3 horiz2 = Vector3.ProjectOnPlane(ballToTip, Vector3.up);
+                if (horiz2.sqrMagnitude > 0.0002f)
+                {
+                    float len2 = ballToTip.magnitude;
+                    float dy2 = Mathf.Clamp(desiredTipY - ballPos.y, -len2 * 0.75f, len2 * 0.75f);
+                    float hMag2 = Mathf.Sqrt(Mathf.Max(0.0002f, len2 * len2 - dy2 * dy2));
+                    Vector3 targetVec2 = horiz2.normalized * hMag2 + Vector3.up * dy2;
+                    Quaternion deltaToe = Quaternion.FromToRotation(ballToTip.normalized, targetVec2.normalized);
+                    toeBone.rotation = Quaternion.Slerp(Quaternion.identity, deltaToe, stanceWeight) * toeBone.rotation;
+                }
             }
         }
 

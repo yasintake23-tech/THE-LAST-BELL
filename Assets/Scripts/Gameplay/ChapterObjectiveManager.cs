@@ -117,11 +117,11 @@ namespace TheLastBell.Gameplay
             var rootGo = new GameObject("Chapter_Objective_Tracker", typeof(RectTransform), typeof(CanvasGroup), typeof(Image));
             rootGo.transform.SetParent(hudCanvas.transform, false);
             var rt = rootGo.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0f, 1f);
-            rt.anchorMax = new Vector2(0f, 1f);
-            rt.pivot = new Vector2(0f, 1f);
-            rt.anchoredPosition = new Vector2(36f, -34f);
-            rt.sizeDelta = new Vector2(460f, 54f);
+            rt.anchorMin = new Vector2(0.5f, 1f);
+            rt.anchorMax = new Vector2(0.5f, 1f);
+            rt.pivot = new Vector2(0.5f, 1f);
+            rt.anchoredPosition = new Vector2(0f, -24f);
+            rt.sizeDelta = new Vector2(520f, 48f);
 
             var bg = rootGo.GetComponent<Image>();
             bg.color = new Color(0.04f, 0.05f, 0.07f, 0.52f);
