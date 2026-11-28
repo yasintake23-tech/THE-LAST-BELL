@@ -25,6 +25,7 @@ namespace TheLastBell.UI
         [SerializeField] private bool lockCursorOnPC = true;
 
         private bool isIntroActive = false;
+        private bool interactionFocused;
         private bool isPaused = false;
 
         public bool IsMobileActive { get; private set; }
@@ -52,6 +53,12 @@ namespace TheLastBell.UI
             ApplyPlatformControls();
         }
 
+        public void SetInteractionFocus(bool focused)
+        {
+            interactionFocused = focused;
+            ApplyPlatformControls();
+        }
+
         public void SetPaused(bool paused)
         {
             isPaused = paused;
@@ -74,7 +81,7 @@ namespace TheLastBell.UI
             bool isMobile = Application.isMobilePlatform || (Application.isEditor && forceMobileInEditor);
             IsMobileActive = isMobile;
 
-            bool showMobileControls = isMobile && !isIntroActive && !isPaused;
+            bool showMobileControls = isMobile && !isIntroActive && !isPaused && !interactionFocused;
 
             if (isMobile)
             {
@@ -85,12 +92,12 @@ namespace TheLastBell.UI
             else
             {
                 SetMobileUIActive(false);
-                if (lockCursorOnPC && !isIntroActive && !isPaused)
+                if (lockCursorOnPC && !isIntroActive && !isPaused && !interactionFocused)
                 {
                     Cursor.lockState = CursorLockMode.Locked;
                     Cursor.visible = false;
                 }
-                else if (isPaused)
+                else if (isPaused || interactionFocused)
                 {
                     Cursor.lockState = CursorLockMode.None;
                     Cursor.visible = true;

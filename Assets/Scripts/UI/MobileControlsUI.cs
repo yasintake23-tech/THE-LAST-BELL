@@ -697,18 +697,18 @@ namespace TheLastBell.UI
             RectTransform cardRt = card.GetComponent<RectTransform>();
             cardRt.anchorMin = new Vector2(0.5f, 0.5f);
             cardRt.anchorMax = new Vector2(0.5f, 0.5f);
-            cardRt.sizeDelta = new Vector2(440f, 340f);
+            cardRt.sizeDelta = new Vector2(440f, 470f);
             card.GetComponent<Image>().color = new Color(0.08f, 0.09f, 0.11f, 0.96f);
 
             // Başlık
-            CreateOverlayText(card.transform, "Title", "DURAKLATILDI", 28, new Vector2(0f, 118f), new Vector2(360f, 44f), new Color(0.92f, 0.90f, 0.86f, 1f));
+            CreateOverlayText(card.transform, "Title", "DURAKLATILDI", 28, new Vector2(0f, 187f), new Vector2(360f, 44f), new Color(0.92f, 0.90f, 0.86f, 1f));
 
             // Hassasiyet Etiketi
             float currentSens = touchLookZone != null ? touchLookZone.LookSensitivity : PlayerPrefs.GetFloat(TouchLookZone.PREF_LOOK_SENSITIVITY, 0.18f);
-            TextMeshProUGUI sensLabel = CreateOverlayText(card.transform, "SensLabel", $"Bakış Hassasiyeti: {Mathf.RoundToInt(currentSens * 100f)}%", 18, new Vector2(0f, 52f), new Vector2(360f, 30f), new Color(0.75f, 0.78f, 0.82f, 1f));
+            TextMeshProUGUI sensLabel = CreateOverlayText(card.transform, "SensLabel", $"Bakış Hassasiyeti: {Mathf.RoundToInt(currentSens * 100f)}%", 18, new Vector2(0f, 130f), new Vector2(360f, 30f), new Color(0.75f, 0.78f, 0.82f, 1f));
 
             // Hassasiyet Kaydırıcısı
-            Slider slider = CreateOverlaySlider(card.transform, new Vector2(0f, 12f), new Vector2(320f, 28f), 0.05f, 0.50f, currentSens);
+            Slider slider = CreateOverlaySlider(card.transform, new Vector2(0f, 97f), new Vector2(320f, 28f), 0.05f, 0.50f, currentSens);
             slider.onValueChanged.AddListener((val) =>
             {
                 if (touchLookZone == null) touchLookZone = FindAnyObjectByType<TouchLookZone>(FindObjectsInactive.Include);
@@ -723,12 +723,32 @@ namespace TheLastBell.UI
                 if (sensLabel != null) sensLabel.text = $"Bakış Hassasiyeti: {Mathf.RoundToInt(val * 100f)}%";
             });
 
+            var dialogue = FindAnyObjectByType<TheLastBell.Gameplay.ChapterDialogue>();
+            if (dialogue != null)
+            {
+                var subtitles = CreateOverlayButton(card.transform, "SubtitleToggle", "ALTYAZI", new Vector2(0f, 50f),
+                    new Vector2(280f, 38f), new Color(0.16f, 0.21f, 0.25f));
+                var label = subtitles.GetComponentInChildren<TextMeshProUGUI>();
+                void RefreshSubtitles() => label.text = dialogue.SubtitlesVisible ? "ALTYAZI AÇIK" : "ALTYAZI KAPALI";
+                RefreshSubtitles();
+                subtitles.onClick.AddListener(() =>
+                {
+                    dialogue.SubtitlesVisible = !dialogue.SubtitlesVisible;
+                    RefreshSubtitles();
+                });
+                CreateOverlayText(card.transform, "DialogueVolumeLabel", "Konuşma sesi", 18, new Vector2(0f, 6f),
+                    new Vector2(320f, 28f), new Color(0.75f, 0.78f, 0.82f));
+                var volume = CreateOverlaySlider(card.transform, new Vector2(0f, -25f), new Vector2(320f, 28f),
+                    0f, 1f, dialogue.DialogueVolume);
+                volume.onValueChanged.AddListener(value => dialogue.DialogueVolume = value);
+            }
+
             // Devam Et Butonu
-            Button resumeBtn = CreateOverlayButton(card.transform, "ResumeBtn", "DEVAM ET", new Vector2(0f, -58f), new Vector2(280f, 48f), new Color(0.18f, 0.24f, 0.30f, 0.95f));
+            Button resumeBtn = CreateOverlayButton(card.transform, "ResumeBtn", "DEVAM ET", new Vector2(0f, -88f), new Vector2(280f, 48f), new Color(0.18f, 0.24f, 0.30f, 0.95f));
             resumeBtn.onClick.AddListener(ResumeGame);
 
             // Ana Menü Butonu
-            Button menuBtn = CreateOverlayButton(card.transform, "MenuBtn", "ANA MENÜ", new Vector2(0f, -118f), new Vector2(280f, 44f), new Color(0.26f, 0.11f, 0.11f, 0.92f));
+            Button menuBtn = CreateOverlayButton(card.transform, "MenuBtn", "ANA MENÜ", new Vector2(0f, -148f), new Vector2(280f, 44f), new Color(0.26f, 0.11f, 0.11f, 0.92f));
             menuBtn.onClick.AddListener(ReturnToMainMenu);
         }
 

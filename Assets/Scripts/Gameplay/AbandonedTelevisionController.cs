@@ -28,6 +28,7 @@ namespace TheLastBell.Gameplay
         [SerializeField] private bool isPoweredOn = false;
 
         private Material runtimeScreenMat;
+        private RenderTexture videoFrame;
         private float warmUpProgress = 0f;
         private float staticScrollTimer = 0f;
 
@@ -58,6 +59,7 @@ namespace TheLastBell.Gameplay
         public void ApplyUnpoweredVisuals()
         {
             isPoweredOn = false;
+            videoFrame = null;
             warmUpProgress = 0f;
 
             if (screenRenderer != null && screenUnpoweredMaterial != null)
@@ -122,6 +124,20 @@ namespace TheLastBell.Gameplay
             }
         }
 
+        // A future VideoPlayer can send its RenderTexture to the calibrated CRT UVs.
+        public bool UseVideoFrame(RenderTexture frame)
+        {
+            if (!isPoweredOn || runtimeScreenMat == null || !Application.isPlaying) return false;
+            videoFrame = frame;
+            Texture signal = frame != null ? frame : screenPoweredStaticMaterial.mainTexture;
+            runtimeScreenMat.mainTexture = signal;
+            runtimeScreenMat.mainTextureScale = Vector2.one;
+            runtimeScreenMat.mainTextureOffset = Vector2.zero;
+            runtimeScreenMat.SetTexture("_EmissionMap", signal);
+            runtimeScreenMat.SetColor("_EmissionColor", new Color(0.58f, 0.68f, 0.78f));
+            return true;
+        }
+
         private IEnumerator WarmUpRoutine()
         {
             float dur = 0.95f;
@@ -147,7 +163,7 @@ namespace TheLastBell.Gameplay
 
         public void StepStaticEffect(float dt)
         {
-            if (!isPoweredOn) return;
+            if (!isPoweredOn || videoFrame != null) return;
             staticScrollTimer += dt;
 
             // Dengesiz analog parazit titremesi (korkutucu ama abartısız soğuk fosfor ışıması)

@@ -274,7 +274,14 @@ namespace TheLastBell.Player
             float dt = Mathf.Max(0.0001f, deltaTime);
             SyncExternalRotationIfChanged();
             HandleLook(dt);
-            if (!AllowMovement) return;
+            if (!AllowMovement)
+            {
+                if (scriptedGazeActive)
+                {
+                    animController?.UpdateLocomotionParameters(0f, 0f, 0f, 1f, isCrouching, controller.isGrounded, false);
+                }
+                return;
+            }
             HandleCrouch(dt);
             HandleStamina(dt);
             HandleMovement(dt);
@@ -323,8 +330,9 @@ namespace TheLastBell.Player
 
             if (scriptedGazeActive && scriptedGazeBlend > 0.01f)
             {
-                desiredLookYaw = Mathf.LerpAngle(desiredLookYaw, scriptedGazeYaw, 1f - Mathf.Exp(-8f * dt) * (1f - scriptedGazeBlend));
-                cameraPitch = Mathf.Lerp(cameraPitch, scriptedGazePitch, 1f - Mathf.Exp(-8f * dt));
+                float gazeEase = 1f - Mathf.Exp(-Mathf.Lerp(3.1f, 9f, scriptedGazeBlend) * dt);
+                desiredLookYaw = Mathf.LerpAngle(desiredLookYaw, scriptedGazeYaw, gazeEase);
+                cameraPitch = Mathf.Lerp(cameraPitch, scriptedGazePitch, gazeEase);
             }
             else
             {
@@ -337,7 +345,7 @@ namespace TheLastBell.Player
             bool hasMoveInput = AllowMovement && (h * h + v * v) > 0.01f;
             float relYaw = Mathf.DeltaAngle(transform.eulerAngles.y, desiredLookYaw);
 
-            if (hasMoveInput)
+            if (hasMoveInput || scriptedGazeActive)
             {
                 isTurningInPlace = false;
                 float nextYaw = Mathf.LerpAngle(transform.eulerAngles.y, desiredLookYaw, 1f - Mathf.Exp(-movingBodyAlignSpeed * dt));

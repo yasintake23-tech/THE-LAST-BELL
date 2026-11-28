@@ -139,6 +139,7 @@ namespace TheLastBell.Player
 
         private void Update()
         {
+            if (playerController != null && (!playerController.enabled || !playerController.AllowMovement)) return;
             if (Input.GetKeyDown(KeyCode.V))
             {
                 ToggleCameraMode();
@@ -208,6 +209,16 @@ namespace TheLastBell.Player
 
             mainCamera.transform.position = Vector3.Lerp(fpWorldPos, tpWorldPos, currentBlend);
             mainCamera.transform.rotation = Quaternion.Slerp(fpWorldRot, tpWorldRot, currentBlend);
+        }
+
+        public bool TryGetFirstPersonPose(out Vector3 position, out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            if (cameraPivot == null) return false;
+            position = ComputeTrueFirstPersonPosition(Time.unscaledDeltaTime);
+            rotation = ComputeTrueFirstPersonRotation();
+            return true;
         }
 
         private Vector3 ComputeTrueFirstPersonPosition(float dt)

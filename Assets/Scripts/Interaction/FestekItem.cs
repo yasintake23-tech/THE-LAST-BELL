@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 using TheLastBell.Player;
 using TheLastBell.Gameplay;
@@ -9,15 +10,14 @@ namespace TheLastBell.Interaction
     {
         CradledInPanel = 0,
         DroppedPhysics = 1,
-        HeldInRightHand = 2,
+        HeldInLeftHand = 2,
         SeatedInSocket = 3
     }
 
     /// <summary>
     /// THE LAST BELL - Özel "Feştek" Elektromekanik Köprü Cihazı.
     /// Panodan fiziksel yerçekimiyle düşer, zemin çarpışmasında metalik ses üretir,
-    /// erişilemez konuma kaçarsa güvenli zemin noktasına kurtarılır, sağ ele alındığında
-    /// el fenerini sol ele çakışmasız aktarır ve özel soketine hizalanarak yerleşir.
+    /// erişilemez konuma kaçarsa güvenli zemine döner ve sol elde taşınır.
     /// </summary>
     [DisallowMultipleComponent]
     public class FestekItem : MonoBehaviour, IInteractable
@@ -41,7 +41,16 @@ namespace TheLastBell.Interaction
 
         private InteractionTarget pickupInteractionTarget;
         private float lastImpactAudioTime = -10f;
-        private bool hasNotifiedFloorDiscovery = false;
+        private bool hasNotifiedFloorDiscovery;
+        private bool pickingUp;
+        private bool restoreStanding;
+        private float droppedAt;
+        private FirstPersonController reachingMovement;
+        private InteractionFocus focus;
+        private ProtagonistAnimationController reachingAnimator;
+        private Renderer highlightRenderer;
+        private MaterialPropertyBlock highlight;
+        public bool HasLanded => hasNotifiedFloorDiscovery;
 
         public FestekItemState CurrentState => currentState;
         public Transform GripPoint => gripPoint;
@@ -55,6 +64,8 @@ namespace TheLastBell.Interaction
         {
             ResolveAnchorsAndPhysics();
             ApplyPhysicsForState(currentState);
+            highlightRenderer = GetComponentInChildren<MeshRenderer>();
+            highlight = new MaterialPropertyBlock();
         }
 
         public void Configure(AudioSource audioSrc, AudioClip impactSfx, AudioClip pickupSfx, Vector3 safeFloorPos)
@@ -96,7 +107,7 @@ namespace TheLastBell.Interaction
                 pickupInteractionTarget = GetComponent<InteractionTarget>();
                 if (pickupInteractionTarget == null) pickupInteractionTarget = gameObject.AddComponent<InteractionTarget>();
             }
-            pickupInteractionTarget.Configure(gripPoint != null ? gripPoint : transform, PreferredInteractionHand.Right, "PickUp", 0.75f, 0.30f, 0.70f);
+            pickupInteractionTarget.Configure(gripPoint != null ? gripPoint : transform, PreferredInteractionHand.Left, "PickUp", 0.75f, 0.30f, 0.70f);
         }
 
         private void Update()
@@ -104,6 +115,8 @@ namespace TheLastBell.Interaction
             if (currentState == FestekItemState.DroppedPhysics)
             {
                 EnforceReachableSafetyBounds();
+                SetHighlight(hasNotifiedFloorDiscovery && !pickingUp
+                    ? 0.33f + 0.18f * Mathf.Sin(Time.time * 3f) : 0f);
             }
         }
 
@@ -111,7 +124,8 @@ namespace TheLastBell.Interaction
         {
             Vector3 pos = transform.position;
             float horizDist = Vector2.Distance(new Vector2(pos.x, pos.z), new Vector2(safeFloorRecoveryPoint.x, safeFloorRecoveryPoint.z));
-            if (pos.y < safeFloorRecoveryPoint.y - 0.22f || horizDist > 2.6f || float.IsNaN(pos.y))
+            if (pos.y < safeFloorRecoveryPoint.y - 0.22f || horizDist > 2.6f || float.IsNaN(pos.y) ||
+                (Application.isPlaying && Time.time - droppedAt > 2.8f && pos.y > safeFloorRecoveryPoint.y + 0.4f))
             {
                 if (itemRigidbody != null)
                 {
@@ -132,6 +146,7 @@ namespace TheLastBell.Interaction
 
             transform.SetParent(null, true);
             currentState = FestekItemState.DroppedPhysics;
+            droppedAt = Time.time;
             ApplyPhysicsForState(currentState);
 
             if (itemRigidbody != null)
@@ -151,8 +166,14 @@ namespace TheLastBell.Interaction
 
             if (!hasNotifiedFloorDiscovery)
             {
-                hasNotifiedFloorDiscovery = true;
-                ChapterObjectiveManager.Instance?.NotifyFestekDiscoveredOnFloor();
+                bool floorContact = false;
+                for (int i = 0; i < collision.contactCount; i++)
+                    floorContact |= collision.GetContact(i).normal.y > 0.55f;
+                if (floorContact)
+                {
+                    hasNotifiedFloorDiscovery = true;
+                    ChapterObjectiveManager.Instance?.NotifyFestekDiscoveredOnFloor();
+                }
             }
 
             float speed = collision.relativeVelocity.magnitude;
@@ -168,48 +189,89 @@ namespace TheLastBell.Interaction
             }
         }
 
-        public void PickupIntoRightHand(GameObject playerRoot)
+        private void SetHighlight(float intensity)
+        {
+            if (highlightRenderer == null || highlight == null) return;
+            highlightRenderer.GetPropertyBlock(highlight);
+            highlight.SetColor("_EmissionColor", new Color(0.78f, 0.55f, 0.26f) * intensity);
+            highlightRenderer.SetPropertyBlock(highlight);
+        }
+
+        public void PickupIntoLeftHand(GameObject playerRoot)
         {
             if (currentState != FestekItemState.DroppedPhysics || playerRoot == null) return;
+            var animation = playerRoot.GetComponentInChildren<ProtagonistAnimationController>(true);
+            animation?.InitializeIfNeeded();
+            var socket = animation != null ? animation.LeftHandFestekSocket : null;
+            if (socket == null) return;
 
-            var animCtrl = playerRoot.GetComponentInChildren<ProtagonistAnimationController>(true);
-            var procCtrl = playerRoot.GetComponentInChildren<CharacterProceduralController>(true);
-            var flashlightPhys = playerRoot.GetComponentInChildren<FlashlightPhysicalItem>(true);
-
-            animCtrl?.InitializeIfNeeded();
-
-            // Sağ el Feştek tutacağı için aktif feneri sol ele çakışmasız aktar!
-            if (flashlightPhys != null && flashlightPhys.CurrentState != FlashlightPhysicalState.DroppedPhysics)
-            {
-                flashlightPhys.TransferToLeftHand();
-            }
-
-            if (procCtrl != null && pickupInteractionTarget != null)
-            {
-                procCtrl.BeginEnvironmentalInteraction(pickupInteractionTarget);
-            }
-
-            Transform rightFestekSock = animCtrl != null ? animCtrl.RightHandFestekSocket : null;
-            if (rightFestekSock != null)
-            {
-                Vector3 gripOffset = gripPoint != null ? transform.InverseTransformPoint(gripPoint.position) : Vector3.zero;
-                transform.SetParent(rightFestekSock, false);
-                transform.localRotation = Quaternion.identity;
-                transform.localPosition = -Vector3.Scale(gripOffset, transform.localScale);
-            }
-
-            currentState = FestekItemState.HeldInRightHand;
+            Vector3 gripOffset = gripPoint != null ? transform.InverseTransformPoint(gripPoint.position) : Vector3.zero;
+            transform.SetParent(socket, false);
+            transform.localRotation = Quaternion.identity;
+            transform.localPosition = -Vector3.Scale(gripOffset, transform.localScale);
+            currentState = FestekItemState.HeldInLeftHand;
             ApplyPhysicsForState(currentState);
-            animCtrl?.SetRightHandCustomItemHeld(true);
+            SetHighlight(0f);
+            animation.IsHoldingFestek = true;
 
-            if (itemAudioSource != null && pickupClip != null)
+            if (Application.isPlaying && itemAudioSource != null && pickupClip != null)
             {
-                itemAudioSource.pitch = 1.0f;
+                itemAudioSource.pitch = 1f;
                 itemAudioSource.PlayOneShot(pickupClip, 0.85f);
             }
-
             ChapterObjectiveManager.Instance?.NotifyFestekPickedUp();
             OnStateChanged?.Invoke(currentState);
+        }
+
+        private IEnumerator ReachAndLift(GameObject player)
+        {
+            pickingUp = true;
+            focus = InteractionFocus.Begin(player, transform, this);
+            reachingAnimator = player.GetComponentInChildren<ProtagonistAnimationController>(true);
+            if (focus == null)
+            {
+                pickingUp = false;
+                reachingAnimator = null;
+                yield break;
+            }
+            reachingMovement = player.GetComponent<FirstPersonController>();
+            restoreStanding = reachingMovement != null && !reachingMovement.IsCrouching;
+            if (restoreStanding) reachingMovement.SetCrouch(true);
+            reachingAnimator?.TriggerItemPickup();
+            if (reachingAnimator != null) reachingAnimator.IsPosingFestek = true;
+            for (float elapsed = 0f; elapsed < 0.76f; elapsed += Time.deltaTime)
+            {
+                reachingAnimator?.SetLeftHandInteractionIK(gripPoint != null ? gripPoint : transform,
+                    Mathf.SmoothStep(0f, 1f, elapsed / 0.58f));
+                yield return null;
+            }
+            PickupIntoLeftHand(player);
+            FinishReach();
+        }
+
+        private void FinishReach()
+        {
+            if (reachingAnimator != null)
+            {
+                reachingAnimator.ClearLeftHandInteractTarget();
+                reachingAnimator.IsPosingFestek = false;
+            }
+            reachingAnimator = null;
+            if (restoreStanding && reachingMovement != null) reachingMovement.SetCrouch(false);
+            restoreStanding = false;
+            reachingMovement = null;
+            focus?.End();
+            focus = null;
+            pickingUp = false;
+        }
+
+        private void OnDisable()
+        {
+            if (pickingUp)
+            {
+                StopAllCoroutines();
+                FinishReach();
+            }
         }
 
         public void SeatIntoSocket(Transform socketInsertionTransform, GameObject playerRoot)
@@ -228,7 +290,7 @@ namespace TheLastBell.Interaction
             if (playerRoot != null)
             {
                 var animCtrl = playerRoot.GetComponentInChildren<ProtagonistAnimationController>(true);
-                animCtrl?.SetRightHandCustomItemHeld(false);
+                if (animCtrl != null) animCtrl.IsHoldingFestek = false;
             }
 
             ChapterObjectiveManager.Instance?.NotifyFestekSeated();
@@ -257,13 +319,13 @@ namespace TheLastBell.Interaction
 
         public bool CanInteract()
         {
-            return currentState == FestekItemState.DroppedPhysics;
+            return currentState == FestekItemState.DroppedPhysics && hasNotifiedFloorDiscovery && !pickingUp;
         }
 
         public void Interact(PlayerInteractor interactor)
         {
             if (!CanInteract() || interactor == null) return;
-            PickupIntoRightHand(interactor.gameObject);
+            StartCoroutine(ReachAndLift(interactor.gameObject));
         }
 
         private static Transform FindDeepChild(Transform parent, string targetName)

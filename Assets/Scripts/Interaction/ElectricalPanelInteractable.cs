@@ -36,7 +36,8 @@ namespace TheLastBell.Interaction
         private InteractionTarget leverInteractionTarget;
         private Quaternion initialLeverRot;
         private Quaternion pulledLeverRot;
-        private bool isOperating = false;
+        private bool isOperating;
+        private InteractionFocus focus;
 
         public bool HasOperated => hasOperated;
         public InteractionTarget LeverInteractionTarget => leverInteractionTarget;
@@ -100,10 +101,10 @@ namespace TheLastBell.Interaction
                 }
             }
 
-            StartCoroutine(OperateLeverRoutine());
+            StartCoroutine(OperateLeverRoutine(interactor));
         }
 
-        private IEnumerator OperateLeverRoutine()
+        private IEnumerator OperateLeverRoutine(PlayerInteractor interactor)
         {
             isOperating = true;
             InitializeIfNeeded();
@@ -127,6 +128,11 @@ namespace TheLastBell.Interaction
                 if (!releasedFestek && t >= 0.68f)
                 {
                     releasedFestek = true;
+                    if (interactor != null && cradledFestek != null)
+                    {
+                        focus = InteractionFocus.Begin(interactor.gameObject, cradledFestek.transform, this);
+                        yield return new WaitForSeconds(0.46f);
+                    }
                     TriggerFestekDrop();
                 }
 
@@ -138,6 +144,31 @@ namespace TheLastBell.Interaction
 
             hasOperated = true;
             isOperating = false;
+            if (focus != null)
+            {
+                float follow = 0f;
+                while (follow < 1.65f && cradledFestek != null && (!cradledFestek.HasLanded || follow < 0.82f))
+                {
+                    follow += Time.deltaTime;
+                    yield return null;
+                }
+                focus.End();
+                focus = null;
+            }
+        }
+
+        private void OnDisable()
+        {
+            StopAllCoroutines();
+            if (isOperating)
+            {
+                if (mainLeverPivot != null) mainLeverPivot.localRotation = pulledLeverRot;
+                TriggerFestekDrop();
+                hasOperated = true;
+                isOperating = false;
+            }
+            focus?.End();
+            focus = null;
         }
 
         public void ExecuteImmediateForTest()

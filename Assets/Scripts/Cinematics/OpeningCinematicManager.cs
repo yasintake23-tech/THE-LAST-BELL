@@ -147,7 +147,11 @@ namespace TheLastBell.Cinematics
             }
 
             // 4 Saniye Basılı Tutarak Atlama (Hold to Skip) Mantığı
-            HandleHoldToSkip();
+            if (Application.isMobilePlatform)
+            {
+                if (skipCanvasGroup != null) skipCanvasGroup.alpha = 0f;
+            }
+            else HandleHoldToSkip();
         }
 
         private void HandleHoldToSkip()

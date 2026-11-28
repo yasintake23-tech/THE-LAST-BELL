@@ -1098,6 +1098,8 @@ namespace TheLastBell.Editor
 
             VerifyEntranceAndPresentation(player, objMgr, canvas, shotCam, sb, failures);
             VerifyChapterAudio(player, sb, failures);
+            VerifyChapterDialogue(sb, failures);
+            VerifyInteractionFocus(player, festek.transform, sb, failures);
             if (canRender && shotCam != null)
             {
                 shotCam.transform.SetPositionAndRotation(new Vector3(0.2f, 1.61f, 2.85f), Quaternion.identity);
@@ -1151,23 +1153,24 @@ namespace TheLastBell.Editor
                 UnityEngine.Object.DestroyImmediate(pSpot.gameObject);
             }
 
-            // Step 7: Pick up Feştek into Right Hand + Verify Off-Hand Left Flashlight Transfer (Zero Overlap!)
+            // Step 7: Left-hand pickup with right-hand flashlight retained.
             var spotLight = GameObject.Find("SpotLight")?.GetComponent<Light>();
             if (flashPhys != null) flashPhys.AttachToHand();
-            festek.PickupIntoRightHand(player);
+            festek.PickupIntoLeftHand(player);
 
-            if (festek.CurrentState != FestekItemState.HeldInRightHand || animCtrl == null || !festek.transform.IsChildOf(animCtrl.RightHandFestekSocket))
-                failures.Add("Feştek did not attach cleanly to RightHand_Festek_Socket.");
-            if (flashPhys == null || !flashPhys.IsTransferredToLeftHand || !flashPhys.transform.IsChildOf(animCtrl.LeftHandFlashlightSocket))
-                failures.Add("Flashlight did not transfer to LeftHand_Flashlight_Socket when picking up Feştek.");
+            if (festek.CurrentState != FestekItemState.HeldInLeftHand || animCtrl == null || !festek.transform.IsChildOf(animCtrl.LeftHandFestekSocket))
+                failures.Add("Feştek did not attach cleanly to LeftHand_Festek_Socket.");
+            if (flashPhys == null || flashPhys.IsTransferredToLeftHand || animCtrl == null ||
+                !flashPhys.transform.IsChildOf(animCtrl.RightHandSocket))
+                failures.Add("Flashlight did not stay on the right while picking up Feştek.");
             if (spotLight != null && !spotLight.enabled)
-                failures.Add("Flashlight SpotLight turned off during left-hand transfer.");
+                failures.Add("Flashlight SpotLight turned off during Feştek pickup.");
             if (objMgr.CurrentState != ChapterObjectiveState.LocateFestekSocket)
                 failures.Add($"Expected LocateFestekSocket after Feştek pickup, got {objMgr.CurrentState}.");
 
             if (canRender && shotCam != null && camMode != null)
             {
-                // Shot 5: 3P Dual-Hand Coordination (Right Hand holding Feştek + Left Hand holding Flashlight + Flat Shoes)
+                // Shot 5: 3P Dual-Hand Coordination (Left Hand holding Feştek + Right Hand holding Flashlight + Flat Shoes)
                 camMode.SetCameraMode(CameraViewMode.ThirdPerson);
                 player.transform.position = new Vector3(4.8f, 0.0f, 7.6f);
                 player.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
@@ -1193,7 +1196,22 @@ namespace TheLastBell.Editor
             if (objMgr.CurrentState != ChapterObjectiveState.InsertFestek)
                 failures.Add($"Expected InsertFestek near socket, got {objMgr.CurrentState}.");
 
-            socket.ExecuteImmediateForTest(festek, player);
+            socket.ApplyRotationDelta(90f);
+            if (socket.IsActivated || powerMgr.IsPowerRestored)
+                failures.Add("An empty socket accepted a turn.");
+            socket.SeatForVerification(festek, player);
+            if (socket.IsActivated || powerMgr.IsPowerRestored || objMgr.CurrentState != ChapterObjectiveState.ActivateFestek)
+                failures.Add("Insertion restored power before the device was turned.");
+            socket.ApplyRotationDelta(45f);
+            if (socket.IsActivated || powerMgr.IsPowerRestored || Mathf.Abs(socket.RotationProgress - 0.5f) > 0.01f ||
+                Quaternion.Angle(festek.transform.localRotation, Quaternion.AngleAxis(-45f, Vector3.forward)) > 1f ||
+                (festek.InsertionAlignPoint != null && Vector3.Distance(festek.InsertionAlignPoint.position, socket.InsertionAnchor.position) > 0.004f))
+                failures.Add("Partial rotation failed to keep the device centered and power off.");
+            socket.ApplyRotationDelta(45f);
+            socket.ApplyRotationDelta(90f);
+            var mesh = tvCtrl.ScreenRenderer != null ? tvCtrl.ScreenRenderer.GetComponent<MeshFilter>()?.sharedMesh : null;
+            if (mesh == null || mesh.vertexCount < 40 || tvCtrl.ScreenRenderer.name != "CRT_Display_Glass")
+                failures.Add("The CRT controller is not driving the curved display mesh.");
 
             if (festek.CurrentState != FestekItemState.SeatedInSocket)
                 failures.Add($"Expected Feştek SeatedInSocket, got {festek.CurrentState}.");
@@ -1211,7 +1229,7 @@ namespace TheLastBell.Editor
                 failures.Add("Player movement was locked at ChapterMilestoneComplete (player must remain in control!).");
 
             if (failures.Count == puzzleStartFailures)
-                sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Right-Hand Pickup + Left-Hand Flashlight -> Socket Insert & Button Press -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
+                sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Left-Hand Pickup + Right-Hand Flashlight -> Socket Insert & 90-Degree Turn -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
 
             if (canRender && shotCam != null)
             {
@@ -1258,7 +1276,7 @@ namespace TheLastBell.Editor
             var chapter = labels.FirstOrDefault(label => label.name == "Chapter_Number");
             var subtitle = labels.FirstOrDefault(label => label.name == "Chapter_Subtitle");
             var objectiveLabel = labels.FirstOrDefault(label => label.name == "Objective_Label");
-            if (chapter == null || chapter.text != "BÖLÜM 1" || subtitle == null || subtitle.text != "Hoşgeldin" ||
+            if (chapter == null || chapter.text != "BÖLÜM 1" || subtitle == null || subtitle.text != "Hoş Geldin" ||
                 objectiveLabel == null || objectiveLabel.text != "İngilizce kursuna gir.")
                 failures.Add("Turkish Chapter I introduction or initial objective label is missing.");
             else
@@ -1360,6 +1378,73 @@ namespace TheLastBell.Editor
 
             if (failures.Count == previousFailures)
                 log.AppendLine("  Entrance: actual spawn approach, closed collision, mobile Button press, both hinge rotations, interruption recovery, open collision and Turkish objective update passed.");
+        }
+
+        private static void VerifyInteractionFocus(GameObject player, Transform target, StringBuilder log, List<string> failures)
+        {
+            var movement = player != null ? player.GetComponent<FirstPersonController>() : null;
+            var interactor = player != null ? player.GetComponent<PlayerInteractor>() : null;
+            if (movement == null || interactor == null)
+            {
+                failures.Add("Interaction focus requires the real chapter player.");
+                return;
+            }
+            bool wasAllowed = movement.AllowMovement;
+            bool wasEnabled = interactor.enabled;
+            var focus = InteractionFocus.Begin(player, target, movement);
+            if (focus == null)
+            {
+                failures.Add("Chapter interaction focus could not start.");
+                return;
+            }
+
+            bool locked = !movement.AllowMovement && !interactor.enabled && focus.IsFocused;
+            bool exclusive = InteractionFocus.Begin(player, target, interactor) == null;
+            focus.End();
+            bool restored = movement.AllowMovement == wasAllowed && interactor.enabled == wasEnabled && !focus.IsFocused;
+            UnityEngine.Object.DestroyImmediate(focus);
+            if (!locked || !exclusive || !restored)
+                failures.Add("Interaction focus did not exclusively lock and restore the original player controls.");
+            else log.AppendLine("  Interaction focus: exclusive movement and interaction lock with control restoration checked.");
+        }
+
+        private static void VerifyChapterDialogue(StringBuilder log, List<string> failures)
+        {
+            var dialogue = UnityEngine.Object.FindAnyObjectByType<ChapterDialogue>(FindObjectsInactive.Include);
+            if (dialogue == null)
+            {
+                failures.Add("Chapter dialogue controller missing.");
+                return;
+            }
+            int before = failures.Count;
+            var serialized = new SerializedObject(dialogue);
+            if (serialized.FindProperty("intro").objectReferenceValue == null ||
+                serialized.FindProperty("entrance").objectReferenceValue == null ||
+                serialized.FindProperty("objective").objectReferenceValue == null)
+                failures.Add("Chapter dialogue is missing cinematic, entrance, or objective references.");
+            foreach (string name in new[] { "arrival", "approach", "inside" })
+            {
+                var line = serialized.FindProperty(name);
+                var clip = line.FindPropertyRelative("clip").objectReferenceValue as AudioClip;
+                var segments = line.FindPropertyRelative("subtitles");
+                if (clip == null || segments.arraySize != (name == "inside" ? 2 : 1))
+                {
+                    failures.Add($"Dialogue {name} clip or subtitle count is invalid.");
+                    continue;
+                }
+                float previousEnd = 0f;
+                for (int i = 0; i < segments.arraySize; i++)
+                {
+                    var segment = segments.GetArrayElementAtIndex(i);
+                    float start = segment.FindPropertyRelative("start").floatValue;
+                    float end = segment.FindPropertyRelative("end").floatValue;
+                    if (start < previousEnd || start >= end || end > clip.length ||
+                        string.IsNullOrEmpty(segment.FindPropertyRelative("text").stringValue))
+                        failures.Add($"Dialogue {name} segment {i} does not fit the recording.");
+                    previousEnd = end;
+                }
+            }
+            if (before == failures.Count) log.AppendLine("  Dialogue: three voice clips, chapter trigger references and timed subtitle ranges verified.");
         }
 
         private static void VerifyChapterAudio(GameObject player, StringBuilder log, List<string> failures)

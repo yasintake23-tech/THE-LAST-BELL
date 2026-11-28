@@ -11,6 +11,7 @@ using UnityEditor.SceneManagement;
 using TheLastBell.Player;
 using TheLastBell.Interaction;
 using TheLastBell.Gameplay;
+using TheLastBell.Cinematics;
 
 namespace TheLastBell.Editor
 {
@@ -363,7 +364,8 @@ namespace TheLastBell.Editor
                 "SchoolDesk_01", "SchoolChair_01", "WoodenTable_01", "metal_office_desk",
                 "painted_wooden_cabinet", "wooden_bookshelf_worn", "Sofa_01", "wall_clock",
                 "mounted_fluorescent_lights", "industrial_wall_lamp", "television_02",
-                "binder_notebook", "clipboard", "cardboard_box_01", "fern_02", "weed_plant_02"
+                "binder_notebook", "clipboard", "cardboard_box_01", "fern_02", "weed_plant_02",
+                "office_notepads", "desk_lamp_arm_01", "metal_trash_can"
             };
             foreach (string pid in phIds)
             {
@@ -379,6 +381,8 @@ namespace TheLastBell.Editor
             dict["Festek"] = CreateCustomPbrMat("Mat_Original_Festek",
                 "Assets/Environment/Original/Festek/Festek_Albedo.png",
                 "Assets/Environment/Original/Festek/Festek_MetalSmooth.png", null, Color.white, 0.65f);
+            dict["Festek"].EnableKeyword("_EMISSION");
+            dict["Festek"].SetColor("_EmissionColor", Color.black);
             dict["FestekButton"] = CreateSimpleStandardMat("Mat_Original_FestekButton", new Color(0.56f, 0.15f, 0.13f, 1f), 0.25f, 0.52f);
 
             dict["SignBoard"] = CreateCustomPbrMat("Mat_Original_HarputSignBoard",
@@ -386,10 +390,10 @@ namespace TheLastBell.Editor
                 "Assets/Environment/Original/Signage/HarputSign_Backing_MetalSmooth.png", null, Color.white, 0.42f);
             dict["SignLetters"] = CreateSimpleStandardMat("Mat_Original_HarputSignLetters", new Color(0.14f, 0.19f, 0.28f, 1f), 0.68f, 0.54f);
 
-            dict["CarPaint"] = CreateSimpleStandardMat("Mat_Car_SlatePaint", new Color(0.20f, 0.27f, 0.32f, 1f), 0.38f, 0.52f);
+            dict["CarPaint"] = CreateSimpleStandardMat("Mat_Car_SlatePaint", new Color(0.23f, 0.29f, 0.31f, 1f), 0.30f, 0.46f);
             dict["CarTrim"] = CreateSimpleStandardMat("Mat_Car_TrimRubber", new Color(0.09f, 0.09f, 0.10f, 1f), 0.05f, 0.28f);
             dict["ClassroomGlass"] = CreateTransparentStandardMat("Mat_Classroom_BrokenGlass", new Color(0.36f, 0.43f, 0.52f, 0.24f), 0f, 0.58f);
-            dict["CarGlass"] = CreateTransparentStandardMat("Mat_Car_TintedGlass", new Color(0.13f, 0.17f, 0.20f, 0.48f), 0.08f, 0.77f);
+            dict["CarGlass"] = CreateTransparentStandardMat("Mat_Car_TintedGlass", new Color(0.15f, 0.18f, 0.20f, 0.40f), 0.06f, 0.63f);
             dict["CarInterior"] = CreateSimpleStandardMat("Mat_Car_InteriorDark", new Color(0.12f, 0.12f, 0.14f, 1f), 0.0f, 0.20f);
             dict["Tire"] = CreateSimpleStandardMat("Mat_Car_TireSidewall", new Color(0.115f, 0.105f, 0.096f), 0f, 0.19f);
             dict["VehicleLower"] = CreateSimpleStandardMat("Mat_Car_DirtySill", new Color(0.15f, 0.17f, 0.16f), 0.15f, 0.28f);
@@ -655,6 +659,8 @@ namespace TheLastBell.Editor
             var poweredFixtures = new List<FacilityLightFixture>();
             PopulateClassroomsAndCorridor(mats, intGroup.transform, poweredFixtures);
             DressCourseInterior(mats, intGroup.transform);
+            AddArchitecturalRepairs(mats, intGroup.transform);
+            PlaceCourseProps(mats, intGroup.transform, extGroup.transform);
 
             // 4F. Personel & Arşiv Odası (Teachers_Lounge): Pano -> Feştek Fiziksel Düşüş -> Yuva -> Sağdaki CRT TV
             BuildPuzzleRoomAndPowerChain(mats, puzzleGroup.transform, sysGroup.transform, mainEntranceDoor, poweredFixtures);
@@ -979,6 +985,114 @@ namespace TheLastBell.Editor
             for (int i = 0; i < 5; i++)
                 BuildDetail("C102_Vent_Louvre", parent, new Vector3(-4.3f, 2.87f + 0.037f * i, 10.65f),
                     new Vector3(0.49f, 0.018f, 0.032f), mats["CarInterior"]);
+        }
+
+        private static void AddArchitecturalRepairs(Dictionary<string, Material> mats, Transform parent)
+        {
+            foreach (string name in new[] { "C101_Window_Glass_Frag", "Corridor_Window_BrokenGlass" })
+            {
+                var fragment = GameObject.Find(name);
+                if (fragment != null) fragment.SetActive(false);
+            }
+
+            BoardWindow(parent, mats, "C101", -10f, 6f, 7f, -1f);
+            BoardWindow(parent, mats, "C102", -10f, 14f, 7f, -1f);
+            BoardWindow(parent, mats, "Corridor", 2f, 21f, 4f, 1f);
+            // Close the wall breaks between the two separate classroom shells.
+            BuildDetail("C101_C102_Exterior_Infill", parent, new Vector3(-10f, 1.75f, 10f),
+                new Vector3(0.30f, 3.5f, 1.05f), mats["Plaster"], true);
+            BuildDetail("C102_EndWall_Return", parent, new Vector3(-9.95f, 1.75f, 18f),
+                new Vector3(0.32f, 3.5f, 1.05f), mats["Plaster"], true);
+
+            // Replace exposed under-step voids with a supported stair flight.
+            for (int i = 0; i < 8; i++)
+            {
+                float height = 0.22f * (i + 1);
+                BuildDetail($"Stairs_Solid_Riser_{i}", parent, new Vector3(-6.5f, height * 0.5f, 19.5f + i * 0.45f),
+                    new Vector3(2.35f, height - 0.015f, 0.45f), mats["Concrete"], true);
+            }
+            BuildDetail("Stairs_Landing_Support", parent, new Vector3(-6.5f, 0.82f, 23.44f),
+                new Vector3(2.38f, 1.64f, 0.48f), mats["Concrete"], true);
+            var oldRail = GameObject.Find("Stairs_Handrail");
+            if (oldRail != null) oldRail.SetActive(false);
+            var rail = BuildDetail("Stairs_Sloping_Handrail", parent, new Vector3(-5.2f, 1.68f, 21.05f),
+                new Vector3(0.095f, 0.085f, 3.60f), mats["DarkWood"], true);
+            rail.transform.localRotation = Quaternion.Euler(-26f, 0f, 0f);
+            BuildDetail("Stairs_Landing_Handrail", parent, new Vector3(-5.2f, 2.54f, 23.63f),
+                new Vector3(0.095f, 0.085f, 1.55f), mats["DarkWood"], true);
+            foreach (float z in new[] { 20.1f, 21.4f, 22.8f, 24.55f })
+                BuildDetail("Stairs_Rail_Post", parent, new Vector3(-5.2f, z < 22.8f ? 0.85f : 2.05f, z),
+                    new Vector3(0.065f, z < 22.8f ? 1.7f : 0.84f, 0.065f), mats["RustedMetal"]);
+            BuildDetail("Stairs_Upper_Ceiling_Seal", parent, new Vector3(-2.07f, 4.48f, 22f),
+                new Vector3(0.24f, 2.05f, 7.05f), mats["Plaster"], true);
+            CreateSubtleWindowFill("Stairs_Residual_Twilight", parent, new Vector3(-4.1f, 2.6f, 21f), 5.5f, 0.36f);
+            CreateSubtleWindowFill("C102_Residual_Twilight", parent, new Vector3(-8.25f, 1.8f, 14.2f), 6f, 0.30f);
+        }
+
+        private static void BoardWindow(Transform parent, Dictionary<string, Material> mats, string label,
+            float x, float z, float width, float exteriorSide)
+        {
+            BuildDetail(label + "_WindowGlass", parent, new Vector3(x, 1.9f, z),
+                new Vector3(0.025f, 1.80f, width), mats["ClassroomGlass"], true)
+                .GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+            for (int i = 0; i < 5; i++)
+            {
+                float y = 1.18f + 0.355f * i;
+                float length = width + 0.10f - (i % 3) * 0.075f;
+                var board = BuildDetail(label + "_Weathered_Window_Board", parent,
+                    new Vector3(x + exteriorSide * (0.19f + i % 2 * 0.025f), y, z + (i % 2 == 0 ? -0.025f : 0.025f)),
+                    new Vector3(0.07f, i == 2 ? 0.315f : 0.343f, length),
+                    mats[i % 2 == 0 ? "DarkWood" : "PaintedWood"]);
+                board.transform.localRotation = Quaternion.Euler(i % 2 == 0 ? 0.55f : -0.55f, 0f, 0f);
+                foreach (float end in new[] { -1f, 1f })
+                    BuildDetail("Window_Board_Fastener", parent,
+                        new Vector3(x + exteriorSide * (0.231f + i % 2 * 0.025f), y + 0.03f, z + end * (width * 0.5f - 0.15f)),
+                        new Vector3(0.035f, 0.019f, 0.019f), mats["RustedMetal"]);
+            }
+            BuildDetail(label + "_Window_Sill", parent, new Vector3(x, 1.01f, z),
+                new Vector3(0.46f, 0.10f, width + 0.14f), mats["Concrete"]);
+        }
+
+        private static void PlaceCourseProps(Dictionary<string, Material> mats, Transform parent, Transform courtyard)
+        {
+            var notebooks = InstantiateFbx("Assets/Environment/External/Models/office_notepads/office_notepads.fbx",
+                "C101_Marked_Assignments", parent, new Vector3(-5.92f, 0.731f, 3.79f),
+                Quaternion.Euler(0f, 8f, 0f), Vector3.one * 0.66f, true);
+            AssignPolyHavenMats(notebooks, mats["office_notepads"], null);
+            var lamp = InstantiateFbx("Assets/Environment/External/Models/desk_lamp_arm_01/desk_lamp_arm_01.fbx",
+                "C101_Unplugged_Desk_Lamp", parent, new Vector3(-6.79f, 0.726f, 3.98f),
+                Quaternion.Euler(0f, 17f, 0f), Vector3.one * 0.72f, true);
+            AssignPolyHavenMats(lamp, mats["desk_lamp_arm_01"], null);
+
+            var bins = InstantiateFbx("Assets/Environment/External/Models/metal_trash_can/metal_trash_can.fbx",
+                "C102_Rusted_Wastebin", parent, new Vector3(-8.98f, 0f, 15.76f), Quaternion.identity, Vector3.one * 0.66f, true);
+            if (bins != null)
+            {
+                var rust = CreateCustomPbrMat("Mat_Course_Rusted_Bin",
+                    "Assets/Environment/External/Models/metal_trash_can/metal_trash_can_rust_diff_1k.png", null,
+                    "Assets/Environment/External/Models/metal_trash_can/metal_trash_can_rust_nor_gl_1k.png",
+                    Color.white, 0.20f);
+                foreach (var renderer in bins.GetComponentsInChildren<Renderer>(true))
+                {
+                    renderer.enabled = renderer.name.Contains("_rust");
+                    renderer.sharedMaterial = rust;
+                }
+            }
+
+            // Layer the skyline behind the courtyard boundary at distances that keep background geometry cheap.
+            var background = CreateSimpleStandardMat("Mat_Neighborhood_Weathered_Masonry", new Color(0.20f, 0.23f, 0.26f), 0f, 0.16f);
+            for (int i = 0; i < 7; i++)
+            {
+                float height = 3.6f + (i * 7 % 6) * 0.52f;
+                float x = -24f + i * 8.1f;
+                float z = -34f - (i % 3) * 5f;
+                BuildDetail("Neighborhood_Masonry_Silhouette", courtyard, new Vector3(x, height * 0.5f, z),
+                    new Vector3(6.4f + (i % 2) * 1.4f, height, 7.3f), background).GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+                BuildDetail("Neighborhood_Parapet", courtyard, new Vector3(x, height + 0.13f, z),
+                    new Vector3(6.65f + (i % 2) * 1.4f, 0.26f, 7.5f), background).GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+            }
+            BuildDetail("Courtyard_Distant_Road", courtyard, new Vector3(0f, -0.06f, -33f),
+                new Vector3(55f, 0.11f, 17f), mats["Asphalt"]);
         }
 
         private static GameObject BuildDetail(string name, Transform parent, Vector3 position, Vector3 size, Material material, bool solid = false)
@@ -1353,26 +1467,20 @@ namespace TheLastBell.Editor
             cabCol.center = new Vector3(0f, 0.59f, 0f);
             cabCol.size = new Vector3(1.18f, 1.18f, 0.62f);
 
-            GameObject tvGo = InstantiateFbx("Assets/Environment/External/Models/television_02/television_02.fbx",
+            GameObject tvGo = InstantiateFbx("Assets/Environment/External/Models/television_02/television_02_chapter1.fbx",
                 "Abandoned_CRT_Television", puzzleParent, new Vector3(7.55f, 1.18f, 8.78f), Quaternion.Euler(0f, -152f, 0f), Vector3.one * 1.18f, isStatic: false);
             AssignPolyHavenMats(tvGo, mats["television_02"], null);
 
-            // CRT ön tüp camına tam oturan parazit ekran yüzeyi
-            GameObject screenQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            screenQuad.name = "TV_CRT_ScreenQuad";
-            UnityEngine.Object.DestroyImmediate(screenQuad.GetComponent<Collider>());
-            screenQuad.transform.SetParent(tvGo.transform, false);
-            screenQuad.transform.localPosition = new Vector3(-0.032f, 0.215f, 0.1235f);
-            screenQuad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-            screenQuad.transform.localScale = new Vector3(0.245f, 0.195f, 1f);
-            var screenRend = screenQuad.GetComponent<MeshRenderer>();
+            var screenRend = FindDeep(tvGo.transform, "CRT_Display_Glass")?.GetComponent<Renderer>();
+            if (screenRend == null)
+                throw new InvalidOperationException("Television FBX is missing the isolated CRT display mesh.");
             screenRend.shadowCastingMode = ShadowCastingMode.Off;
             screenRend.sharedMaterial = mats["TVScreenOff"];
 
             // TV ekranından odaya yayılan kontrollü soğuk fosfor ışıması (başlangıçta kapalı!)
             GameObject tvLightGo = new GameObject("TV_Screen_LocalGlow");
             tvLightGo.transform.SetParent(tvGo.transform, false);
-            tvLightGo.transform.localPosition = new Vector3(-0.03f, 0.22f, 0.22f);
+            tvLightGo.transform.position = screenRend.bounds.center + tvGo.transform.forward * 0.055f;
             tvLightGo.transform.localRotation = Quaternion.identity;
             Light tvGlow = tvLightGo.AddComponent<Light>();
             tvGlow.type = LightType.Point;
@@ -1427,10 +1535,7 @@ namespace TheLastBell.Editor
             insertAnchorGo.transform.rotation = Quaternion.LookRotation(-socketGo.transform.forward, Vector3.up);
             insertAnchorGo.transform.localScale = Vector3.one;
             socketInteract.Configure(
-                FindDeep(socketGo.transform, "Insertion_Approach_Point"),
                 insertAnchorGo.transform,
-                FindDeep(socketGo.transform, "Activation_Button"),
-                FindDeep(socketGo.transform, "Button_Finger_Target"),
                 lensRend,
                 powerMgr,
                 socketAudio,
@@ -1442,6 +1547,29 @@ namespace TheLastBell.Editor
             var objMgr = objMgrGo.AddComponent<ChapterObjectiveManager>();
             Transform playerT = GameObject.Find("Player_Protagonist")?.transform;
             objMgr.Configure(playerT, mainEntranceDoor, panelGo.transform, socketGo.transform);
+            var voice = CreateAudioEmitter(sysParent, "Protagonist_Inner_Voice", Vector3.zero, 1f, 1f, "Dialogue");
+            voice.spatialBlend = 0f;
+            voice.priority = 35;
+            var cue = CreateAudioEmitter(sysParent, "Objective_Cue", Vector3.zero, 1f, 1f, "Music");
+            cue.spatialBlend = 0f;
+            objMgr.ConfigureCue(cue, AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Chapter1/SFX_ObjectiveCue.wav"));
+            var intro = UnityEngine.Object.FindAnyObjectByType<SeamlessIntroManager>(FindObjectsInactive.Include);
+            sysParent.gameObject.AddComponent<ChapterDialogue>().Configure(
+                voice, playerT, mainEntranceDoor != null ? mainEntranceDoor.transform : null, objMgr, intro,
+                LoadDialogue("Return", new SubtitleSegment(0.02f, 3.48f, "Tekrardan buradayım, beş yıl sonra.")),
+                LoadDialogue("Entrance", new SubtitleSegment(0f, 2.65f, "Burası düşündüğümden daha kötü hâle gelmiş.")),
+                LoadDialogue("Inside", new SubtitleSegment(0f, 2.56f, "Hadi ama, elektrik de yokmuş."),
+                    new SubtitleSegment(2.74f, 4.30f, "En iyisi panoyu arayayım.")));
+        }
+
+        private static DialogueLine LoadDialogue(string id, params SubtitleSegment[] subtitles)
+        {
+            return new DialogueLine
+            {
+                id = id,
+                clip = AssetDatabase.LoadAssetAtPath<AudioClip>($"Assets/Audio/Chapter1/Dialogue/{id}.wav"),
+                subtitles = subtitles
+            };
         }
 
         private static AudioMixer EnsureChapterMixer()

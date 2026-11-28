@@ -136,7 +136,8 @@ namespace TheLastBell.Interaction
             if (interactor == null) return;
             EnsureDoorHandleTarget();
             var procedural = interactor.GetComponentInChildren<CharacterProceduralController>(true);
-            if (procedural != null && interactionTarget.IsWithinReach(interactor.transform.position))
+            var animation = interactor.GetComponentInChildren<ProtagonistAnimationController>(true);
+            if (procedural != null && (animation == null || !animation.IsHoldingFestek) && interactionTarget.IsWithinReach(interactor.transform.position))
                 procedural.BeginEnvironmentalInteraction(interactionTarget);
         }
 

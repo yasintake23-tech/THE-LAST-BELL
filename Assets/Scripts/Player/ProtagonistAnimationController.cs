@@ -143,6 +143,19 @@ namespace TheLastBell.Player
         public AnimationClip CurrentPreviewClip => currentPreviewClip;
         public Transform RightHandSocket => rightHandAttachSocket;
         public Transform RightHandFestekSocket => rightHandFestekSocket;
+        private static readonly HumanBodyBones[] FestekFingerJoints =
+        {
+            HumanBodyBones.LeftIndexProximal, HumanBodyBones.LeftIndexIntermediate,
+            HumanBodyBones.LeftMiddleProximal, HumanBodyBones.LeftMiddleIntermediate,
+            HumanBodyBones.LeftRingProximal, HumanBodyBones.LeftRingIntermediate,
+            HumanBodyBones.LeftLittleProximal, HumanBodyBones.LeftLittleIntermediate
+        };
+        private readonly Quaternion[] festekFingerLocal = new Quaternion[FestekFingerJoints.Length];
+        private readonly Vector3[] festekFingerAxis = new Vector3[FestekFingerJoints.Length];
+        private bool festekGripCalibrated;
+        public Transform LeftHandFestekSocket { get; private set; }
+        public bool IsHoldingFestek { get; set; }
+        public bool IsPosingFestek { get; set; }
         public Transform LeftHandFlashlightSocket => leftHandFlashlightSocket;
 
         private void Awake()
@@ -226,6 +239,30 @@ namespace TheLastBell.Player
             }
 
             Transform leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
+            if (leftHand != null && LeftHandFestekSocket == null)
+            {
+                LeftHandFestekSocket = leftHand.Find("LeftHand_Festek_Socket");
+                if (LeftHandFestekSocket == null)
+                {
+                    LeftHandFestekSocket = new GameObject("LeftHand_Festek_Socket").transform;
+                    LeftHandFestekSocket.SetParent(leftHand, false);
+                    LeftHandFestekSocket.localPosition = new Vector3(-0.012f, 0.057f, 0.023f);
+                    LeftHandFestekSocket.localRotation = Quaternion.Euler(85f, 0f, 180f);
+                }
+            }
+            if (LeftHandFestekSocket != null && !festekGripCalibrated)
+            {
+                for (int i = 0; i < FestekFingerJoints.Length; i++)
+                {
+                    var joint = animator.GetBoneTransform(FestekFingerJoints[i]);
+                    var next = animator.GetBoneTransform((HumanBodyBones)((int)FestekFingerJoints[i] + 1));
+                    if (joint == null || next == null) continue;
+                    festekFingerLocal[i] = joint.localRotation;
+                    Vector3 curlAxis = Vector3.Cross(next.position - joint.position, LeftHandFestekSocket.position - joint.position);
+                    festekFingerAxis[i] = joint.InverseTransformDirection(curlAxis.normalized);
+                }
+                festekGripCalibrated = true;
+            }
             if (leftHand != null && leftHandFlashlightSocket == null)
             {
                 Transform existingLeft = leftHand.Find("LeftHand_Flashlight_Socket");
@@ -267,7 +304,7 @@ namespace TheLastBell.Player
 
             float targetUpper = fullOverride ? 0f : (fearLevel > 0.05f ? fearLevel : 0f);
             float targetRight = (!fullOverride && (flashlightEquipped || rightHandHoldingCustomItem || dynamicRightHandIkWeight > 0.01f)) ? 1f : 0f;
-            float targetLeft = (!fullOverride && (leftArmTimer > 0f || leftHandHoldingFlashlight || leftHandAimIkWeight > 0.01f)) ? 1f : 0f;
+            float targetLeft = (!fullOverride && (leftArmTimer > 0f || leftHandHoldingFlashlight || IsHoldingFestek || IsPosingFestek || leftHandAimIkWeight > 0.01f)) ? 1f : 0f;
             float targetHead = (!fullOverride && (headLookTimer > 0f || lookTargetOverride != null)) ? 1f : 0f;
             float targetAdd = (!fullOverride && fearLevel > 0.1f) ? Mathf.Clamp01(fearLevel * 0.45f) : 0f;
             float targetFull = fullOverride ? 1f : 0f;
@@ -632,6 +669,17 @@ namespace TheLastBell.Player
             // Layer 3: LeftArm_Interaction -> Çevresel etkileşim (kapı/duvar) veya sol ele aktarılmış el feneri IK'sı
             if (layerIndex == idxLeftArm)
             {
+                if (IsHoldingFestek || IsPosingFestek)
+                {
+                    float grip = IsHoldingFestek ? 1f : dynamicLeftHandIkWeight;
+                    for (int i = 0; i < FestekFingerJoints.Length; i++)
+                    {
+                        if (festekFingerAxis[i].sqrMagnitude < 0.5f) continue;
+                        float curl = (i % 2 == 0 ? 27f : 39f) * grip;
+                        animator.SetBoneLocalRotation(FestekFingerJoints[i],
+                            festekFingerLocal[i] * Quaternion.AngleAxis(curl, festekFingerAxis[i]));
+                    }
+                }
                 if (leftHandInteractTarget != null)
                 {
                     float w = dynamicLeftHandIkWeight > 0.01f
@@ -641,9 +689,15 @@ namespace TheLastBell.Player
                     {
                         animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, w);
                         animator.SetIKPosition(AvatarIKGoal.LeftHand, leftHandInteractTarget.position);
-                        animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, w * 0.55f);
+                        animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, IsPosingFestek ? w : w * 0.55f);
                         animator.SetIKRotation(AvatarIKGoal.LeftHand, leftHandInteractTarget.rotation);
                     }
+                }
+                else if (IsHoldingFestek)
+                {
+                    Vector3 carry = transform.root.TransformPoint(new Vector3(-0.26f, animator.GetBool(HashIsCrouching) ? 0.79f : 1.17f, 0.38f));
+                    animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, 0.68f);
+                    animator.SetIKPosition(AvatarIKGoal.LeftHand, carry);
                 }
                 else if (leftHandAimIkWeight > 0.01f)
                 {

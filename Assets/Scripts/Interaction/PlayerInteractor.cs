@@ -127,13 +127,14 @@ namespace TheLastBell.Interaction
 
         public void TriggerInteraction()
         {
+            if (!isActiveAndEnabled) return;
             CheckForInteractable();
             if (Time.time - lastInteractTime < interactionCooldown ||
                 currentInteractable == null || !currentInteractable.CanInteract()) return;
 
             lastInteractTime = Time.time;
             // DoorInteractable owns the handle animation and starts its own physical motion.
-            if (!(currentInteractable is DoorInteractable))
+            if (!(currentInteractable is DoorInteractable || currentInteractable is FestekItem || currentInteractable is FestekSocketInteractable))
             {
                 if (tps != null)
                 {

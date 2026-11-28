@@ -50,6 +50,16 @@ namespace TheLastBell.Gameplay
         private float introTime = -1f;
         private float objectiveChangeTime = float.NegativeInfinity;
         private bool entranceOpened;
+        [SerializeField] private AudioSource objectiveAudio;
+        [SerializeField] private AudioClip objectiveCue;
+        private string pendingObjective;
+        private float objectiveFadeStarted;
+
+        public void ConfigureCue(AudioSource source, AudioClip cue)
+        {
+            objectiveAudio = source;
+            objectiveCue = cue;
+        }
 
         public ChapterObjectiveState CurrentState => currentState;
         public bool IsMilestoneComplete => currentState == ChapterObjectiveState.ChapterMilestoneComplete;
@@ -147,7 +157,7 @@ namespace TheLastBell.Gameplay
                 TextAnchor.MiddleCenter, new Vector2(0, 50), Vector2.zero, "BÖLÜM 1");
             number.color = new Color(0.89f, 0.79f, 0.62f);
             var subtitle = MakeLabel("Chapter_Subtitle", introGroup.transform, font, 33,
-                TextAnchor.MiddleCenter, Vector2.zero, new Vector2(0, -36), "Hoşgeldin");
+                TextAnchor.MiddleCenter, Vector2.zero, new Vector2(0, -36), "Hoş Geldin");
             subtitle.fontStyle = FontStyle.Italic;
             introGroup.alpha = 0f;
         }
@@ -207,7 +217,18 @@ namespace TheLastBell.Gameplay
 
             float changeAge = now - objectiveChangeTime;
             objectiveHeader.text = changeAge < 0.9f ? "✓ GÖREV" : "GÖREV";
-            objectiveHudGroup.alpha = Mathf.SmoothStep(0.64f, 1f, Mathf.Clamp01(changeAge / 0.55f));
+            if (pendingObjective != null)
+            {
+                float fadeAge = now - objectiveFadeStarted;
+                objectiveHudGroup.alpha = 1f - Mathf.Clamp01(fadeAge / 0.18f);
+                if (fadeAge < 0.18f) return;
+                objectiveHudText.text = pendingObjective;
+                pendingObjective = null;
+                objectiveChangeTime = now;
+                if (objectiveAudio != null && objectiveCue != null) objectiveAudio.PlayOneShot(objectiveCue, 0.38f);
+                return;
+            }
+            objectiveHudGroup.alpha = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(changeAge / 0.42f));
         }
 
         public void EvaluateSpatialProgression(Vector3 playerPos)
@@ -329,10 +350,15 @@ namespace TheLastBell.Gameplay
         public void AdvanceTo(ChapterObjectiveState nextState, string statusThought)
         {
             if (nextState <= currentState) return;
-            if (GetObjectiveDescription(currentState) != GetObjectiveDescription(nextState))
-                objectiveChangeTime = Time.unscaledTime;
+            string previous = GetObjectiveDescription(currentState);
+            string next = GetObjectiveDescription(nextState);
             currentState = nextState;
-            RefreshObjectiveHudText();
+            if (previous != next && Application.isPlaying && objectiveHudText != null)
+            {
+                pendingObjective = next;
+                objectiveFadeStarted = Time.unscaledTime;
+            }
+            else if (pendingObjective == null) RefreshObjectiveHudText();
 
             if (!string.IsNullOrEmpty(statusThought) && PlayerHUD.Instance != null)
                 PlayerHUD.Instance.ShowStatusMessage(statusThought);
@@ -362,7 +388,7 @@ namespace TheLastBell.Gameplay
                 case ChapterObjectiveState.InsertFestek:
                     return "Feştek'i yuvasına yerleştir.";
                 case ChapterObjectiveState.ActivateFestek:
-                    return "Sistemi etkinleştir.";
+                    return "Feştek’i saat yönünde çevir.";
                 case ChapterObjectiveState.RestoreElectricity:
                     return "Elektriğin gelmesini bekle.";
                 case ChapterObjectiveState.TelevisionActivation:

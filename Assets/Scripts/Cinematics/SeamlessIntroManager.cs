@@ -42,6 +42,7 @@ namespace TheLastBell.Cinematics
         private bool isIntroFinished = false;
 
         public bool IsIntroFinished => isIntroFinished;
+        public event System.Action Completed;
 
         private void Awake()
         {
@@ -72,17 +73,8 @@ namespace TheLastBell.Cinematics
 
         private void Start()
         {
+            MobileControlManager.Instance?.SetIntroActive(true);
             StartCoroutine(PlaySeamlessIntroRoutine());
-        }
-
-        private void Update()
-        {
-            // İsteğe bağlı: Oyuncu Boşluk (Space) veya Sol Fare ile sinematiği atlayabilir
-            if (!isIntroFinished && (Input.GetKeyDown(KeyCode.Space) || Input.GetMouseButtonDown(0)))
-            {
-                StopAllCoroutines();
-                FinishIntroImmediately();
-            }
         }
 
         private IEnumerator PlaySeamlessIntroRoutine()
@@ -153,7 +145,6 @@ namespace TheLastBell.Cinematics
 
             // 4. Atmosferik Bekleme (Hold Phase - 3 saniye)
             float holdElapsed = 0f;
-            Vector3 driftPos = startPos;
             while (holdElapsed < holdDuration)
             {
                 holdElapsed += Time.deltaTime;
@@ -173,6 +164,7 @@ namespace TheLastBell.Cinematics
             Quaternion flightStartRot = mainCamera.transform.rotation;
 
             float flightElapsed = 0f;
+            bool maskedHead = false;
             while (flightElapsed < flightDuration)
             {
                 flightElapsed += Time.deltaTime;
@@ -180,32 +172,40 @@ namespace TheLastBell.Cinematics
                 // Yumuşak hızlanma ve yavaşlama (SmoothStep S-Curve)
                 float t = Mathf.SmoothStep(0f, 1f, progress);
 
-                // Hedef: Camera_Pivot noktası
-                Vector3 targetPos = (cameraPivot != null) ? cameraPivot.position : (headBone != null ? headBone.position : playerController.transform.position + Vector3.up * 1.65f);
-                Quaternion targetRot = (cameraPivot != null) ? cameraPivot.rotation : playerController.transform.rotation;
-
-                mainCamera.transform.position = Vector3.Lerp(flightStartPos, targetPos, t);
-                mainCamera.transform.rotation = Quaternion.Slerp(flightStartRot, targetRot, t);
+                GetEyePose(out Vector3 targetPos, out Quaternion targetRot);
+                Vector3 route = Vector3.up * (Mathf.Sin(t * Mathf.PI) * 0.25f);
+                if (progress >= 0.7f && !maskedHead)
+                {
+                    SetHeadPartsShadowOnly(true);
+                    maskedHead = true;
+                }
+                mainCamera.transform.SetPositionAndRotation(
+                    Vector3.Lerp(flightStartPos, targetPos, t) + route,
+                    Quaternion.Slerp(flightStartRot, targetRot, t));
 
                 yield return null;
             }
 
-            // 6. Girişi tamamla
+            // A held finger from the cinematic cannot become a gameplay gesture.
+            while (Input.touchCount > 0 || Input.GetMouseButton(0))
+            {
+                GetEyePose(out Vector3 eye, out Quaternion view);
+                mainCamera.transform.SetPositionAndRotation(eye, view);
+                yield return null;
+            }
             FinishIntroImmediately();
         }
 
         private void FinishIntroImmediately()
         {
             if (isIntroFinished) return;
-            isIntroFinished = true;
-
             if (mainCamera != null)
             {
                 if (cameraPivot != null)
                 {
-                    mainCamera.transform.SetParent(cameraPivot, false);
-                    mainCamera.transform.localPosition = Vector3.zero;
-                    mainCamera.transform.localRotation = Quaternion.identity;
+                    GetEyePose(out Vector3 eye, out Quaternion view);
+                    mainCamera.transform.SetPositionAndRotation(eye, view);
+                    mainCamera.transform.SetParent(cameraPivot, true);
                 }
                 else if (playerController != null)
                 {
@@ -229,6 +229,10 @@ namespace TheLastBell.Cinematics
             // Kontrolleri ve etkileşimi aç
             if (playerController != null)
             {
+                playerController.MobileMoveInput = Vector2.zero;
+                playerController.MobileLookInput = Vector2.zero;
+                playerController.MobileSprintInput = false;
+                playerController.MobileCrouchInput = false;
                 playerController.enabled = true;
             }
             if (playerInteractor != null)
@@ -259,7 +263,17 @@ namespace TheLastBell.Cinematics
                 Cursor.visible = false;
             }
 
+            isIntroFinished = true;
+            Completed?.Invoke();
             Debug.Log($"[THE LAST BELL] Seamless Intro tamamlandı! True First Person aktif (isMobile={isMobile}).");
+        }
+
+        private void GetEyePose(out Vector3 position, out Quaternion rotation)
+        {
+            var mode = playerController != null ? playerController.GetComponent<CameraModeController>() : null;
+            if (mode != null && mode.TryGetFirstPersonPose(out position, out rotation)) return;
+            position = cameraPivot != null ? cameraPivot.position : headBone != null ? headBone.position : mainCamera.transform.position;
+            rotation = cameraPivot != null ? cameraPivot.rotation : playerController != null ? playerController.transform.rotation : mainCamera.transform.rotation;
         }
 
         private IEnumerator FadeHUD(CanvasGroup cg, float start, float end, float duration)
