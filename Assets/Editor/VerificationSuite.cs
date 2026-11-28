@@ -981,6 +981,9 @@ namespace TheLastBell.Editor
             var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(ProtagonistAnimationSetup.REGISTRY_PATH);
 
             Vector3 initialSpawn = player != null ? player.transform.position : Vector3.zero;
+            // The chapter test reopens the scene. Editor-mode stepping still needs the player's normal initialization.
+            InvokePrivate(fpc, "Awake");
+            camMode?.ApplyMeshVisibility(true);
             if (anim != null && animCtrl != null && procCtrl != null && registry != null)
             {
                 player.transform.position = Vector3.zero;
@@ -1097,7 +1100,7 @@ namespace TheLastBell.Editor
             VerifyChapterAudio(player, sb, failures);
             if (canRender && shotCam != null)
             {
-                shotCam.transform.SetPositionAndRotation(new Vector3(0.2f, 1.61f, 1.6f), Quaternion.identity);
+                shotCam.transform.SetPositionAndRotation(new Vector3(0.2f, 1.61f, 2.85f), Quaternion.identity);
                 RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Main_Corridor.png", sb);
                 shotCam.transform.position = new Vector3(-3.2f, 1.58f, 14.25f);
                 shotCam.transform.LookAt(new Vector3(-6.2f, 1.54f, 10.8f));
@@ -1274,7 +1277,7 @@ namespace TheLastBell.Editor
                     var previousCamera = canvas.worldCamera;
                     canvas.renderMode = RenderMode.ScreenSpaceCamera;
                     canvas.worldCamera = screenshot;
-                    screenshot.transform.position = player.transform.position + new Vector3(-0.35f, 1.64f, -0.4f);
+                    screenshot.transform.position = player.transform.position + new Vector3(0f, 1.64f, 0.23f);
                     screenshot.transform.LookAt(new Vector3(0.35f, 2.6f, 0f));
                     Canvas.ForceUpdateCanvases();
                     RenderAndSave(screenshot, 2340, 1080, "Logs/Screenshots/Chapter1_Spawn_Title_Objective.png", log);
