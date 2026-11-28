@@ -24,8 +24,8 @@ namespace TheLastBell.Player
         [SerializeField] private float walkSpeed = 2.8f;
         [SerializeField] private float sprintSpeed = 5.6f;
         [SerializeField] private float crouchSpeed = 1.4f;
-        [SerializeField] private float acceleration = 12f;
-        [SerializeField] private float deceleration = 14f;
+        [SerializeField] private float acceleration = 16f;
+        [SerializeField] private float deceleration = 40f;
 
         [Header("--- Çömelme (Crouch) Ayarları ---")]
         [SerializeField] private float standingHeight = 1.8f;
@@ -83,14 +83,31 @@ namespace TheLastBell.Player
         [SerializeField] private AudioClip[] metalSteps;
         [SerializeField] private AudioClip exhaustedBreathingClip;
 
-        [Header("--- Karakter Animator Kontrolcs ---")]
+        [Header("--- Karakter Animator Kontrolcüsü ---")]
         [SerializeField] private Animator characterAnimator;
+        [SerializeField] private ProtagonistAnimationController animController;
         [SerializeField] private float animDampTime = 0.15f;
+
+        [Header("--- Dinamik Bakış & Yerinde Dönüş (Turn-in-Place) ---")]
+        [SerializeField] private float turnInPlaceTriggerAngle = 58f;
+        [SerializeField] private float turnInPlaceStopAngle = 6f;
+        [SerializeField] private float turnInPlaceSpeed = 135f;
+        [SerializeField] private float movingBodyAlignSpeed = 8.5f;
 
         private CharacterController controller;
         private Vector3 moveVelocity = Vector3.zero;
         private float verticalVelocity = 0f;
         private float cameraPitch = 0f;
+        private float desiredLookYaw = 0f;
+        private float lastKnownBodyYaw = 0f;
+        private bool isTurningInPlace = false;
+        private float turnAnimCooldown = 0f;
+
+        // Sinematik / Senaryolu Bakış Geçersiz Kılma (Bölüm 13)
+        private bool scriptedGazeActive = false;
+        private float scriptedGazeYaw = 0f;
+        private float scriptedGazePitch = 0f;
+        private float scriptedGazeBlend = 0f;
 
         private bool isCrouching = false;
         private bool isSprinting = false;
@@ -105,24 +122,44 @@ namespace TheLastBell.Player
         private float currentAnimSpeed = 0f;
         private float currentAnimStrafe = 0f;
 
-        // Mobil Girdiler (MobileControlsUI tarafndan set edilir)
+        // Mobil Girdiler (MobileControlsUI tarafından set edilir)
         public Vector2 MobileMoveInput { get; set; }
         public Vector2 MobileLookInput { get; set; }
         public bool MobileSprintInput { get; set; }
         public bool MobileCrouchInput { get; set; }
+        public bool AllowMovement { get; set; } = true;
+        public bool FreezeGazeForInspection { get; set; } = false;
 
         public float StaminaPercent => currentStamina / maxStamina;
         public bool IsCrouching => isCrouching;
         public bool IsSprinting => isSprinting;
         public bool IsExhausted => isExhausted;
+        public bool IsGrounded => controller != null && controller.isGrounded;
+        public bool IsTurningInPlace => isTurningInPlace;
+        public float DesiredLookYaw => desiredLookYaw;
+        public float DesiredLookPitch => cameraPitch;
+        public float RelativeLookYaw => Mathf.DeltaAngle(transform.eulerAngles.y, desiredLookYaw);
+        public Vector3 DesiredLookDirection => Quaternion.Euler(cameraPitch, desiredLookYaw, 0f) * Vector3.forward;
+        public Vector3 CurrentVelocity => controller != null ? controller.velocity : moveVelocity;
 
         public event Action<float> OnStaminaChanged;
+
+        public void SetScriptedGazeOverride(bool active, float worldYaw, float pitch, float blend = 1f)
+        {
+            scriptedGazeActive = active;
+            scriptedGazeYaw = worldYaw;
+            scriptedGazePitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+            scriptedGazeBlend = Mathf.Clamp01(blend);
+        }
 
         private void Awake()
         {
             controller = GetComponent<CharacterController>();
             controller.slopeLimit = 45f;
             controller.stepOffset = 0.35f;
+
+            desiredLookYaw = transform.eulerAngles.y;
+            lastKnownBodyYaw = desiredLookYaw;
 
             if (playerCamera == null && cameraHolder != null)
             {
@@ -160,16 +197,26 @@ namespace TheLastBell.Player
             {
                 characterAnimator = GetComponentInChildren<Animator>();
             }
+            if (animController == null)
+            {
+                animController = GetComponentInChildren<ProtagonistAnimationController>(true);
+            }
+            if (animController == null && characterAnimator != null)
+            {
+                animController = characterAnimator.gameObject.AddComponent<ProtagonistAnimationController>();
+            }
+            animController?.InitializeIfNeeded();
 
-            // Root Motion' CharacterController ile akmamas iin devre d brak
             if (characterAnimator != null)
             {
                 characterAnimator.applyRootMotion = false;
             }
 
-            // Fare imlecini kilitle
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            if (!Application.isMobilePlatform)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
 
             if (isTrueFPS)
             {
@@ -179,62 +226,145 @@ namespace TheLastBell.Player
 
         public void ApplyTrueFPSHeadMeshCulling()
         {
-            string[] headPartNames = new string[] {
-                "AvatarHead", "AvatarEyelashes", "AvatarLeftEyeball", "AvatarRightEyeball", "AvatarTeethLower", "AvatarTeethUpper"
-            };
-            foreach (var partName in headPartNames)
+            var camMode = GetComponent<CameraModeController>();
+            if (camMode != null)
             {
-                Transform t = transform.Find("Character_Model/" + partName);
-                if (t != null)
+                camMode.ApplyMeshVisibility(camMode.IsThirdPerson);
+                return;
+            }
+
+            Transform modelRoot = transform.Find("Character_Model");
+            if (modelRoot != null)
+            {
+                foreach (var r in modelRoot.GetComponentsInChildren<Renderer>(true))
                 {
-                    Renderer r = t.GetComponent<Renderer>();
-                    if (r != null)
-                    {
-                        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
-                    }
+                    bool isHeadPart = r.gameObject.name.Contains("Head") ||
+                                      r.gameObject.name.Contains("Eye") ||
+                                      r.gameObject.name.Contains("Teeth") ||
+                                      r.gameObject.name.Contains("Eyelash");
+                    r.shadowCastingMode = isHeadPart
+                        ? UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly
+                        : UnityEngine.Rendering.ShadowCastingMode.On;
                 }
             }
         }
 
         private void Update()
         {
-            HandleLook();
-            HandleCrouch();
-            HandleStamina();
-            HandleMovement();
-            HandleHeadBobAndFOV();
-            HandleFootsteps();
-            UpdateAnimator();
+            StepController(Time.deltaTime);
         }
 
-        private void HandleLook()
+        public void StepController(float deltaTime)
         {
+            float dt = Mathf.Max(0.0001f, deltaTime);
+            SyncExternalRotationIfChanged();
+            HandleLook(dt);
+            if (!AllowMovement) return;
+            HandleCrouch(dt);
+            HandleStamina(dt);
+            HandleMovement(dt);
+            HandleHeadBobAndFOV(dt);
+            HandleFootsteps(dt);
+            UpdateAnimator(dt);
+        }
+
+        private void SyncExternalRotationIfChanged()
+        {
+            float curYaw = transform.eulerAngles.y;
+            if (Mathf.Abs(Mathf.DeltaAngle(lastKnownBodyYaw, curYaw)) > 0.5f)
+            {
+                desiredLookYaw = curYaw;
+                lastKnownBodyYaw = curYaw;
+                isTurningInPlace = false;
+            }
+        }
+
+        private void HandleLook(float dt)
+        {
+            if (turnAnimCooldown > 0f) turnAnimCooldown = Mathf.Max(0f, turnAnimCooldown - dt);
+
             float lookX = 0f;
             float lookY = 0f;
 
-            // PC Fare Girdisi
-            if (Cursor.lockState == CursorLockMode.Locked)
+            if (!FreezeGazeForInspection)
             {
-                lookX += Input.GetAxisRaw("Mouse X") * mouseSensitivityX;
-                lookY += Input.GetAxisRaw("Mouse Y") * mouseSensitivityY;
+                if (Cursor.lockState == CursorLockMode.Locked)
+                {
+                    lookX += Input.GetAxisRaw("Mouse X") * mouseSensitivityX;
+                    lookY += Input.GetAxisRaw("Mouse Y") * mouseSensitivityY;
+                }
+
+                if (MobileLookInput != Vector2.zero)
+                {
+                    lookX += MobileLookInput.x * mobileSensitivityX;
+                    lookY += MobileLookInput.y * mobileSensitivityY;
+                    MobileLookInput = Vector2.zero;
+                }
+            }
+            else
+            {
+                MobileLookInput = Vector2.zero;
             }
 
-            // Mobil Dokunmatik Bak Girdisi
-            if (MobileLookInput != Vector2.zero)
+            if (scriptedGazeActive && scriptedGazeBlend > 0.01f)
             {
-                lookX += MobileLookInput.x * mobileSensitivityX;
-                lookY += MobileLookInput.y * mobileSensitivityY;
-                MobileLookInput = Vector2.zero; // Harcand
+                desiredLookYaw = Mathf.LerpAngle(desiredLookYaw, scriptedGazeYaw, 1f - Mathf.Exp(-8f * dt) * (1f - scriptedGazeBlend));
+                cameraPitch = Mathf.Lerp(cameraPitch, scriptedGazePitch, 1f - Mathf.Exp(-8f * dt));
+            }
+            else
+            {
+                desiredLookYaw = Mathf.Repeat(desiredLookYaw + lookX, 360f);
+                cameraPitch = Mathf.Clamp(cameraPitch - lookY, minPitch, maxPitch);
             }
 
-            // Yatay dn: Karakter gvdesini dndr
-            transform.Rotate(Vector3.up * lookX);
+            // Hareket halindeyken veya büyük yatay dönüşlerde gövde yönelimini yumuşakça hizala
+            GetCombinedMoveInput(out float h, out float v);
+            bool hasMoveInput = AllowMovement && (h * h + v * v) > 0.01f;
+            float relYaw = Mathf.DeltaAngle(transform.eulerAngles.y, desiredLookYaw);
 
-            // Dikey bak: Kamera holder pitch clamp (-80, 80)
-            cameraPitch = Mathf.Clamp(cameraPitch - lookY, minPitch, maxPitch);
+            if (hasMoveInput)
+            {
+                isTurningInPlace = false;
+                float nextYaw = Mathf.LerpAngle(transform.eulerAngles.y, desiredLookYaw, 1f - Mathf.Exp(-movingBodyAlignSpeed * dt));
+                transform.rotation = Quaternion.Euler(0f, nextYaw, 0f);
+            }
+            else
+            {
+                if (!isTurningInPlace && Mathf.Abs(relYaw) >= turnInPlaceTriggerAngle)
+                {
+                    isTurningInPlace = true;
+                    if (turnAnimCooldown <= 0f)
+                    {
+                        animController?.TriggerTurnInPlace(relYaw < 0f ? -1 : 1);
+                        turnAnimCooldown = 0.85f;
+                    }
+                }
+
+                if (isTurningInPlace)
+                {
+                    if (Mathf.Abs(relYaw) > turnInPlaceTriggerAngle * 0.85f && turnAnimCooldown <= 0f)
+                    {
+                        animController?.TriggerTurnInPlace(relYaw < 0f ? -1 : 1);
+                        turnAnimCooldown = 0.85f;
+                    }
+
+                    float stepYaw = Mathf.MoveTowardsAngle(transform.eulerAngles.y, desiredLookYaw, turnInPlaceSpeed * dt);
+                    transform.rotation = Quaternion.Euler(0f, stepYaw, 0f);
+
+                    if (Mathf.Abs(Mathf.DeltaAngle(stepYaw, desiredLookYaw)) <= turnInPlaceStopAngle)
+                    {
+                        isTurningInPlace = false;
+                    }
+                }
+            }
+
+            lastKnownBodyYaw = transform.eulerAngles.y;
+
+            // Camera_Pivot her zaman istenen bakış yönünü takip eder (gövde hizalanırken kamera sıçramaz)
             if (cameraHolder != null)
             {
-                cameraHolder.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
+                float updatedRelYaw = Mathf.DeltaAngle(transform.eulerAngles.y, desiredLookYaw);
+                cameraHolder.localRotation = Quaternion.Euler(cameraPitch, updatedRelYaw, 0f);
             }
         }
 
@@ -263,47 +393,56 @@ namespace TheLastBell.Player
             }
         }
 
-        private void HandleCrouch()
+        private void HandleCrouch(float dt)
         {
             if (Input.GetKeyDown(KeyCode.LeftControl) || Input.GetKeyDown(KeyCode.C))
             {
                 ToggleCrouch();
             }
-            else if (MobileCrouchInput != isCrouching)
+            else if (MobileCrouchInput && !isCrouching)
             {
-                SetCrouch(MobileCrouchInput);
+                SetCrouch(true);
             }
 
             // CharacterController yükseklik ve merkez lerp
             float targetHeight = isCrouching ? crouchHeight : standingHeight;
-            controller.height = Mathf.Lerp(controller.height, targetHeight, Time.deltaTime * crouchTransitionSpeed);
+            controller.height = Mathf.Lerp(controller.height, targetHeight, dt * crouchTransitionSpeed);
             controller.center = new Vector3(0f, controller.height * 0.5f, 0f);
 
-            // Camera_Pivot yükseklik lerp (Ayakta: 1.7m, Çömelme: 1.0m)
+            // Camera_Pivot yükseklik lerp
             if (cameraHolder != null)
             {
                 float targetCamY = isCrouching ? crouchCameraY : standingCameraY;
                 Vector3 camPos = cameraHolder.localPosition;
-                camPos.y = Mathf.Lerp(camPos.y, targetCamY, Time.deltaTime * crouchTransitionSpeed);
+                camPos.y = Mathf.Lerp(camPos.y, targetCamY, dt * crouchTransitionSpeed);
                 cameraHolder.localPosition = camPos;
             }
         }
 
-        private void HandleStamina()
+        private void GetCombinedMoveInput(out float horizontal, out float vertical)
         {
-            float v = Input.GetAxisRaw("Vertical");
-            if (TheLastBell.UI.MobileControlsUI.Instance != null && (Application.isMobilePlatform || Application.isEditor))
+            horizontal = Input.GetAxisRaw("Horizontal");
+            vertical = Input.GetAxisRaw("Vertical");
+
+            Vector2 mobileMove = MobileMoveInput;
+            if (mobileMove == Vector2.zero && TheLastBell.UI.MobileControlsUI.Instance != null)
             {
-                v += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.y;
-            }
-            else if (MobileMoveInput != Vector2.zero)
-            {
-                v += MobileMoveInput.y;
+                mobileMove = TheLastBell.UI.MobileControlsUI.Instance.MovementInput;
             }
 
-            bool movingForward = v > 0.1f;
+            horizontal += mobileMove.x;
+            vertical += mobileMove.y;
+
+            horizontal = Mathf.Clamp(horizontal, -1f, 1f);
+            vertical = Mathf.Clamp(vertical, -1f, 1f);
+        }
+
+        private void HandleStamina(float dt)
+        {
+            GetCombinedMoveInput(out float h, out float v);
+            bool movingEnough = (v > 0.1f) || ((h * h + v * v) > 0.09f && v >= -0.15f);
             bool mobileSprint = (TheLastBell.UI.MobileControlsUI.Instance != null && TheLastBell.UI.MobileControlsUI.Instance.IsSprinting) || MobileSprintInput;
-            bool wantSprint = (Input.GetKey(KeyCode.LeftShift) || mobileSprint) && movingForward && !isCrouching;
+            bool wantSprint = (Input.GetKey(KeyCode.LeftShift) || mobileSprint) && movingEnough && !isCrouching;
 
             if (isExhausted)
             {
@@ -320,7 +459,7 @@ namespace TheLastBell.Player
 
             if (isSprinting)
             {
-                currentStamina = Mathf.Max(0f, currentStamina - staminaDrainRate * Time.deltaTime);
+                currentStamina = Mathf.Max(0f, currentStamina - staminaDrainRate * dt);
                 lastSprintTime = Time.time;
 
                 if (currentStamina <= 0f)
@@ -333,15 +472,15 @@ namespace TheLastBell.Player
             {
                 if (Time.time - lastSprintTime > regenDelay)
                 {
-                    currentStamina = Mathf.Min(maxStamina, currentStamina + staminaRegenRate * Time.deltaTime);
+                    currentStamina = Mathf.Min(maxStamina, currentStamina + staminaRegenRate * dt);
                 }
             }
 
             OnStaminaChanged?.Invoke(StaminaPercent);
-            HandleBreathingAudio();
+            HandleBreathingAudio(dt);
         }
 
-        private void HandleBreathingAudio()
+        private void HandleBreathingAudio(float dt)
         {
             if (breathingAudioSource == null) return;
 
@@ -361,7 +500,7 @@ namespace TheLastBell.Player
             {
                 if (breathingAudioSource.isPlaying)
                 {
-                    breathingAudioSource.volume = Mathf.MoveTowards(breathingAudioSource.volume, 0f, Time.deltaTime * 1.5f);
+                    breathingAudioSource.volume = Mathf.MoveTowards(breathingAudioSource.volume, 0f, dt * 1.5f);
                     if (breathingAudioSource.volume <= 0.01f)
                     {
                         breathingAudioSource.Stop();
@@ -370,48 +509,41 @@ namespace TheLastBell.Player
             }
         }
 
-        private void HandleMovement()
+        private void HandleMovement(float dt)
         {
-            float horizontal = Input.GetAxisRaw("Horizontal");
-            float vertical = Input.GetAxisRaw("Vertical");
+            GetCombinedMoveInput(out float horizontal, out float vertical);
 
-            if (TheLastBell.UI.MobileControlsUI.Instance != null && (Application.isMobilePlatform || Application.isEditor))
+            Quaternion gazeYawRot = Quaternion.Euler(0f, desiredLookYaw, 0f);
+            Vector3 gazeForward = gazeYawRot * Vector3.forward;
+            Vector3 gazeRight = gazeYawRot * Vector3.right;
+            Vector3 inputDir = gazeForward * vertical + gazeRight * horizontal;
+            float inputMag = inputDir.magnitude;
+            if (inputMag > 1f)
             {
-                horizontal += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.x;
-                vertical += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.y;
-            }
-            else if (MobileMoveInput != Vector2.zero)
-            {
-                horizontal += MobileMoveInput.x;
-                vertical += MobileMoveInput.y;
-            }
-
-            horizontal = Mathf.Clamp(horizontal, -1f, 1f);
-            vertical = Mathf.Clamp(vertical, -1f, 1f);
-
-            // Hareket formülü (İleri/Geri ve Sağa/Sola):
-            // W tuşu (vertical > 0) = İLERİ (transform.forward)
-            // S tuşu (vertical < 0) = GERİ (-transform.forward)
-            // D tuşu (horizontal > 0) = SAĞ (transform.right)
-            // A tuşu (horizontal < 0) = SOL (-transform.right)
-            Vector3 move = (transform.forward * vertical + transform.right * horizontal);
-            if (move.sqrMagnitude > 1f)
-            {
-                move.Normalize();
+                inputDir /= inputMag;
+                inputMag = 1f;
             }
 
             float targetSpeed = 0f;
-            if (move.sqrMagnitude > 0.0025f)
+            if (inputMag > 0.05f)
             {
-                if (isCrouching) targetSpeed = crouchSpeed;
-                else if (isSprinting) targetSpeed = sprintSpeed;
-                else targetSpeed = walkSpeed;
+                float maxModeSpeed = isCrouching ? crouchSpeed : (isSprinting ? sprintSpeed : walkSpeed);
+                targetSpeed = maxModeSpeed * inputMag;
+                Vector3 targetHorizontalVel = inputDir.normalized * targetSpeed;
+                moveVelocity.x = Mathf.MoveTowards(moveVelocity.x, targetHorizontalVel.x, acceleration * dt * maxModeSpeed);
+                moveVelocity.z = Mathf.MoveTowards(moveVelocity.z, targetHorizontalVel.z, acceleration * dt * maxModeSpeed);
             }
-
-            float accelRate = (targetSpeed > 0.01f) ? acceleration : deceleration;
-            Vector3 targetHorizontalVel = move * targetSpeed;
-            moveVelocity.x = Mathf.MoveTowards(moveVelocity.x, targetHorizontalVel.x, accelRate * Time.deltaTime);
-            moveVelocity.z = Mathf.MoveTowards(moveVelocity.z, targetHorizontalVel.z, accelRate * Time.deltaTime);
+            else
+            {
+                // Joystick bırakıldığında kaymayı önlemek için anında keskin duruş
+                moveVelocity.x = Mathf.MoveTowards(moveVelocity.x, 0f, deceleration * dt);
+                moveVelocity.z = Mathf.MoveTowards(moveVelocity.z, 0f, deceleration * dt);
+                if ((moveVelocity.x * moveVelocity.x + moveVelocity.z * moveVelocity.z) < 0.02f)
+                {
+                    moveVelocity.x = 0f;
+                    moveVelocity.z = 0f;
+                }
+            }
 
             if (controller.isGrounded)
             {
@@ -419,19 +551,22 @@ namespace TheLastBell.Player
             }
             else
             {
-                verticalVelocity += gravity * Time.deltaTime;
+                verticalVelocity += gravity * dt;
             }
             moveVelocity.y = verticalVelocity;
 
-            controller.Move(moveVelocity * Time.deltaTime);
+            if (controller.enabled)
+            {
+                controller.Move(moveVelocity * dt);
+            }
         }
 
-        private void HandleHeadBobAndFOV()
+        private void HandleHeadBobAndFOV(float dt)
         {
             if (playerCamera == null) return;
 
             float targetFOV = isSprinting ? sprintFOV : baseFOV;
-            playerCamera.fieldOfView = Mathf.Lerp(playerCamera.fieldOfView, targetFOV, Time.deltaTime * fovChangeSpeed);
+            playerCamera.fieldOfView = Mathf.Lerp(playerCamera.fieldOfView, targetFOV, dt * fovChangeSpeed);
 
             if (isTrueFPS || !enableHeadBob || cameraHolder == null) return;
 
@@ -442,7 +577,7 @@ namespace TheLastBell.Player
                 float freq = isSprinting ? sprintBobFrequency : walkBobFrequency;
                 float amp = (isSprinting ? sprintBobAmplitude : walkBobAmplitude) * bobIntensity;
 
-                bobTimer += Time.deltaTime * freq;
+                bobTimer += dt * freq;
 
                 float bobY = Mathf.Sin(bobTimer) * amp;
                 float bobX = Mathf.Cos(bobTimer * 0.5f) * (amp * 0.5f);
@@ -452,11 +587,11 @@ namespace TheLastBell.Player
             else
             {
                 bobTimer = 0f;
-                cameraHolder.localPosition = Vector3.Lerp(cameraHolder.localPosition, defaultCameraLocalPos, Time.deltaTime * 8f);
+                cameraHolder.localPosition = Vector3.Lerp(cameraHolder.localPosition, defaultCameraLocalPos, dt * 8f);
             }
         }
 
-        private void HandleFootsteps()
+        private void HandleFootsteps(float dt)
         {
             if (!controller.isGrounded) return;
 
@@ -471,7 +606,7 @@ namespace TheLastBell.Player
             if (isSprinting) stepInterval = 0.35f;
             else if (isCrouching) stepInterval = 0.72f;
 
-            stepTimer += Time.deltaTime;
+            stepTimer += dt;
             if (stepTimer >= stepInterval)
             {
                 stepTimer = 0f;
@@ -530,81 +665,83 @@ namespace TheLastBell.Player
             return SurfaceType.Concrete;
         }
 
-        private void UpdateAnimator()
+        private void UpdateAnimator(float dt)
         {
             if (characterAnimator == null) return;
 
-            float horizontal = Input.GetAxisRaw("Horizontal");
-            float vertical = Input.GetAxisRaw("Vertical");
+            GetCombinedMoveInput(out float horizontal, out float vertical);
+            float inputMag = Mathf.Clamp01(Mathf.Sqrt(horizontal * horizontal + vertical * vertical));
 
-            if (TheLastBell.UI.MobileControlsUI.Instance != null && (Application.isMobilePlatform || Application.isEditor))
-            {
-                horizontal += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.x;
-                vertical += TheLastBell.UI.MobileControlsUI.Instance.MovementInput.y;
-            }
-            else if (MobileMoveInput != Vector2.zero)
-            {
-                horizontal += MobileMoveInput.x;
-                vertical += MobileMoveInput.y;
-            }
-
-            horizontal = Mathf.Clamp(horizontal, -1f, 1f);
-            vertical = Mathf.Clamp(vertical, -1f, 1f);
+            // Karakterin gerçek yatay hızını hesapla (CharacterController veya moveVelocity üzerinden)
+            float actualHorizSpeed = Mathf.Max(
+                new Vector2(controller.velocity.x, controller.velocity.z).magnitude,
+                new Vector2(moveVelocity.x, moveVelocity.z).magnitude);
 
             float targetSpeed = 0f;
-            float horizontalSpeed = new Vector2(controller.velocity.x, controller.velocity.z).magnitude;
-
-            if (horizontalSpeed > 0.15f)
-            {
-                if (vertical < -0.1f && Mathf.Abs(horizontal) < 0.5f)
-                {
-                    targetSpeed = -1.0f; // Walk Backwards
-                }
-                else if (isSprinting)
-                {
-                    targetSpeed = 3.0f; // Sprint
-                }
-                else
-                {
-                    targetSpeed = 1.0f; // Walk / Jog blend
-                }
-            }
-
             float targetStrafe = 0f;
-            if (Mathf.Abs(horizontal) > 0.1f)
+
+            if (inputMag > 0.05f || actualHorizSpeed > 0.1f)
             {
-                targetStrafe = Mathf.Sign(horizontal);
+                float speedScale = isSprinting ? 2.0f : 1.0f;
+                targetSpeed = vertical * speedScale;
+                targetStrafe = horizontal;
             }
 
-            currentAnimSpeed = Mathf.MoveTowards(currentAnimSpeed, targetSpeed, Time.deltaTime * 6f);
-            currentAnimStrafe = Mathf.MoveTowards(currentAnimStrafe, targetStrafe, Time.deltaTime * 6f);
+            currentAnimSpeed = Mathf.MoveTowards(currentAnimSpeed, targetSpeed, dt * 8f);
+            currentAnimStrafe = Mathf.MoveTowards(currentAnimStrafe, targetStrafe, dt * 8f);
 
-            characterAnimator.SetFloat("Speed", currentAnimSpeed);
-            characterAnimator.SetFloat("Strafe", currentAnimStrafe);
-            characterAnimator.SetBool("IsCrouching", isCrouching);
-            characterAnimator.SetBool("IsGrounded", controller.isGrounded);
-            characterAnimator.SetBool("IsExhausted", isExhausted);
+            // Animasyon oynatma hızını gerçek yürüme hızına oranla (kaymayı engeller)
+            float playbackMult = 1.0f;
+            if (actualHorizSpeed > 0.1f && walkSpeed > 0.01f)
+            {
+                float refSpeed = isCrouching ? crouchSpeed : (isSprinting ? sprintSpeed : walkSpeed);
+                playbackMult = Mathf.Clamp(actualHorizSpeed / Mathf.Max(0.5f, refSpeed), 0.7f, 1.35f);
+            }
+
+            if (animController != null)
+            {
+                animController.UpdateLocomotionParameters(
+                    currentAnimSpeed,
+                    currentAnimStrafe,
+                    inputMag,
+                    playbackMult,
+                    isCrouching,
+                    controller.isGrounded,
+                    isExhausted);
+            }
+            else
+            {
+                characterAnimator.SetFloat("Speed", currentAnimSpeed);
+                characterAnimator.SetFloat("Strafe", currentAnimStrafe);
+                characterAnimator.SetBool("IsCrouching", isCrouching);
+                characterAnimator.SetBool("IsGrounded", controller.isGrounded);
+                characterAnimator.SetBool("IsExhausted", isExhausted);
+            }
         }
 
         #region Animasyon Tetikleyicileri
         public void PlayInteractAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("Interact");
+            if (animController != null) animController.TriggerDoorInteract();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("Interact");
         }
 
         public void PlayPickupAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("PickUp");
+            if (animController != null) animController.TriggerItemPickup();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("PickUp");
         }
 
         public void PlayHitAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("Hit");
+            if (animController != null) animController.TriggerImpactFlinch();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("Hit");
         }
 
         public void PlayDeathAnimation()
         {
-            if (characterAnimator != null) characterAnimator.SetTrigger("Die");
+            if (animController != null) animController.TriggerFall();
+            else if (characterAnimator != null) characterAnimator.SetTrigger("Die");
         }
         #endregion
 

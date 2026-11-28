@@ -54,6 +54,7 @@ namespace TheLastBell.Cinematics
             // Başlangıçta kontrolleri kapat
             if (playerController != null) playerController.enabled = false;
             if (playerInteractor != null) playerInteractor.enabled = false;
+            if (MobileControlManager.Instance != null) MobileControlManager.Instance.SetIntroActive(true);
 
             // HUD ve imleci gizle
             if (playerHUD != null)
@@ -62,9 +63,11 @@ namespace TheLastBell.Cinematics
                 if (hudCg != null) hudCg.alpha = 0f;
             }
 
-            // Fare imlecini gizle
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            if (!Application.isMobilePlatform)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
         }
 
         private void Start()
@@ -213,8 +216,15 @@ namespace TheLastBell.Cinematics
                 mainCamera.nearClipPlane = 0.01f;
             }
 
-            // Standart Cast Shadows = On modunu koru (aynalarda kafa tam görünsün)
-            SetHeadPartsShadowOnly(false);
+            // 1P modunda kamera tıkanmasını önle, 3P modunda tam vücudu göster
+            if (CameraModeController.Instance != null)
+            {
+                CameraModeController.Instance.ApplyMeshVisibility(CameraModeController.Instance.IsThirdPerson);
+            }
+            else
+            {
+                SetHeadPartsShadowOnly(true);
+            }
 
             // Kontrolleri ve etkileşimi aç
             if (playerController != null)
@@ -236,10 +246,20 @@ namespace TheLastBell.Cinematics
                 }
             }
 
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            bool isMobile = Application.isMobilePlatform ||
+                            (MobileControlManager.Instance != null && MobileControlManager.Instance.IsMobileActive);
 
-            Debug.Log("[THE LAST BELL] Seamless Intro tamamlandı! True First Person aktif.");
+            if (MobileControlManager.Instance != null)
+            {
+                MobileControlManager.Instance.SetIntroActive(false);
+            }
+            else if (!isMobile)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+
+            Debug.Log($"[THE LAST BELL] Seamless Intro tamamlandı! True First Person aktif (isMobile={isMobile}).");
         }
 
         private IEnumerator FadeHUD(CanvasGroup cg, float start, float end, float duration)

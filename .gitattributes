@@ -150,7 +150,9 @@ Packages/packages-lock.json linguist-generated
 
 # Fonts
 *.otf                   lfs
+*.OTF                   lfs
 *.ttf                   lfs
+*.TTF                   lfs
 
 # Executable/Installer
 *.apk                   lfs

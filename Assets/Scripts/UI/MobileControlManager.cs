@@ -1,20 +1,18 @@
-using System;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace TheLastBell.UI
 {
     /// <summary>
     /// THE LAST BELL - Hibrit Kontrol Sistemi Yöneticisi (Mobile Control Manager).
-    /// Çalışma zamanında cihaz tipini tespit eder:
-    /// - Mobil cihazlarda (Android / iOS): Gameplay_HUD_Canvas içindeki sanal joystick,
-    ///   TouchLookZone ve aksiyon butonlarını (Fener, Çömelme, Koşma, Etkileşim) aktif eder.
-    /// - PC / Windows ortamında: Dokunmatik UI elemanlarını tamamen devre dışı bırakır,
-    ///   fare imlecini kilitler (CursorLockMode.Locked) ve karakteri WASD + Mouse ile yönetime bırakır.
+    /// Çalışma zamanında cihaz tipini tespit eder, EventSystem varlığını garanti eder,
+    /// intro/duraklatma/not okuma sırasında dokunmatik kontrolleri gizler ve platforma göre imleç kilidini yönetir.
     /// </summary>
     public class MobileControlManager : MonoBehaviour
     {
+        public static MobileControlManager Instance { get; private set; }
+
         [Header("--- Dokunmatik Kontrol Kökü ---")]
-        [Tooltip("Tüm mobil kontrolleri barındıran üst obje (Gameplay_HUD_Canvas/Mobile_Controls_Root)")]
         [SerializeField] private GameObject mobileControlsRoot;
 
         [Header("--- Münferit Dokunmatik Elemanlar (İsteğe Bağlı) ---")]
@@ -23,22 +21,49 @@ namespace TheLastBell.UI
         [SerializeField] private GameObject[] actionButtons;
 
         [Header("--- Test ve Editör Ayarları ---")]
-        [Tooltip("PC Unity Editöründe mobil kontrolleri zorla göstermek/test etmek için işaretleyin")]
         [SerializeField] private bool forceMobileInEditor = true;
-
-        [Tooltip("PC ortamında fare imlecini kilitlesin mi")]
         [SerializeField] private bool lockCursorOnPC = true;
+
+        private bool isIntroActive = false;
+        private bool isPaused = false;
 
         public bool IsMobileActive { get; private set; }
 
         private void Awake()
         {
+            Instance = this;
+            EnsureEventSystemExists();
             AutoResolveReferences();
         }
 
         private void Start()
         {
             ApplyPlatformControls();
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
+        public void SetIntroActive(bool introActive)
+        {
+            isIntroActive = introActive;
+            ApplyPlatformControls();
+        }
+
+        public void SetPaused(bool paused)
+        {
+            isPaused = paused;
+            ApplyPlatformControls();
+        }
+
+        public static void EnsureEventSystemExists()
+        {
+            if (FindAnyObjectByType<EventSystem>() != null) return;
+
+            var esGO = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+            Debug.LogWarning("[MobileControlManager] Sahnede EventSystem bulunamadı; çalışma zamanında otomatik oluşturuldu.");
         }
 
         /// <summary>
@@ -49,53 +74,44 @@ namespace TheLastBell.UI
             bool isMobile = Application.isMobilePlatform || (Application.isEditor && forceMobileInEditor);
             IsMobileActive = isMobile;
 
+            bool showMobileControls = isMobile && !isIntroActive && !isPaused;
+
             if (isMobile)
             {
-                // Mobil Cihaz (Android / iOS)
-                SetMobileUIActive(true);
-
-                // Mobilde dokunmatik girdi için imleç kilidini kaldır
+                SetMobileUIActive(showMobileControls);
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
-
-                Debug.Log("[MobileControlManager] Mobil platform tespit edildi (Android/iOS). Dokunmatik kontroller aktif edildi.");
             }
             else
             {
-                // PC / Windows
                 SetMobileUIActive(false);
-
-                // PC'de birinci şahıs bakış için fare imlecini kilitle
-                if (lockCursorOnPC)
+                if (lockCursorOnPC && !isIntroActive && !isPaused)
                 {
                     Cursor.lockState = CursorLockMode.Locked;
                     Cursor.visible = false;
                 }
-
-                Debug.Log("[MobileControlManager] PC/Windows platformu tespit edildi. Dokunmatik UI gizlendi, WASD + Fare kontrolleri aktif.");
+                else if (isPaused)
+                {
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
             }
         }
 
-        /// <summary>
-        /// Dokunmatik kontrolleri topluca açar veya kapatır.
-        /// </summary>
         public void SetMobileUIActive(bool active)
         {
             if (mobileControlsRoot != null)
             {
                 mobileControlsRoot.SetActive(active);
             }
-
             if (virtualJoystick != null)
             {
                 virtualJoystick.SetActive(active);
             }
-
             if (touchLookZone != null)
             {
                 touchLookZone.SetActive(active);
             }
-
             if (actionButtons != null)
             {
                 foreach (var btn in actionButtons)
@@ -105,14 +121,10 @@ namespace TheLastBell.UI
             }
         }
 
-        /// <summary>
-        /// Editörde veya çalışma zamanında referanslar boşsa otomatik bulur.
-        /// </summary>
         public void AutoResolveReferences()
         {
             if (mobileControlsRoot == null)
             {
-                // Önce GameObject.Find ile Mobile_Controls_Root ara
                 GameObject foundRoot = GameObject.Find("Mobile_Controls_Root");
                 if (foundRoot != null)
                 {
@@ -120,11 +132,10 @@ namespace TheLastBell.UI
                 }
                 else
                 {
-                    // Canvas altından ara
                     Canvas canvas = GetComponentInParent<Canvas>();
                     if (canvas != null)
                     {
-                        Transform t = canvas.transform.Find("Mobile_Controls_Root");
+                        Transform t = FindChildRecursive(canvas.transform, "Mobile_Controls_Root");
                         if (t != null) mobileControlsRoot = t.gameObject;
                     }
                 }
@@ -134,28 +145,41 @@ namespace TheLastBell.UI
             {
                 if (virtualJoystick == null)
                 {
-                    Transform j = mobileControlsRoot.transform.Find("Joystick_Background");
+                    Transform j = FindChildRecursive(mobileControlsRoot.transform, "Joystick_Background");
                     if (j != null) virtualJoystick = j.gameObject;
                 }
 
                 if (touchLookZone == null)
                 {
-                    Transform l = mobileControlsRoot.transform.Find("Touch_Look_Zone");
+                    Transform l = FindChildRecursive(mobileControlsRoot.transform, "Touch_Look_Zone");
                     if (l != null) touchLookZone = l.gameObject;
                 }
 
                 if (actionButtons == null || actionButtons.Length == 0)
                 {
-                    string[] btnNames = { "Mobile_ActionButton", "Mobile_SprintButton", "Mobile_CrouchButton", "Mobile_FlashlightButton" };
+                    string[] btnNames = { "Mobile_ActionButton", "Mobile_SprintButton", "Mobile_CrouchButton", "Mobile_FlashlightButton", "Mobile_PauseButton" };
                     var btnList = new System.Collections.Generic.List<GameObject>();
                     foreach (var bName in btnNames)
                     {
-                        Transform b = mobileControlsRoot.transform.Find(bName);
+                        Transform b = FindChildRecursive(mobileControlsRoot.transform, bName);
                         if (b != null) btnList.Add(b.gameObject);
                     }
                     actionButtons = btnList.ToArray();
                 }
             }
+        }
+
+        private static Transform FindChildRecursive(Transform parent, string targetName)
+        {
+            if (parent == null) return null;
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                Transform child = parent.GetChild(i);
+                if (child.name == targetName) return child;
+                Transform nested = FindChildRecursive(child, targetName);
+                if (nested != null) return nested;
+            }
+            return null;
         }
 
         private void OnValidate()

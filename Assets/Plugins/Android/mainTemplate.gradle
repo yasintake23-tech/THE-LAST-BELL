@@ -43,7 +43,9 @@ android {
 **SOURCE_BUILD_SETUP**
 **EXTERNAL_SOURCES**
 
-// Pure ASCII paths for Android / CMake / Prefab tools
-System.setProperty("user.home", "D:/thelast")
-System.setProperty("gradle.user.home", "D:/thelast/.gradle")
-System.setProperty("java.io.tmpdir", "D:/thelast/.tmp")
+// Pure ASCII paths for Windows machines with non-ASCII user directories
+if (System.getProperty("os.name").toLowerCase().contains("windows") && new File("D:/thelast").exists()) {
+    System.setProperty("user.home", "D:/thelast")
+    System.setProperty("gradle.user.home", "D:/thelast/.gradle")
+    System.setProperty("java.io.tmpdir", "D:/thelast/.tmp")
+}

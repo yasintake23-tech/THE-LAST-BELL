@@ -1,9 +1,21 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.Rendering;
+using UnityEngine.UI;
+using UnityEngine.Video;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
+using UnityEditor.SceneManagement;
+using UnityEngine.SceneManagement;
+using TheLastBell.Player;
+using TheLastBell.Interaction;
+using TheLastBell.UI;
 
 namespace TheLastBell.Editor
 {
@@ -12,6 +24,7 @@ namespace TheLastBell.Editor
     /// Tek tıklamayla Android platformuna geçiş yapar, IL2CPP ve ARM64 mimarisini ayarlar,
     /// C++ Compiler Configuration'ı Release yapar, Custom Gradle şablonlarını doğrular,
     /// paket adını "com.thelastbell.game" olarak belirler ve oyunu APK olarak derler.
+    /// Hem yerel Windows Editor hem de Linux/CI batch-mode ortamları ile uyumludur.
     /// </summary>
     public static class AndroidBuildHelper
     {
@@ -20,6 +33,8 @@ namespace TheLastBell.Editor
         public const string PRODUCT_NAME = "THE LAST BELL";
         public const string COMPANY_NAME = "TheLastBellStudio";
         public const string APK_FILE_NAME = "TheLastBell.apk";
+
+        private const string LfsPointerPrefix = "version https://git-lfs.github.com/spec/v1";
 
         public static readonly string[] BUILD_SCENES = new string[]
         {
@@ -31,17 +46,20 @@ namespace TheLastBell.Editor
         [MenuItem("The Last Bell/1. Tüm Değişiklikleri Kaydet ve Ekle", false, 1)]
         public static void ForceSaveAndSyncAll()
         {
-            // Açık olan tüm sahneleri diske kaydet
-            UnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes();
+            if (!Application.isBatchMode)
+            {
+                // Açık olan tüm sahneleri diske kaydet
+                EditorSceneManager.SaveOpenScenes();
 
-            // Bekleyen tüm asset/prefab değişikliklerini kaydet
-            AssetDatabase.SaveAssets();
+                // Bekleyen tüm asset/prefab değişikliklerini kaydet
+                AssetDatabase.SaveAssets();
 
-            // Varlıkları zorla tazeleyip derlemeye hazır hale getir
-            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
+                // Varlıkları zorla tazeleyip derlemeye hazır hale getir
+                AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
+            }
 
-            // Build Settings sahne listesini kontrol et ve güncelle
-            ValidateScenes();
+            // Build Settings sahne listesini kontrol et ve yalnızca farklıysa güncelle
+            ValidateScenes(syncIfChanged: true);
 
             Debug.Log("<color=green>[Sync] Tüm sahneler, kodlar ve UI varlıkları diske kaydedildi ve Build Settings güncellendi.</color>");
         }
@@ -52,9 +70,47 @@ namespace TheLastBell.Editor
             BuildAndroidAPK(true);
         }
 
+        [MenuItem("The Last Bell/4. Projeyi Doğrula (CI Validation)", false, 4)]
+        public static void ValidateProjectMenu()
+        {
+            bool ok = ValidateProject(checkScenesDeep: true, out string report);
+            EditorUtility.DisplayDialog(
+                ok ? "Proje Doğrulaması Başarılı" : "Proje Doğrulaması Başarısız",
+                report,
+                "Tamam");
+        }
+
+        public static void ValidateProjectBatch()
+        {
+            Debug.Log("[AndroidBuildHelper] Batchmode proje doğrulaması başlatılıyor...");
+            MobileSetupHelper.ApplyMobileFixes();
+            ProtagonistAnimationSetup.SetupAll();
+            ConfigureAndroidSettings();
+            bool ok = ValidateProject(checkScenesDeep: true, out string report);
+            bool testsOk = VerificationSuite.RunAll(out string testReport);
+            string fullReport = report + "\n" + testReport;
+            WriteReportFile("Logs/ci-validation-report.txt", fullReport);
+            bool allOk = ok && testsOk;
+            Debug.Log($"[AndroidBuildHelper] Batchmode proje doğrulama sonucu: valid={ok}, tests={testsOk}");
+            EditorApplication.Exit(allOk ? 0 : 1);
+        }
+
         public static void BuildAndroidAPKBatch()
         {
-            Debug.Log("[AndroidBuildHelper] Batchmode APK derleme başlatılıyor...");
+            Debug.Log("[AndroidBuildHelper] Batchmode kurulum, doğrulama ve APK derleme başlatılıyor...");
+            MobileSetupHelper.ApplyMobileFixes();
+            ProtagonistAnimationSetup.SetupAll();
+            ConfigureAndroidSettings();
+
+            bool valid = ValidateProject(checkScenesDeep: true, out string report);
+            WriteReportFile("Logs/ci-validation-report.txt", report);
+            if (!valid)
+            {
+                Debug.LogError("[AndroidBuildHelper] Proje doğrulaması başarısız olduğu için APK derleme durduruldu.");
+                EditorApplication.Exit(1);
+                return;
+            }
+
             bool success = BuildAndroidAPK(false);
             Debug.Log("[AndroidBuildHelper] Batchmode APK derleme sonucu: " + success);
             EditorApplication.Exit(success ? 0 : 1);
@@ -64,8 +120,15 @@ namespace TheLastBell.Editor
         {
             try
             {
-                // Derleme öncesi zorunlu senkronizasyon (Tüm açık sahneler, assetler ve build settings)
-                ForceSaveAndSyncAll();
+                // Derleme öncesi senkronizasyon (Batch mode'da takip edilen dosyaları gereksiz yere kirletme)
+                if (!Application.isBatchMode)
+                {
+                    ForceSaveAndSyncAll();
+                }
+                else
+                {
+                    ValidateScenes(syncIfChanged: false);
+                }
 
                 if (isInteractive)
                 {
@@ -82,15 +145,34 @@ namespace TheLastBell.Editor
                     try { Directory.Delete(utmpDir, true); } catch (Exception ex) { Debug.LogWarning("[AndroidBuildHelper] .utmp temizlenirken: " + ex.Message); }
                 }
 
-                // 2. Çıktı Dizinini Hazırla
+                // 2. Çıktı Dizinini Hazırla (-customBuildPath varsa onu kullan)
                 string projectDir = Directory.GetCurrentDirectory();
-                string outputDir = Path.Combine(projectDir, "Builds", "Android");
-                if (!Directory.Exists(outputDir))
+                string customBuildPath = GetCommandLineArg("-customBuildPath");
+                string apkPath;
+                if (!string.IsNullOrEmpty(customBuildPath))
                 {
-                    Directory.CreateDirectory(outputDir);
+                    apkPath = Path.IsPathRooted(customBuildPath)
+                        ? customBuildPath
+                        : Path.GetFullPath(Path.Combine(projectDir, customBuildPath));
+                    if (!apkPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
+                    {
+                        apkPath = Path.Combine(apkPath, APK_FILE_NAME);
+                    }
+                    string customDir = Path.GetDirectoryName(apkPath);
+                    if (!string.IsNullOrEmpty(customDir) && !Directory.Exists(customDir))
+                    {
+                        Directory.CreateDirectory(customDir);
+                    }
                 }
-
-                string apkPath = Path.Combine(outputDir, APK_FILE_NAME);
+                else
+                {
+                    string outputDir = Path.Combine(projectDir, "Builds", "Android");
+                    if (!Directory.Exists(outputDir))
+                    {
+                        Directory.CreateDirectory(outputDir);
+                    }
+                    apkPath = Path.Combine(outputDir, APK_FILE_NAME);
+                }
 
                 // Derleme (BuildPlayer) başlamadan hemen önce eski APK dosyasını sil (Clean Build)
                 if (File.Exists(apkPath))
@@ -111,7 +193,7 @@ namespace TheLastBell.Editor
                 {
                     EditorUtility.DisplayProgressBar("THE LAST BELL - Android APK Derleme", "Sahneler doğrulanıyor...", 0.4f);
                 }
-                string[] scenesToBuild = ValidateScenes();
+                string[] scenesToBuild = ValidateScenes(syncIfChanged: !Application.isBatchMode);
 
                 // 4. BuildPlayerOptions Yapılandırması
                 BuildPlayerOptions buildOptions = new BuildPlayerOptions
@@ -146,7 +228,7 @@ namespace TheLastBell.Editor
                     long fileBytes = fi.Exists ? fi.Length : (long)summary.totalSize;
 
                     string successMsg = $"Android APK başarıyla derlendi!\n\n" +
-                                        $"• Dosya Adı: {APK_FILE_NAME}\n" +
+                                        $"• Dosya Adı: {Path.GetFileName(apkPath)}\n" +
                                         $"• Konum: {apkPath}\n" +
                                         $"• Boyut: {sizeMB:F2} MB ({fileBytes:N0} byte)\n" +
                                         $"• Oluşturulma/Yazılma Tarihi: {lastModified}\n" +
@@ -257,6 +339,10 @@ namespace TheLastBell.Editor
             // 6. Google Play App Bundle (AAB) yerine doğrudan APK (.apk) çıktısı al
             EditorUserBuildSettings.buildAppBundle = false;
 
+            // 6b. VideoPlayer + RenderTexture Android uyumluluğu için OpenGLES3 kullan
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3 });
+
             // 7. Minimum & Target API Seviyeleri (Android 8.0+ Oreo ve üzeri)
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
@@ -264,29 +350,34 @@ namespace TheLastBell.Editor
             // 8. Custom Gradle Templates (mainTemplate ve gradleTemplate.properties)
             ConfigureCustomGradleSettings();
 
-            // 9. GRADLE_USER_HOME & JAVA_TOOL_OPTIONS: Pure ASCII path to prevent CXX1429 and Turkish character issues
-            try
+            // 9. GRADLE_USER_HOME & JAVA_TOOL_OPTIONS: Yalnızca Windows'ta Türkçe/ASCII dışı kullanıcı yolu workaround'u
+            if (Application.platform == RuntimePlatform.WindowsEditor &&
+                Directory.Exists(@"D:\") &&
+                (Directory.Exists(@"D:\thelast") || HasNonAsciiCharacters(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))))
             {
-                string pureAsciiGradleHome = @"D:\thelast\.gradle";
-                Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.Process);
-                Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.User);
+                try
+                {
+                    string pureAsciiGradleHome = @"D:\thelast\.gradle";
+                    Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("GRADLE_USER_HOME", pureAsciiGradleHome, EnvironmentVariableTarget.User);
 
-                string tmpDir = @"D:\thelast\.tmp";
-                if (!Directory.Exists(tmpDir)) Directory.CreateDirectory(tmpDir);
-                Environment.SetEnvironmentVariable("TMP", tmpDir, EnvironmentVariableTarget.Process);
-                Environment.SetEnvironmentVariable("TEMP", tmpDir, EnvironmentVariableTarget.Process);
+                    string tmpDir = @"D:\thelast\.tmp";
+                    if (!Directory.Exists(tmpDir)) Directory.CreateDirectory(tmpDir);
+                    Environment.SetEnvironmentVariable("TMP", tmpDir, EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("TEMP", tmpDir, EnvironmentVariableTarget.Process);
 
-                string javaOptions = "-Dgradle.user.home=D:/thelast/.gradle -Duser.home=D:/thelast -Djava.io.tmpdir=D:/thelast/.tmp -Dfile.encoding=UTF-8";
-                Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.Process);
-                Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.User);
+                    string javaOptions = "-Dgradle.user.home=D:/thelast/.gradle -Duser.home=D:/thelast -Djava.io.tmpdir=D:/thelast/.tmp -Dfile.encoding=UTF-8";
+                    Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", javaOptions, EnvironmentVariableTarget.User);
 
-                Environment.SetEnvironmentVariable("USERPROFILE", @"D:\thelast", EnvironmentVariableTarget.Process);
+                    Environment.SetEnvironmentVariable("USERPROFILE", @"D:\thelast", EnvironmentVariableTarget.Process);
 
-                Debug.Log($"[AndroidBuildHelper] Ortam değişkenleri ayarlandı: GRADLE_USER_HOME={pureAsciiGradleHome}, TMP={tmpDir}, JAVA_TOOL_OPTIONS={javaOptions}");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AndroidBuildHelper] Ortam değişkenleri ayarlanırken uyarı: {ex.Message}");
+                    Debug.Log($"[AndroidBuildHelper] Windows ASCII ortam değişkenleri ayarlandı: GRADLE_USER_HOME={pureAsciiGradleHome}, TMP={tmpDir}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[AndroidBuildHelper] Ortam değişkenleri ayarlanırken uyarı: {ex.Message}");
+                }
             }
 
             // 10. Oryantasyon: Yatay (Landscape Left & Right)
@@ -297,6 +388,384 @@ namespace TheLastBell.Editor
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
 
             Debug.Log($"[AndroidBuildHelper] Ayarlar güncellendi: Paket={PACKAGE_NAME}, Backend=IL2CPP, Compiler=Release, Mimari=ARM64, AppBundle=False");
+        }
+
+        /// <summary>
+        /// Projenin derleme, sahne, eksik script, Git LFS ve Android ayar bütünlüğünü doğrular.
+        /// </summary>
+        public static bool ValidateProject(bool checkScenesDeep, out string summaryReport)
+        {
+            var issues = new List<string>();
+            var sb = new StringBuilder();
+            sb.AppendLine("=== THE LAST BELL - Project Validation Report ===");
+            sb.AppendLine($"Unity Version: {Application.unityVersion}");
+            sb.AppendLine($"Platform: {Application.platform} | ActiveBuildTarget: {EditorUserBuildSettings.activeBuildTarget}");
+
+            // 1. Script compilation status
+            if (EditorUtility.scriptCompilationFailed)
+            {
+                issues.Add("Script compilation failed (EditorUtility.scriptCompilationFailed == true).");
+            }
+
+            // 2. Unresolved Git LFS pointer check
+            List<string> lfsPointers = FindUnresolvedLfsPointers("Assets");
+            if (lfsPointers.Count > 0)
+            {
+                string sample = string.Join(", ", lfsPointers.Take(10));
+                issues.Add($"Found {lfsPointers.Count} unresolved Git LFS pointer files in Assets/ (run 'git lfs pull' / push LFS objects to remote). Sample: {sample}");
+            }
+            sb.AppendLine($"Git LFS unresolved pointers: {lfsPointers.Count}");
+
+            // 3. Required scenes existence and EditorBuildSettings check
+            var enabledScenes = EditorBuildSettings.scenes
+                .Where(s => s.enabled)
+                .Select(s => s.path.Replace('\\', '/'))
+                .ToList();
+
+            foreach (string requiredScene in BUILD_SCENES)
+            {
+                if (!File.Exists(requiredScene))
+                {
+                    issues.Add($"Required scene file missing: {requiredScene}");
+                }
+                else if (!enabledScenes.Contains(requiredScene))
+                {
+                    issues.Add($"Required scene not enabled in EditorBuildSettings: {requiredScene}");
+                }
+            }
+            sb.AppendLine($"Build scenes configured: {enabledScenes.Count}/{BUILD_SCENES.Length}");
+
+            // 4. Android Player Settings & Gradle template checks
+            NamedBuildTarget androidTarget = NamedBuildTarget.Android;
+            string appId = PlayerSettings.GetApplicationIdentifier(androidTarget);
+            ScriptingImplementation backend = PlayerSettings.GetScriptingBackend(androidTarget);
+            AndroidArchitecture arch = PlayerSettings.Android.targetArchitectures;
+
+            if (appId != PACKAGE_NAME)
+            {
+                issues.Add($"Android ApplicationIdentifier mismatch: expected '{PACKAGE_NAME}', got '{appId}'.");
+            }
+            if (backend != ScriptingImplementation.IL2CPP)
+            {
+                issues.Add($"Android ScriptingBackend mismatch: expected IL2CPP, got {backend}.");
+            }
+            if ((arch & AndroidArchitecture.ARM64) == 0)
+            {
+                issues.Add($"Android targetArchitectures does not include ARM64 (current: {arch}).");
+            }
+            if (!File.Exists("Assets/Plugins/Android/mainTemplate.gradle"))
+            {
+                issues.Add("Missing Assets/Plugins/Android/mainTemplate.gradle.");
+            }
+            if (!File.Exists("Assets/Plugins/Android/gradleTemplate.properties"))
+            {
+                issues.Add("Missing Assets/Plugins/Android/gradleTemplate.properties.");
+            }
+            sb.AppendLine($"Android Settings -> Package: {appId}, Backend: {backend}, Arch: {arch}, MinSDK: {PlayerSettings.Android.minSdkVersion}");
+
+            // 4b. Android Graphics API check (OpenGLES3 required to avoid Vulkan VideoPlayer black screen)
+            bool useDefaultGfx = PlayerSettings.GetUseDefaultGraphicsAPIs(BuildTarget.Android);
+            GraphicsDeviceType[] androidGfx = PlayerSettings.GetGraphicsAPIs(BuildTarget.Android);
+            bool hasGles3 = androidGfx != null && androidGfx.Contains(GraphicsDeviceType.OpenGLES3);
+            if (useDefaultGfx || !hasGles3)
+            {
+                issues.Add($"Android Graphics APIs must explicitly include OpenGLES3 (useDefault={useDefaultGfx}, apis={string.Join(",", androidGfx ?? Array.Empty<GraphicsDeviceType>())}).");
+            }
+            sb.AppendLine($"Android Graphics APIs (useDefault={useDefaultGfx}): {string.Join(", ", androidGfx ?? Array.Empty<GraphicsDeviceType>())}");
+
+            // 5. Optional deep scene check for missing scripts, VideoPlayers, Mobile UI, and screenshots
+            if (checkScenesDeep)
+            {
+                int totalMissingScripts = 0;
+                foreach (string scenePath in BUILD_SCENES)
+                {
+                    if (!File.Exists(scenePath)) continue;
+                    Scene opened = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                    int sceneMissing = 0;
+                    foreach (GameObject root in opened.GetRootGameObjects())
+                    {
+                        sceneMissing += CountMissingScriptsRecursive(root.transform);
+                    }
+                    totalMissingScripts += sceneMissing;
+                    sb.AppendLine($"Scene check [{scenePath}]: {sceneMissing} missing script(s)");
+                    if (sceneMissing > 0)
+                    {
+                        issues.Add($"Scene '{scenePath}' has {sceneMissing} missing MonoBehaviour script reference(s).");
+                    }
+
+                    ValidateSceneSpecifics(scenePath, opened, issues, sb);
+                    TryCaptureSceneScreenshot(opened, $"Logs/Screenshots/{Path.GetFileNameWithoutExtension(scenePath)}.png", sb);
+                }
+            }
+
+            if (issues.Count > 0)
+            {
+                sb.AppendLine("Validation FAILED:");
+                foreach (string issue in issues)
+                {
+                    sb.AppendLine("  - " + issue);
+                    Debug.LogError("[Validation Error] " + issue);
+                }
+                summaryReport = sb.ToString();
+                return false;
+            }
+
+            sb.AppendLine("Validation PASSED with 0 issues.");
+            summaryReport = sb.ToString();
+            Debug.Log(summaryReport);
+            return true;
+        }
+
+        private static void ValidateSceneSpecifics(string scenePath, Scene scene, List<string> issues, StringBuilder sb)
+        {
+            if (scenePath.EndsWith("MainMenu.unity", StringComparison.OrdinalIgnoreCase) ||
+                scenePath.EndsWith("OpeningCinematic.unity", StringComparison.OrdinalIgnoreCase))
+            {
+                var vp = UnityEngine.Object.FindAnyObjectByType<VideoPlayer>(FindObjectsInactive.Include);
+                if (vp == null)
+                {
+                    issues.Add($"[{scenePath}] Missing VideoPlayer component.");
+                    return;
+                }
+                string expectedStreamingFile = scenePath.EndsWith("MainMenu.unity", StringComparison.OrdinalIgnoreCase)
+                    ? "Assets/StreamingAssets/MainMenuBackground.mp4"
+                    : "Assets/StreamingAssets/OpeningCinematicVideo.mp4";
+                bool hasStreamingMp4 = File.Exists(expectedStreamingFile) && new FileInfo(expectedStreamingFile).Length > 1024;
+                if (vp.clip == null && !hasStreamingMp4)
+                {
+                    issues.Add($"[{scenePath}] VideoPlayer.clip is null and fallback {expectedStreamingFile} is missing.");
+                }
+                if (vp.renderMode != VideoRenderMode.RenderTexture) issues.Add($"[{scenePath}] VideoPlayer.renderMode is {vp.renderMode}, expected RenderTexture.");
+                if (vp.targetTexture == null) issues.Add($"[{scenePath}] VideoPlayer.targetTexture is null.");
+                if (vp.playOnAwake) issues.Add($"[{scenePath}] VideoPlayer.playOnAwake should be false to avoid prepareCompleted race.");
+
+                var rawImgs = UnityEngine.Object.FindObjectsByType<RawImage>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                bool hasMatchingRawImage = vp.targetTexture != null && rawImgs.Any(r => r.texture == vp.targetTexture);
+                if (!hasMatchingRawImage)
+                {
+                    issues.Add($"[{scenePath}] No RawImage found displaying VideoPlayer.targetTexture.");
+                }
+
+                if (scenePath.EndsWith("OpeningCinematic.unity", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (vp.audioOutputMode != VideoAudioOutputMode.AudioSource || vp.GetTargetAudioSource(0) == null)
+                    {
+                        issues.Add($"[{scenePath}] OpeningCinematic VideoPlayer missing AudioSource target on track 0.");
+                    }
+                }
+
+                sb.AppendLine($"  VideoPlayer [{scene.name}]: clip={(vp.clip != null ? vp.clip.name : "NULL")}, streamingFallback={hasStreamingMp4}, RT={(vp.targetTexture != null ? $"{vp.targetTexture.width}x{vp.targetTexture.height}" : "NULL")}, playOnAwake={vp.playOnAwake}, RawImageMatch={hasMatchingRawImage}");
+            }
+            else if (scenePath.EndsWith("AbandonedSchool.unity", StringComparison.OrdinalIgnoreCase))
+            {
+                var es = UnityEngine.Object.FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include);
+                var sim = UnityEngine.Object.FindAnyObjectByType<StandaloneInputModule>(FindObjectsInactive.Include);
+                if (es == null || sim == null)
+                {
+                    issues.Add($"[{scenePath}] Missing EventSystem or StandaloneInputModule (touch/UI input will not work).");
+                }
+
+                var safeArea = UnityEngine.Object.FindAnyObjectByType<SafeAreaFitter>(FindObjectsInactive.Include);
+                if (safeArea == null)
+                {
+                    issues.Add($"[{scenePath}] Missing SafeAreaFitter on Mobile_Controls_Root.");
+                }
+
+                var mcUI = UnityEngine.Object.FindAnyObjectByType<MobileControlsUI>(FindObjectsInactive.Include);
+                if (mcUI == null)
+                {
+                    issues.Add($"[{scenePath}] Missing MobileControlsUI.");
+                }
+                else
+                {
+                    var so = new SerializedObject(mcUI);
+                    string[] reqFields = {
+                        "fpsController", "interactor", "flashlight",
+                        "joystickTouchArea", "joystickBackground", "joystickHandle",
+                        "actionButton", "sprintButton", "crouchButton", "flashlightButton", "pauseButton"
+                    };
+                    foreach (string f in reqFields)
+                    {
+                        var prop = so.FindProperty(f);
+                        if (prop == null || prop.objectReferenceValue == null)
+                        {
+                            issues.Add($"[{scenePath}] MobileControlsUI.{f} is null.");
+                        }
+                    }
+                }
+
+                var tlz = UnityEngine.Object.FindAnyObjectByType<TouchLookZone>(FindObjectsInactive.Include);
+                if (tlz == null)
+                {
+                    issues.Add($"[{scenePath}] Missing TouchLookZone.");
+                }
+                else
+                {
+                    var soTlz = new SerializedObject(tlz);
+                    if (soTlz.FindProperty("fpsController")?.objectReferenceValue == null)
+                    {
+                        issues.Add($"[{scenePath}] TouchLookZone.fpsController is null.");
+                    }
+                }
+
+                var holdBtn = UnityEngine.Object.FindAnyObjectByType<MobileHoldButton>(FindObjectsInactive.Include);
+                if (holdBtn == null)
+                {
+                    issues.Add($"[{scenePath}] Missing MobileHoldButton on Sprint button.");
+                }
+
+                var hud = UnityEngine.Object.FindAnyObjectByType<PlayerHUD>(FindObjectsInactive.Include);
+                if (hud == null)
+                {
+                    issues.Add($"[{scenePath}] Missing PlayerHUD.");
+                }
+                else
+                {
+                    var soHud = new SerializedObject(hud);
+                    if (soHud.FindProperty("playerController")?.objectReferenceValue == null) issues.Add($"[{scenePath}] PlayerHUD.playerController is null.");
+                    if (soHud.FindProperty("statusContainer")?.objectReferenceValue == null) issues.Add($"[{scenePath}] PlayerHUD.statusContainer is null.");
+                    if (soHud.FindProperty("notePanelRoot")?.objectReferenceValue == null) issues.Add($"[{scenePath}] PlayerHUD.notePanelRoot is null.");
+                }
+
+                sb.AppendLine($"  Mobile/HUD [{scene.name}]: EventSystem={(es != null)}, SafeArea={(safeArea != null)}, MobileControlsUI={(mcUI != null)}, TouchLookZone={(tlz != null)}, HoldBtn={(holdBtn != null)}, PlayerHUD={(hud != null)}");
+            }
+        }
+
+        private static void TryCaptureSceneScreenshot(Scene scene, string outputPngPath, StringBuilder sb)
+        {
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+            {
+                sb.AppendLine($"  Screenshot [{scene.name}]: skipped (GraphicsDeviceType.Null / -nographics)");
+                return;
+            }
+
+            try
+            {
+                Camera cam = Camera.main;
+                if (cam == null)
+                {
+                    cam = UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsInactive.Exclude, FindObjectsSortMode.None).FirstOrDefault(c => c.enabled);
+                }
+                if (cam == null)
+                {
+                    sb.AppendLine($"  Screenshot [{scene.name}]: skipped (no active Camera)");
+                    return;
+                }
+
+                int w = 1280;
+                int h = 720;
+                var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+                var prevTarget = cam.targetTexture;
+                var prevActive = RenderTexture.active;
+
+                cam.targetTexture = rt;
+                cam.Render();
+
+                RenderTexture.active = rt;
+                var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+
+                byte[] png = tex.EncodeToPNG();
+                string dir = Path.GetDirectoryName(outputPngPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllBytes(outputPngPath, png);
+
+                cam.targetTexture = prevTarget;
+                RenderTexture.active = prevActive;
+                UnityEngine.Object.DestroyImmediate(rt);
+                UnityEngine.Object.DestroyImmediate(tex);
+
+                sb.AppendLine($"  Screenshot [{scene.name}]: captured -> {outputPngPath} ({png.Length} bytes)");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine($"  Screenshot [{scene.name}]: failed ({ex.Message})");
+            }
+        }
+
+        private static int CountMissingScriptsRecursive(Transform t)
+        {
+            int count = GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(t.gameObject);
+            for (int i = 0; i < t.childCount; i++)
+            {
+                count += CountMissingScriptsRecursive(t.GetChild(i));
+            }
+            return count;
+        }
+
+        private static List<string> FindUnresolvedLfsPointers(string rootDir)
+        {
+            var unresolved = new List<string>();
+            if (!Directory.Exists(rootDir)) return unresolved;
+
+            byte[] expectedPrefix = Encoding.ASCII.GetBytes(LfsPointerPrefix);
+            byte[] buffer = new byte[expectedPrefix.Length];
+
+            foreach (string file in Directory.EnumerateFiles(rootDir, "*", SearchOption.AllDirectories))
+            {
+                if (file.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    var info = new FileInfo(file);
+                    // LFS pointer files are tiny (~130 bytes)
+                    if (info.Length < expectedPrefix.Length || info.Length > 512) continue;
+
+                    using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        int read = fs.Read(buffer, 0, buffer.Length);
+                        if (read == expectedPrefix.Length && buffer.SequenceEqual(expectedPrefix))
+                        {
+                            unresolved.Add(file.Replace('\\', '/'));
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore transient unreadable files
+                }
+            }
+            return unresolved;
+        }
+
+        private static bool HasNonAsciiCharacters(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            foreach (char c in value)
+            {
+                if (c > 127) return true;
+            }
+            return false;
+        }
+
+        private static string GetCommandLineArg(string name)
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return args[i + 1];
+                }
+            }
+            return null;
+        }
+
+        internal static void WriteReportFile(string relativePath, string content)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(relativePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                File.WriteAllText(relativePath, content, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AndroidBuildHelper] Rapor yazılamadı ({relativePath}): {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -342,9 +811,9 @@ namespace TheLastBell.Editor
         /// <summary>
         /// Sahnelerin varlığını kontrol eder ve Build Settings sırasına uygun liste döndürür.
         /// </summary>
-        private static string[] ValidateScenes()
+        private static string[] ValidateScenes(bool syncIfChanged = true)
         {
-            var validScenes = new System.Collections.Generic.List<string>();
+            var validScenes = new List<string>();
             foreach (var scenePath in BUILD_SCENES)
             {
                 if (File.Exists(scenePath))
@@ -357,15 +826,65 @@ namespace TheLastBell.Editor
                 }
             }
 
-            // Build Settings senkronizasyonu
-            EditorBuildSettingsScene[] buildScenes = new EditorBuildSettingsScene[validScenes.Count];
-            for (int i = 0; i < validScenes.Count; i++)
+            if (syncIfChanged)
             {
-                buildScenes[i] = new EditorBuildSettingsScene(validScenes[i], true);
+                var currentScenes = EditorBuildSettings.scenes
+                    .Where(s => s.enabled)
+                    .Select(s => s.path.Replace('\\', '/'))
+                    .ToArray();
+
+                if (!currentScenes.SequenceEqual(validScenes))
+                {
+                    EditorBuildSettingsScene[] buildScenes = new EditorBuildSettingsScene[validScenes.Count];
+                    for (int i = 0; i < validScenes.Count; i++)
+                    {
+                        buildScenes[i] = new EditorBuildSettingsScene(validScenes[i], true);
+                    }
+                    EditorBuildSettings.scenes = buildScenes;
+                }
             }
-            EditorBuildSettings.scenes = buildScenes;
 
             return validScenes.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Automatically validates project integrity and writes CI build logs/reports during BuildPipeline.BuildPlayer
+    /// (works for both local builds and GameCI UnityBuilderAction).
+    /// </summary>
+    internal sealed class CIBuildProcessor : IPreprocessBuildWithReport, IPostprocessBuildWithReport
+    {
+        public int callbackOrder => 0;
+
+        public void OnPreprocessBuild(BuildReport report)
+        {
+            if (report.summary.platform != BuildTarget.Android) return;
+
+            Debug.Log("[CIBuildProcessor] Running pre-build validation for Android...");
+            bool ok = AndroidBuildHelper.ValidateProject(checkScenesDeep: false, out string reportText);
+            AndroidBuildHelper.WriteReportFile("Logs/ci-prebuild-report.txt", reportText);
+
+            if (!ok)
+            {
+                throw new BuildFailedException("THE LAST BELL pre-build validation failed. See Logs/ci-prebuild-report.txt and console errors.");
+            }
+        }
+
+        public void OnPostprocessBuild(BuildReport report)
+        {
+            if (report.summary.platform != BuildTarget.Android) return;
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== THE LAST BELL - Android Build Report ===");
+            sb.AppendLine($"Result: {report.summary.result}");
+            sb.AppendLine($"Output Path: {report.summary.outputPath}");
+            sb.AppendLine($"Total Size: {report.summary.totalSize} bytes");
+            sb.AppendLine($"Total Time: {report.summary.totalTime.TotalSeconds:F1}s");
+            sb.AppendLine($"Total Errors: {report.summary.totalErrors}");
+            sb.AppendLine($"Total Warnings: {report.summary.totalWarnings}");
+
+            AndroidBuildHelper.WriteReportFile("Logs/ci-build-report.txt", sb.ToString());
+            Debug.Log(sb.ToString());
         }
     }
 }
