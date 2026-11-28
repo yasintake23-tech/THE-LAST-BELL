@@ -955,7 +955,16 @@ namespace TheLastBell.Editor
             var objMgr = UnityEngine.Object.FindAnyObjectByType<ChapterObjectiveManager>(FindObjectsInactive.Include);
             var panel = UnityEngine.Object.FindAnyObjectByType<ElectricalPanelInteractable>(FindObjectsInactive.Include);
             var festek = UnityEngine.Object.FindAnyObjectByType<FestekItem>(FindObjectsInactive.Include);
-            var socket = UnityEngine.Object.FindAnyObjectByType<FestekSocketInteractable>(FindObjectsInactive.Include);
+            // The facility panel and elevator use the same component, but only the facility socket restores power.
+            var facilitySockets = UnityEngine.Object.FindObjectsByType<FestekSocketInteractable>(FindObjectsInactive.Include)
+                .Where(candidate => !candidate.IsElevatorSocket).ToArray();
+            if (facilitySockets.Length != 1)
+            {
+                failures.Add($"Expected exactly one facility Feştek socket, found {facilitySockets.Length}.");
+                return;
+            }
+            var socket = facilitySockets[0];
+            sb.AppendLine($"  Facility puzzle uses {socket.name}. The elevator is verified separately.");
             var powerMgr = UnityEngine.Object.FindAnyObjectByType<FacilityPowerManager>(FindObjectsInactive.Include);
             var tvCtrl = UnityEngine.Object.FindAnyObjectByType<AbandonedTelevisionController>(FindObjectsInactive.Include);
 
@@ -965,7 +974,7 @@ namespace TheLastBell.Editor
                 failures.Add("3D extruded HARPUT / ENGLISH COURSE sign or raised letter meshes missing.");
             if (detailedDoor == null)
                 failures.Add("Detailed_Entrance_DoorSet missing on SchoolEntrance_Doorway.");
-            if (objMgr == null || panel == null || festek == null || socket == null || powerMgr == null || tvCtrl == null)
+            if (objMgr == null || panel == null || festek == null || powerMgr == null || tvCtrl == null)
             {
                 failures.Add("One or more Chapter I gameplay/puzzle components missing in AbandonedSchool.unity.");
                 return;
@@ -1212,8 +1221,10 @@ namespace TheLastBell.Editor
             if (socket.IsActivated || powerMgr.IsPowerRestored || socket.RemoveForVerification(player))
                 failures.Add("An empty socket accepted a turn or removal.");
             socket.SeatForVerification(festek, player);
-            if (socket.IsActivated || powerMgr.IsPowerRestored || objMgr.CurrentState != ChapterObjectiveState.ActivateFestek)
+            if (socket.IsActivated || powerMgr.IsPowerRestored)
                 failures.Add("Insertion restored power before the device was turned.");
+            if (objMgr.CurrentState != ChapterObjectiveState.ActivateFestek)
+                failures.Add($"Facility insertion did not advance to ActivateFestek (got {objMgr.CurrentState}).");
             socket.ApplyRotationDelta(45f);
             if (socket.IsActivated || powerMgr.IsPowerRestored || Mathf.Abs(socket.RotationProgress - 0.5f) > 0.01f ||
                 Quaternion.Angle(festek.transform.localRotation, Quaternion.AngleAxis(-45f, Vector3.forward)) > 1f ||
