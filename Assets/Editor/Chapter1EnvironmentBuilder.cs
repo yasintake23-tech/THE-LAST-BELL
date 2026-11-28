@@ -1099,15 +1099,18 @@ namespace TheLastBell.Editor
             }
             if (lod0Rend != null && lod1Rend != null)
             {
-                var lodGrp = festekGo.AddComponent<LODGroup>();
-                Renderer btnRend = FindDeep(festekGo.transform, "Festek_Button_Cap")?.GetComponent<Renderer>();
-                var lod0Arr = btnRend != null ? new[] { lod0Rend, btnRend } : new[] { lod0Rend };
-                lodGrp.SetLODs(new[]
+                var lodGrp = festekGo.GetComponentInChildren<LODGroup>(true) ?? festekGo.AddComponent<LODGroup>();
+                if (lodGrp != null)
                 {
-                    new LOD(0.18f, lod0Arr),
-                    new LOD(0.015f, new[] { lod1Rend })
-                });
-                lodGrp.RecalculateBounds();
+                    Renderer btnRend = FindDeep(festekGo.transform, "Festek_Button_Cap")?.GetComponent<Renderer>();
+                    var lod0Arr = btnRend != null ? new[] { lod0Rend, btnRend } : new[] { lod0Rend };
+                    lodGrp.SetLODs(new[]
+                    {
+                        new LOD(0.18f, lod0Arr),
+                        new LOD(0.015f, new[] { lod1Rend })
+                    });
+                    lodGrp.RecalculateBounds();
+                }
             }
 
             AudioSource festekAudio = festekGo.AddComponent<AudioSource>();
