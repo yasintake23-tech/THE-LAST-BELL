@@ -247,38 +247,6 @@ namespace TheLastBell.Editor
                         importer.clipAnimations = clips;
                     }
                     importer.SaveAndReimport();
-
-                    // Yalnızca geçerli Humanoid kemik eşlemesi (human >= 15 kemik) zaten mevcutsa bacak T-Pose kalibrasyonu uygula;
-                    // aksi halde boş human=[] yazarak Avatar'ı geçersiz kılma!
-                    HumanDescription hd = importer.humanDescription;
-                    if (hd.human != null && hd.human.Length >= 15 && hd.skeleton != null && hd.skeleton.Length > 0)
-                    {
-                        bool poseFixed = false;
-                        for (int b = 0; b < hd.skeleton.Length; b++)
-                        {
-                            string bn = hd.skeleton[b].name;
-                            if (bn == "LeftUpperLeg" || bn == "RightUpperLeg")
-                            {
-                                hd.skeleton[b].rotation = Quaternion.Euler(180f, 0f, 0f);
-                                poseFixed = true;
-                            }
-                            else if (bn == "LeftLowerLeg" || bn == "RightLowerLeg")
-                            {
-                                hd.skeleton[b].rotation = Quaternion.identity;
-                                poseFixed = true;
-                            }
-                            else if (bn == "LeftFoot" || bn == "RightFoot")
-                            {
-                                hd.skeleton[b].rotation = Quaternion.Euler(-90f, 0f, 0f);
-                                poseFixed = true;
-                            }
-                        }
-                        if (poseFixed)
-                        {
-                            importer.humanDescription = hd;
-                            importer.SaveAndReimport();
-                        }
-                    }
                 }
 
                 AnimationClip clip = LoadPrimaryClip(fbxPath);
