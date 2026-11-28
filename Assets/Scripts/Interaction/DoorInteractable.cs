@@ -25,7 +25,13 @@ namespace TheLastBell.Interaction
         [SerializeField] private bool isLocked = false;
         [SerializeField] private string requiredKeyId = "";
         [SerializeField] private string lockedNotice = "Kilitli";
-        [SerializeField] private string unlockedNotice = "Kilit ald!";
+        [SerializeField] private string unlockedNotice = "Kilit açıldı!";
+
+        [Header("--- Uzamsal 3D Kapı Sesleri ---")]
+        [SerializeField] private AudioSource doorAudioSource;
+        [SerializeField] private AudioClip handleLatchClip;
+        [SerializeField] private AudioClip openHingeClip;
+        [SerializeField] private AudioClip closeHingeClip;
 
         private Quaternion closedRotL;
         private Quaternion openRotL;
@@ -36,6 +42,8 @@ namespace TheLastBell.Interaction
         private bool isAnimating = false;
 
         public InteractionTarget DoorInteractionTarget => interactionTarget;
+        public bool IsOpen => isOpen;
+        public event System.Action<bool> OnDoorStateChanged;
 
         private void Awake()
         {
@@ -95,7 +103,7 @@ namespace TheLastBell.Interaction
 
             if (isLocked)
             {
-                var inventory = interactor.GetComponent<PlayerInventory>();
+                var inventory = interactor != null ? interactor.GetComponent<PlayerInventory>() : null;
                 if (inventory != null && !string.IsNullOrEmpty(requiredKeyId) && inventory.HasKey(requiredKeyId))
                 {
                     isLocked = false;
@@ -106,7 +114,9 @@ namespace TheLastBell.Interaction
                 }
                 else
                 {
-                    interactor.ShowStatusMessage(lockedNotice);
+                    if (doorAudioSource != null && handleLatchClip != null)
+                        doorAudioSource.PlayOneShot(handleLatchClip, 0.75f);
+                    interactor?.ShowStatusMessage(lockedNotice);
                     return;
                 }
             }
@@ -132,7 +142,20 @@ namespace TheLastBell.Interaction
 
             if (contactDelay > 0f)
             {
-                yield return new WaitForSeconds(contactDelay);
+                yield return new WaitForSeconds(contactDelay * 0.6f);
+                if (doorAudioSource != null && handleLatchClip != null)
+                    doorAudioSource.PlayOneShot(handleLatchClip, 0.85f);
+                yield return new WaitForSeconds(contactDelay * 0.4f);
+            }
+            else if (doorAudioSource != null && handleLatchClip != null)
+            {
+                doorAudioSource.PlayOneShot(handleLatchClip, 0.85f);
+            }
+
+            if (doorAudioSource != null)
+            {
+                AudioClip swingClip = targetOpen ? openHingeClip : closeHingeClip;
+                if (swingClip != null) doorAudioSource.PlayOneShot(swingClip, 0.90f);
             }
 
             // Geçişi açmak için blocker collider hemen kapatılır
@@ -171,6 +194,26 @@ namespace TheLastBell.Interaction
             }
 
             isAnimating = false;
+            OnDoorStateChanged?.Invoke(isOpen);
+        }
+
+        public void SetOpenImmediate(bool open)
+        {
+            if (doorLeafLeft != null)
+            {
+                closedRotL = Quaternion.identity;
+                openRotL = Quaternion.Euler(0f, -openAngle, 0f);
+                doorLeafLeft.localRotation = open ? openRotL : closedRotL;
+            }
+            if (doorLeafRight != null)
+            {
+                closedRotR = Quaternion.identity;
+                openRotR = Quaternion.Euler(0f, openAngle, 0f);
+                doorLeafRight.localRotation = open ? openRotR : closedRotR;
+            }
+            isOpen = open;
+            if (blockerCollider != null) blockerCollider.enabled = !isOpen;
+            OnDoorStateChanged?.Invoke(isOpen);
         }
 
         public void Configure(Transform left, Transform right, Collider blocker)
@@ -178,6 +221,14 @@ namespace TheLastBell.Interaction
             doorLeafLeft = left;
             doorLeafRight = right;
             blockerCollider = blocker;
+        }
+
+        public void ConfigureAudio(AudioSource source, AudioClip latch, AudioClip openHinge, AudioClip closeHinge)
+        {
+            doorAudioSource = source;
+            handleLatchClip = latch;
+            openHingeClip = openHinge;
+            closeHingeClip = closeHinge;
         }
 
         public void SetLockState(bool locked, string keyId, string lockNotice)

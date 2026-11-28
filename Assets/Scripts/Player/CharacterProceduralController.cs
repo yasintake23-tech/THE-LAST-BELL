@@ -27,6 +27,7 @@ namespace TheLastBell.Player
         public bool enableHeadTracking = true;
         public bool enableTorsoTracking = true;
         public bool enableFootIK = true;
+        public bool enableToeAlignment = true;
         public bool enableHandIK = true;
         public bool enableFlashlightAiming = true;
         public bool enableSecondaryMotion = true;
@@ -56,11 +57,16 @@ namespace TheLastBell.Player
         private Transform boneHead;
         private Transform boneLeftEye;
         private Transform boneRightEye;
+        private Transform boneLeftShoulder;
         private Transform boneRightShoulder;
         private Transform boneRightHand;
         private Transform boneLeftHand;
         private Transform boneLeftFoot;
         private Transform boneRightFoot;
+        private Transform boneLeftToes;
+        private Transform boneRightToes;
+        private Transform boneLeftToeEnd;
+        private Transform boneRightToeEnd;
         private Transform eyeAnchor;
 
         // Yumuşatılmış durumlar
@@ -73,10 +79,16 @@ namespace TheLastBell.Player
         private Quaternion computedRightHandIkRot = Quaternion.identity;
         private float computedRightHandIkWeight = 0f;
 
-        // Aktif çevresel etkileşim (örn. kapı kolu)
+        // Aktif çevresel etkileşim (kapı kolu, şalter kolu, yerden alma)
         private InteractionTarget activeInteractionTarget;
         private float interactionElapsed = 0f;
         private bool interactionActive = false;
+
+        // Sağ el açık hedef geçersiz kılması (Feştek soket yerleştirme / buton basma aşamaları için)
+        private bool rightHandExplicitActive = false;
+        private Vector3 rightHandExplicitPos;
+        private Quaternion rightHandExplicitRot = Quaternion.identity;
+        private float rightHandExplicitWeight = 0f;
 
         // Runtime Debug Marker'ları (yalnızca enableDebugVisuals=true iken aktif)
         private GameObject debugVisualRoot;
@@ -123,11 +135,19 @@ namespace TheLastBell.Player
             boneHead = animator.GetBoneTransform(HumanBodyBones.Head);
             boneLeftEye = animator.GetBoneTransform(HumanBodyBones.LeftEye);
             boneRightEye = animator.GetBoneTransform(HumanBodyBones.RightEye);
+            boneLeftShoulder = animator.GetBoneTransform(HumanBodyBones.LeftShoulder);
             boneRightShoulder = animator.GetBoneTransform(HumanBodyBones.RightShoulder);
             boneRightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
             boneLeftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
             boneLeftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
             boneRightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+            boneLeftToes = animator.GetBoneTransform(HumanBodyBones.LeftToes);
+            boneRightToes = animator.GetBoneTransform(HumanBodyBones.RightToes);
+
+            if (boneLeftToes != null && boneLeftToes.childCount > 0)
+                boneLeftToeEnd = boneLeftToes.Find("LeftToe_End") ?? boneLeftToes.GetChild(0);
+            if (boneRightToes != null && boneRightToes.childCount > 0)
+                boneRightToeEnd = boneRightToes.Find("RightToe_End") ?? boneRightToes.GetChild(0);
         }
 
         private void EnsureEyeAnchor()
@@ -172,7 +192,7 @@ namespace TheLastBell.Player
                 }
                 else
                 {
-                    animController.TriggerItemPickup(target.HandTarget);
+                    animController.TriggerItemPickup(null);
                 }
             }
         }
@@ -183,6 +203,20 @@ namespace TheLastBell.Player
             activeInteractionTarget = null;
             interactionElapsed = 0f;
             animController?.ClearLeftHandInteractTarget();
+        }
+
+        public void SetRightHandExplicitOverride(Vector3 worldPos, Quaternion worldRot, float weight)
+        {
+            rightHandExplicitPos = worldPos;
+            rightHandExplicitRot = worldRot;
+            rightHandExplicitWeight = Mathf.Clamp01(weight);
+            rightHandExplicitActive = rightHandExplicitWeight > 0.005f;
+        }
+
+        public void ClearRightHandExplicitOverride()
+        {
+            rightHandExplicitActive = false;
+            rightHandExplicitWeight = 0f;
         }
 
         private void LateUpdate()
@@ -230,13 +264,19 @@ namespace TheLastBell.Player
                 ApplySecondaryMotion(proceduralGazeWeight);
             }
 
-            // 4. Aktif çevresel etkileşim IK zamanlaması (kapı kolu / nesne teması)
+            // 4. Ayak ucu (LeftToes / RightToes) düz taban zemin hizalaması (yukarı kalkık parmak ucunu düzeltir)
+            if (enableToeAlignment && !fullOverride)
+            {
+                ApplyToeSoleAlignment();
+            }
+
+            // 5. Aktif çevresel etkileşim IK zamanlaması (kapı kolu / şalter kolu / nesne teması)
             UpdateEnvironmentalInteraction(safeDt);
 
-            // 5. Dinamik el feneri nişan alma ve duvar çarpışma kaçınması
-            UpdateFlashlightAimingAndWallAvoidance(safeDt, isolated || fullOverride);
+            // 6. Dinamik el feneri (sağ veya sol el) + sağ el Feştek taşıma & duvar kaçınma koordinasyonu
+            UpdateDualHandItemAndFlashlightIK(safeDt, isolated || fullOverride);
 
-            // 6. Opsiyonel geliştirme görselleştirme işaretçileri
+            // 7. Opsiyonel geliştirme görselleştirme işaretçileri
             UpdateDebugVisuals();
         }
 
@@ -300,6 +340,45 @@ namespace TheLastBell.Player
             }
         }
 
+        private void ApplyToeSoleAlignment()
+        {
+            Transform root = playerController != null ? playerController.transform : transform.root;
+            float rootY = root != null ? root.position.y : transform.position.y;
+            AlignSingleFootToe(boneLeftFoot, boneLeftToes, boneLeftToeEnd, rootY);
+            AlignSingleFootToe(boneRightFoot, boneRightToes, boneRightToeEnd, rootY);
+        }
+
+        private void AlignSingleFootToe(Transform footBone, Transform toeBone, Transform toeEndBone, float rootY)
+        {
+            if (footBone == null || toeBone == null) return;
+
+            float footRelY = footBone.position.y - rootY;
+            // Sadece ayak zemine temas halindeyken / yakınken düzelt (havadaki adımı bozma)
+            if (footRelY > 0.165f) return;
+
+            float stanceWeight = Mathf.Clamp01((0.165f - footRelY) / 0.055f);
+            Vector3 toePos = toeBone.position;
+            Vector3 endPos = toeEndBone != null ? toeEndBone.position : (toePos + (toeBone.position - footBone.position).normalized * 0.095f);
+
+            Vector3 flatForward = Vector3.ProjectOnPlane(endPos - footBone.position, Vector3.up);
+            if (flatForward.sqrMagnitude < 0.0004f) return;
+            flatForward.Normalize();
+
+            Vector3 footRight = Vector3.Cross(Vector3.up, flatForward).normalized;
+            float toeSegLen = Mathf.Max(0.055f, Vector3.Distance(toePos, endPos));
+
+            // Doğal düz ayakkabı tabanında parmak ucu, tarak kemiğinin (ToeBase) ~6mm altında zemine paralel oturur
+            float desiredEndY = Mathf.Max(rootY + 0.022f, toePos.y - 0.006f);
+            float liftError = endPos.y - desiredEndY;
+            if (liftError > 0.001f)
+            {
+                float sinAngle = Mathf.Clamp(liftError / toeSegLen, 0f, 0.42f);
+                float pitchDownDeg = Mathf.Asin(sinAngle) * Mathf.Rad2Deg * stanceWeight;
+                pitchDownDeg = Mathf.Clamp(pitchDownDeg, 0f, 22f);
+                toeBone.rotation = Quaternion.AngleAxis(pitchDownDeg, footRight) * toeBone.rotation;
+            }
+        }
+
         private void UpdateEnvironmentalInteraction(float dt)
         {
             if (!interactionActive || activeInteractionTarget == null) return;
@@ -308,28 +387,36 @@ namespace TheLastBell.Player
             float dur = Mathf.Max(0.2f, activeInteractionTarget.TotalDuration);
             float norm = interactionElapsed / dur;
 
-            // Temas aralığı boyunca sol el IK ağırlığını yumuşakça yükseltip indir
             float contactIn = Mathf.Clamp01((norm - (activeInteractionTarget.ContactNormalizedTime - 0.16f)) / 0.16f);
             float contactOut = 1f - Mathf.Clamp01((norm - activeInteractionTarget.ReleaseNormalizedTime) / 0.18f);
             float ikWeight = enableHandIK ? Mathf.Clamp01(Mathf.Min(contactIn, contactOut)) : 0f;
 
-            animController?.SetLeftHandInteractionIK(activeInteractionTarget.HandTarget, ikWeight);
+            if (activeInteractionTarget.PreferredHand == PreferredInteractionHand.Left)
+            {
+                animController?.SetLeftHandInteractionIK(activeInteractionTarget.HandTarget, ikWeight);
+            }
+            else if (activeInteractionTarget.HandTarget != null)
+            {
+                SetRightHandExplicitOverride(activeInteractionTarget.HandTarget.position, activeInteractionTarget.HandTarget.rotation, ikWeight);
+            }
 
             if (norm >= 1f)
             {
+                if (activeInteractionTarget.PreferredHand == PreferredInteractionHand.Right)
+                {
+                    ClearRightHandExplicitOverride();
+                }
                 CancelEnvironmentalInteraction();
             }
         }
 
-        private void UpdateFlashlightAimingAndWallAvoidance(float dt, bool suppressed)
+        private void UpdateDualHandItemAndFlashlightIK(float dt, bool suppressed)
         {
-            bool flashlightHeld = animController != null && animController.IsFlashlightEquipped &&
-                                  (flashlightPhysical == null || flashlightPhysical.CurrentState != FlashlightPhysicalState.DroppedPhysics);
-
-            if (suppressed || !flashlightHeld || !enableFlashlightAiming || playerController == null)
+            if (suppressed || playerController == null || animController == null)
             {
                 computedRightHandIkWeight = 0f;
                 animController?.SetRightHandAimIK(Vector3.zero, Quaternion.identity, 0f);
+                animController?.SetLeftHandAimIK(Vector3.zero, Quaternion.identity, 0f);
                 return;
             }
 
@@ -337,14 +424,16 @@ namespace TheLastBell.Player
                 ? eyeAnchor.position
                 : (playerController.transform.position + Vector3.up * (playerController.IsCrouching ? 1.0f : 1.55f));
             Vector3 gazeDir = playerController.DesiredLookDirection;
+            Vector3 rightVec = playerController.transform.right;
+            Vector3 upVec = Vector3.up;
 
-            // Duvar kaçınma SphereCast'i (sağ omuzdan ileri)
-            Vector3 shoulderOrigin = boneRightShoulder != null
+            // Duvar kaçınma SphereCast'i
+            Vector3 shoulderR = boneRightShoulder != null
                 ? boneRightShoulder.position
-                : (gazeOrigin + playerController.transform.right * 0.22f - Vector3.up * 0.18f);
+                : (gazeOrigin + rightVec * 0.22f - upVec * 0.18f);
 
             float targetPullback = 0f;
-            if (Physics.SphereCast(shoulderOrigin, wallAvoidRadius, gazeDir, out RaycastHit hit, wallAvoidCheckDistance, wallAvoidMask, QueryTriggerInteraction.Ignore))
+            if (Physics.SphereCast(shoulderR, wallAvoidRadius, gazeDir, out RaycastHit hit, wallAvoidCheckDistance, wallAvoidMask, QueryTriggerInteraction.Ignore))
             {
                 if (hit.collider != null && !hit.collider.transform.IsChildOf(playerController.transform))
                 {
@@ -353,36 +442,97 @@ namespace TheLastBell.Player
             }
             wallPullback01 = Mathf.Lerp(wallPullback01, targetPullback, 1f - Mathf.Exp(-14f * dt));
 
-            // Doğal fener hedef noktası (hafif gecikmeli yumuşatma)
+            // Doğal fener hedef noktası
             Vector3 rawAimPoint = gazeOrigin + gazeDir * 10f;
             if (smoothedFlashlightAimPoint == Vector3.zero) smoothedFlashlightAimPoint = rawAimPoint;
             smoothedFlashlightAimPoint = Vector3.Lerp(smoothedFlashlightAimPoint, rawAimPoint, 1f - Mathf.Exp(-flashlightAimSmooth * dt));
 
-            // Sağ el IK konumu: sağ omuzun önünde, duvar yaklaştıkça gövdeye doğru geri çekilir
-            Vector3 rightVec = playerController.transform.right;
-            Vector3 upVec = Vector3.up;
+            bool flashlightNotDropped = (flashlightPhysical == null || flashlightPhysical.CurrentState != FlashlightPhysicalState.DroppedPhysics);
+            bool flashlightInLeftHand = animController.IsLeftHandHoldingFlashlight && flashlightNotDropped;
+            bool flashlightInRightHand = animController.IsFlashlightEquipped && !flashlightInLeftHand && flashlightNotDropped;
+            bool holdingCustomRightItem = animController.IsRightHandHoldingCustomItem;
+
+            // --- SOL EL: Aktarılmış El Feneri Nişan Alma (Sağ el Feştek tutarken çakışmasız aydınlatma!) ---
+            if (flashlightInLeftHand && enableFlashlightAiming)
+            {
+                Vector3 shoulderL = boneLeftShoulder != null
+                    ? boneLeftShoulder.position
+                    : (gazeOrigin - rightVec * 0.22f - upVec * 0.18f);
+                float fwdL = Mathf.Lerp(0.40f, 0.18f, wallPullback01);
+                float vertL = Mathf.Clamp(gazeDir.y * 0.20f, -0.16f, 0.20f);
+                float latL = Mathf.Lerp(-0.18f, -0.12f, wallPullback01);
+
+                Vector3 leftIkPos = shoulderL + gazeDir * fwdL + rightVec * latL + upVec * (vertL - 0.09f);
+                Vector3 leftToAim = smoothedFlashlightAimPoint - leftIkPos;
+                Quaternion leftIkRot = leftToAim.sqrMagnitude > 0.001f
+                    ? Quaternion.LookRotation(leftToAim.normalized, upVec)
+                    : playerController.transform.rotation;
+
+                animController.SetLeftHandAimIK(leftIkPos, leftIkRot, enableHandIK ? 0.72f : 0f);
+
+                if (animController.LeftHandFlashlightSocket != null)
+                {
+                    Vector3 sockToAim = smoothedFlashlightAimPoint - animController.LeftHandFlashlightSocket.position;
+                    if (sockToAim.sqrMagnitude > 0.01f)
+                    {
+                        Quaternion desiredWorldRot = Quaternion.LookRotation(sockToAim.normalized, upVec);
+                        animController.LeftHandFlashlightSocket.rotation = Quaternion.Slerp(
+                            animController.LeftHandFlashlightSocket.rotation, desiredWorldRot, 1f - Mathf.Exp(-flashlightAimSmooth * dt));
+                    }
+                }
+            }
+            else
+            {
+                animController.SetLeftHandAimIK(Vector3.zero, Quaternion.identity, 0f);
+            }
+
+            // --- SAĞ EL: 1) Açık Etkileşim Hedefi (Şalter / Soket / Buton) -> 2) Feştek Tutuşu -> 3) Normal El Feneri ---
+            if (rightHandExplicitActive && rightHandExplicitWeight > 0.005f)
+            {
+                computedRightHandIkPos = rightHandExplicitPos;
+                computedRightHandIkRot = rightHandExplicitRot;
+                computedRightHandIkWeight = enableHandIK ? rightHandExplicitWeight : 0f;
+                animController.SetRightHandAimIK(computedRightHandIkPos, computedRightHandIkRot, computedRightHandIkWeight);
+                return;
+            }
+
+            if (holdingCustomRightItem)
+            {
+                float fwdItem = Mathf.Lerp(0.36f, 0.18f, wallPullback01);
+                float vertItem = Mathf.Clamp(gazeDir.y * 0.18f, -0.18f, 0.16f);
+                computedRightHandIkPos = shoulderR + gazeDir * fwdItem + rightVec * 0.16f + upVec * (vertItem - 0.13f);
+                computedRightHandIkRot = Quaternion.LookRotation(gazeDir, upVec);
+                computedRightHandIkWeight = enableHandIK ? 0.78f : 0f;
+                animController.SetRightHandAimIK(computedRightHandIkPos, computedRightHandIkRot, computedRightHandIkWeight);
+                return;
+            }
+
+            if (!flashlightInRightHand || !enableFlashlightAiming)
+            {
+                computedRightHandIkWeight = 0f;
+                animController.SetRightHandAimIK(Vector3.zero, Quaternion.identity, 0f);
+                return;
+            }
+
             float forwardReach = Mathf.Lerp(0.42f, 0.18f, wallPullback01);
             float verticalOffset = Mathf.Clamp(gazeDir.y * 0.22f, -0.18f, 0.22f);
             float lateralOffset = Mathf.Lerp(0.18f, 0.12f, wallPullback01);
 
-            computedRightHandIkPos = shoulderOrigin + gazeDir * forwardReach + rightVec * lateralOffset + upVec * (verticalOffset - 0.08f);
+            computedRightHandIkPos = shoulderR + gazeDir * forwardReach + rightVec * lateralOffset + upVec * (verticalOffset - 0.08f);
             Vector3 toTarget = (smoothedFlashlightAimPoint - computedRightHandIkPos);
             computedRightHandIkRot = toTarget.sqrMagnitude > 0.001f
-                ? Quaternion.LookRotation(toTarget.normalized, Vector3.up)
+                ? Quaternion.LookRotation(toTarget.normalized, upVec)
                 : playerController.transform.rotation;
 
-            // Hand IK açıksa kolu ve bileği anatomik hedefe yönlendir
             computedRightHandIkWeight = enableHandIK ? 0.72f : 0f;
-            animController?.SetRightHandAimIK(computedRightHandIkPos, computedRightHandIkRot, computedRightHandIkWeight);
+            animController.SetRightHandAimIK(computedRightHandIkPos, computedRightHandIkRot, computedRightHandIkWeight);
 
-            // Fiziksel fener soketi ve ışık hüzmesi daima fiziksel fener objesiyle senkronize kalır
             if (animController.RightHandSocket != null)
             {
                 Vector3 sockToAim = smoothedFlashlightAimPoint - animController.RightHandSocket.position;
                 if (sockToAim.sqrMagnitude > 0.01f)
                 {
-                    Quaternion desiredWorldRot = Quaternion.LookRotation(sockToAim.normalized, Vector3.up);
-                    // Anatomik bilek sınırı içinde soketi fener hedefine yumuşakça hizala
+                    Quaternion desiredWorldRot = Quaternion.LookRotation(sockToAim.normalized, upVec);
                     animController.RightHandSocket.rotation = Quaternion.Slerp(
                         animController.RightHandSocket.rotation, desiredWorldRot, 1f - Mathf.Exp(-flashlightAimSmooth * dt));
                 }

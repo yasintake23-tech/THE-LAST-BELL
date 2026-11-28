@@ -1,0 +1,657 @@
+{
+  "external_cc0_assets": [
+    {
+      "asset_name": "SchoolDesk_01",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/SchoolDesk_01",
+      "api_url": "https://api.polyhaven.com/files/SchoolDesk_01",
+      "author": "Ethan Place",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/SchoolDesk_01/SchoolDesk_01_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/SchoolDesk_01/SchoolDesk_01_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/SchoolDesk_01/SchoolDesk_01_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/SchoolDesk_01/SchoolDesk_01_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/SchoolDesk_01/SchoolDesk_01.fbx",
+        "Assets/Environment/External/Models/SchoolDesk_01/SchoolDesk_01_diff_1k.jpg",
+        "Assets/Environment/External/Models/SchoolDesk_01/SchoolDesk_01_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/SchoolDesk_01/SchoolDesk_01_arm_1k.jpg",
+        "Assets/Environment/External/Models/SchoolDesk_01/SchoolDesk_01_MetalSmooth.png",
+        "Assets/Environment/External/Models/SchoolDesk_01/SchoolDesk_01_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "SchoolChair_01",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/SchoolChair_01",
+      "api_url": "https://api.polyhaven.com/files/SchoolChair_01",
+      "author": "Ethan Place",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/SchoolChair_01/SchoolChair_01_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/SchoolChair_01/SchoolChair_01_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/SchoolChair_01/SchoolChair_01_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/SchoolChair_01/SchoolChair_01_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/SchoolChair_01/SchoolChair_01.fbx",
+        "Assets/Environment/External/Models/SchoolChair_01/SchoolChair_01_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/SchoolChair_01/SchoolChair_01_diff_1k.jpg",
+        "Assets/Environment/External/Models/SchoolChair_01/SchoolChair_01_arm_1k.jpg",
+        "Assets/Environment/External/Models/SchoolChair_01/SchoolChair_01_MetalSmooth.png",
+        "Assets/Environment/External/Models/SchoolChair_01/SchoolChair_01_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "WoodenTable_01",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/WoodenTable_01",
+      "api_url": "https://api.polyhaven.com/files/WoodenTable_01",
+      "author": "Ethan Place",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/WoodenTable_01/WoodenTable_01_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/WoodenTable_01/WoodenTable_01_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/WoodenTable_01/WoodenTable_01_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/WoodenTable_01/WoodenTable_01_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/WoodenTable_01/WoodenTable_01.fbx",
+        "Assets/Environment/External/Models/WoodenTable_01/WoodenTable_01_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/WoodenTable_01/WoodenTable_01_diff_1k.jpg",
+        "Assets/Environment/External/Models/WoodenTable_01/WoodenTable_01_arm_1k.jpg",
+        "Assets/Environment/External/Models/WoodenTable_01/WoodenTable_01_MetalSmooth.png",
+        "Assets/Environment/External/Models/WoodenTable_01/WoodenTable_01_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "metal_office_desk",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/metal_office_desk",
+      "api_url": "https://api.polyhaven.com/files/metal_office_desk",
+      "author": "Ulan Cabanilla",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/metal_office_desk/metal_office_desk_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/metal_office_desk/metal_office_desk_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/metal_office_desk/metal_office_desk_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/metal_office_desk/metal_office_desk_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/metal_office_desk/metal_office_desk.fbx",
+        "Assets/Environment/External/Models/metal_office_desk/metal_office_desk_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/metal_office_desk/metal_office_desk_diff_1k.jpg",
+        "Assets/Environment/External/Models/metal_office_desk/metal_office_desk_arm_1k.jpg",
+        "Assets/Environment/External/Models/metal_office_desk/metal_office_desk_MetalSmooth.png",
+        "Assets/Environment/External/Models/metal_office_desk/metal_office_desk_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "painted_wooden_cabinet",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/painted_wooden_cabinet",
+      "api_url": "https://api.polyhaven.com/files/painted_wooden_cabinet",
+      "author": "Kirill Sannikov",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/painted_wooden_cabinet/painted_wooden_cabinet_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/painted_wooden_cabinet/painted_wooden_cabinet_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/painted_wooden_cabinet/painted_wooden_cabinet_arm_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/painted_wooden_cabinet/painted_wooden_cabinet_nor_gl_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/painted_wooden_cabinet/painted_wooden_cabinet.fbx",
+        "Assets/Environment/External/Models/painted_wooden_cabinet/painted_wooden_cabinet_diff_1k.jpg",
+        "Assets/Environment/External/Models/painted_wooden_cabinet/painted_wooden_cabinet_arm_1k.jpg",
+        "Assets/Environment/External/Models/painted_wooden_cabinet/painted_wooden_cabinet_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/painted_wooden_cabinet/painted_wooden_cabinet_MetalSmooth.png",
+        "Assets/Environment/External/Models/painted_wooden_cabinet/painted_wooden_cabinet_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "wooden_bookshelf_worn",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/wooden_bookshelf_worn",
+      "api_url": "https://api.polyhaven.com/files/wooden_bookshelf_worn",
+      "author": "Ulan Cabanilla",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/wooden_bookshelf_worn/wooden_bookshelf_worn_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_bookshelf_worn/wooden_bookshelf_worn_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_bookshelf_worn/wooden_bookshelf_worn_arm_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_bookshelf_worn/wooden_bookshelf_worn_diff_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/wooden_bookshelf_worn/wooden_bookshelf_worn.fbx",
+        "Assets/Environment/External/Models/wooden_bookshelf_worn/wooden_bookshelf_worn_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/wooden_bookshelf_worn/wooden_bookshelf_worn_arm_1k.jpg",
+        "Assets/Environment/External/Models/wooden_bookshelf_worn/wooden_bookshelf_worn_diff_1k.jpg",
+        "Assets/Environment/External/Models/wooden_bookshelf_worn/wooden_bookshelf_worn_MetalSmooth.png",
+        "Assets/Environment/External/Models/wooden_bookshelf_worn/wooden_bookshelf_worn_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "Sofa_01",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/Sofa_01",
+      "api_url": "https://api.polyhaven.com/files/Sofa_01",
+      "author": "Kirill Sannikov",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/Sofa_01/Sofa_01_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/Sofa_01/Sofa_01_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/Sofa_01/Sofa_01_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/Sofa_01/Sofa_01_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/Sofa_01/Sofa_01.fbx",
+        "Assets/Environment/External/Models/Sofa_01/Sofa_01_diff_1k.jpg",
+        "Assets/Environment/External/Models/Sofa_01/Sofa_01_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/Sofa_01/Sofa_01_arm_1k.jpg",
+        "Assets/Environment/External/Models/Sofa_01/Sofa_01_MetalSmooth.png",
+        "Assets/Environment/External/Models/Sofa_01/Sofa_01_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "wall_clock",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/wall_clock",
+      "api_url": "https://api.polyhaven.com/files/wall_clock",
+      "author": "PierreB3D",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/wall_clock/wall_clock_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wall_clock/wall_clock_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wall_clock/wall_clock_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wall_clock/wall_clock_arm_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wall_clock/wall_clock_glass_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/wall_clock/wall_clock.fbx",
+        "Assets/Environment/External/Models/wall_clock/wall_clock_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/wall_clock/wall_clock_diff_1k.jpg",
+        "Assets/Environment/External/Models/wall_clock/wall_clock_arm_1k.jpg",
+        "Assets/Environment/External/Models/wall_clock/wall_clock_glass_arm_1k.jpg",
+        "Assets/Environment/External/Models/wall_clock/wall_clock_MetalSmooth.png",
+        "Assets/Environment/External/Models/wall_clock/wall_clock_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "mounted_fluorescent_lights",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/mounted_fluorescent_lights",
+      "api_url": "https://api.polyhaven.com/files/mounted_fluorescent_lights",
+      "author": "Ulan Cabanilla",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/mounted_fluorescent_lights/mounted_fluorescent_lights_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/mounted_fluorescent_lights/mounted_fluorescent_lights_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/mounted_fluorescent_lights/mounted_fluorescent_lights_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/mounted_fluorescent_lights/mounted_fluorescent_lights_arm_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/mounted_fluorescent_lights/mounted_fluorescent_lights_emission_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/mounted_fluorescent_lights/mounted_fluorescent_lights.fbx",
+        "Assets/Environment/External/Models/mounted_fluorescent_lights/mounted_fluorescent_lights_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/mounted_fluorescent_lights/mounted_fluorescent_lights_diff_1k.jpg",
+        "Assets/Environment/External/Models/mounted_fluorescent_lights/mounted_fluorescent_lights_arm_1k.jpg",
+        "Assets/Environment/External/Models/mounted_fluorescent_lights/mounted_fluorescent_lights_emission_1k.jpg",
+        "Assets/Environment/External/Models/mounted_fluorescent_lights/mounted_fluorescent_lights_MetalSmooth.png",
+        "Assets/Environment/External/Models/mounted_fluorescent_lights/mounted_fluorescent_lights_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "industrial_wall_lamp",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/industrial_wall_lamp",
+      "api_url": "https://api.polyhaven.com/files/industrial_wall_lamp",
+      "author": "Kuutti Siitonen",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/industrial_wall_lamp/industrial_wall_lamp_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/industrial_wall_lamp/industrial_wall_lamp_emissive_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/industrial_wall_lamp/industrial_wall_lamp_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/industrial_wall_lamp/industrial_wall_lamp_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/industrial_wall_lamp/industrial_wall_lamp_arm_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/industrial_wall_lamp/industrial_wall_lamp_glass_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/industrial_wall_lamp/industrial_wall_lamp_glass_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/industrial_wall_lamp/industrial_wall_lamp_glass_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp.fbx",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_emissive_1k.jpg",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_diff_1k.jpg",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_arm_1k.jpg",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_glass_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_glass_diff_1k.jpg",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_glass_arm_1k.jpg",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_MetalSmooth.png",
+        "Assets/Environment/External/Models/industrial_wall_lamp/industrial_wall_lamp_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "television_02",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/television_02",
+      "api_url": "https://api.polyhaven.com/files/television_02",
+      "author": "Benny Weimer",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/2k/television_02/television_02_2k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/television_02/television_02_nor_gl_2k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/television_02/television_02_diff_2k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/television_02/television_02_arm_2k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/television_02/television_02.fbx",
+        "Assets/Environment/External/Models/television_02/television_02_nor_gl_2k.jpg",
+        "Assets/Environment/External/Models/television_02/television_02_diff_2k.jpg",
+        "Assets/Environment/External/Models/television_02/television_02_arm_2k.jpg",
+        "Assets/Environment/External/Models/television_02/television_02_MetalSmooth.png",
+        "Assets/Environment/External/Models/television_02/television_02_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "binder_notebook",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/binder_notebook",
+      "api_url": "https://api.polyhaven.com/files/binder_notebook",
+      "author": "DaDrood",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/binder_notebook/binder_notebook_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/binder_notebook/binder_notebook_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/binder_notebook/binder_notebook_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/binder_notebook/binder_notebook_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/binder_notebook/binder_notebook.fbx",
+        "Assets/Environment/External/Models/binder_notebook/binder_notebook_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/binder_notebook/binder_notebook_diff_1k.jpg",
+        "Assets/Environment/External/Models/binder_notebook/binder_notebook_arm_1k.jpg",
+        "Assets/Environment/External/Models/binder_notebook/binder_notebook_MetalSmooth.png",
+        "Assets/Environment/External/Models/binder_notebook/binder_notebook_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "clipboard",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/clipboard",
+      "api_url": "https://api.polyhaven.com/files/clipboard",
+      "author": "ProgrammerOnCoffee",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/clipboard/clipboard_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/clipboard/clipboard_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/clipboard/clipboard_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/clipboard/clipboard_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/clipboard/clipboard.fbx",
+        "Assets/Environment/External/Models/clipboard/clipboard_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/clipboard/clipboard_diff_1k.jpg",
+        "Assets/Environment/External/Models/clipboard/clipboard_arm_1k.jpg",
+        "Assets/Environment/External/Models/clipboard/clipboard_MetalSmooth.png",
+        "Assets/Environment/External/Models/clipboard/clipboard_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "cardboard_box_01",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/cardboard_box_01",
+      "api_url": "https://api.polyhaven.com/files/cardboard_box_01",
+      "author": "Rahul Chaudhary",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/cardboard_box_01/cardboard_box_01_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/cardboard_box_01/cardboard_box_01_arm_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/cardboard_box_01/cardboard_box_01_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/cardboard_box_01/cardboard_box_01_nor_gl_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/cardboard_box_01/cardboard_box_01.fbx",
+        "Assets/Environment/External/Models/cardboard_box_01/cardboard_box_01_arm_1k.jpg",
+        "Assets/Environment/External/Models/cardboard_box_01/cardboard_box_01_diff_1k.jpg",
+        "Assets/Environment/External/Models/cardboard_box_01/cardboard_box_01_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/cardboard_box_01/cardboard_box_01_MetalSmooth.png",
+        "Assets/Environment/External/Models/cardboard_box_01/cardboard_box_01_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "fern_02",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/fern_02",
+      "api_url": "https://api.polyhaven.com/files/fern_02",
+      "author": "Rob Tuytel, Rico Cilliers",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/fern_02/fern_02_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/fern_02/fern_02_arm_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/fern_02/fern_02_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/fern_02/fern_02_nor_gl_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/fern_02/fern_02.fbx",
+        "Assets/Environment/External/Models/fern_02/fern_02_arm_1k.jpg",
+        "Assets/Environment/External/Models/fern_02/fern_02_diff_1k.jpg",
+        "Assets/Environment/External/Models/fern_02/fern_02_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/fern_02/fern_02_MetalSmooth.png",
+        "Assets/Environment/External/Models/fern_02/fern_02_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "weed_plant_02",
+      "type": "3D Model (FBX + PBR)",
+      "source_url": "https://polyhaven.com/a/weed_plant_02",
+      "api_url": "https://api.polyhaven.com/files/weed_plant_02",
+      "author": "Rob Tuytel, Rico Cilliers",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/weed_plant_02/weed_plant_02_1k.fbx",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/weed_plant_02/weed_plant_02_nor_gl_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/weed_plant_02/weed_plant_02_diff_1k.jpg",
+        "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/weed_plant_02/weed_plant_02_arm_1k.jpg"
+      ],
+      "modifications": "Packed ARM (AO/Roughness/Metallic) into Unity Built-in Standard MetallicSmoothness RGBA PNG + AO JPG.",
+      "unity_paths": [
+        "Assets/Environment/External/Models/weed_plant_02/weed_plant_02.fbx",
+        "Assets/Environment/External/Models/weed_plant_02/weed_plant_02_nor_gl_1k.jpg",
+        "Assets/Environment/External/Models/weed_plant_02/weed_plant_02_diff_1k.jpg",
+        "Assets/Environment/External/Models/weed_plant_02/weed_plant_02_arm_1k.jpg",
+        "Assets/Environment/External/Models/weed_plant_02/weed_plant_02_MetalSmooth.png",
+        "Assets/Environment/External/Models/weed_plant_02/weed_plant_02_AO.jpg"
+      ]
+    },
+    {
+      "asset_name": "winter_evening",
+      "type": "Equirectangular Evening Skybox HDRI (2K)",
+      "source_url": "https://polyhaven.com/a/winter_evening",
+      "api_url": "https://api.polyhaven.com/files/winter_evening",
+      "author": "Sergej Majboroda",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/winter_evening_2k.hdr"
+      ],
+      "modifications": "Configured as Cubemap Skybox with blue-hour exposure for THE LAST BELL.",
+      "unity_paths": [
+        "Assets/Environment/External/HDRI/winter_evening_2k.hdr"
+      ]
+    },
+    {
+      "asset_name": "Road012B",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/Road012B",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=Road012B",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=Road012B_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/Road012B/Road012B_1K-JPG_AmbientOcclusion.jpg",
+        "Assets/Environment/External/Textures/Road012B/Road012B_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/Road012B/Road012B_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/Road012B/Road012B_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/Road012B/Road012B_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "PavingStones141",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/PavingStones141",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=PavingStones141",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=PavingStones141_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/PavingStones141/PavingStones141_1K-JPG_AmbientOcclusion.jpg",
+        "Assets/Environment/External/Textures/PavingStones141/PavingStones141_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/PavingStones141/PavingStones141_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/PavingStones141/PavingStones141_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/PavingStones141/PavingStones141_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "Plaster007",
+      "type": "PBR Material (2K-JPG)",
+      "source_url": "https://ambientcg.com/a/Plaster007",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=Plaster007",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=Plaster007_2K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/Plaster007/Plaster007_2K-JPG_AmbientOcclusion.jpg",
+        "Assets/Environment/External/Textures/Plaster007/Plaster007_2K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/Plaster007/Plaster007_2K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/Plaster007/Plaster007_2K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/Plaster007/Plaster007_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "Concrete034",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/Concrete034",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=Concrete034",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=Concrete034_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/Concrete034/Concrete034_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/Concrete034/Concrete034_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/Concrete034/Concrete034_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/Concrete034/Concrete034_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "Bricks097",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/Bricks097",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=Bricks097",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=Bricks097_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/Bricks097/Bricks097_1K-JPG_AmbientOcclusion.jpg",
+        "Assets/Environment/External/Textures/Bricks097/Bricks097_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/Bricks097/Bricks097_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/Bricks097/Bricks097_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/Bricks097/Bricks097_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "Tiles141",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/Tiles141",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=Tiles141",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=Tiles141_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/Tiles141/Tiles141_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/Tiles141/Tiles141_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/Tiles141/Tiles141_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/Tiles141/Tiles141_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "PaintedWood009C",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/PaintedWood009C",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=PaintedWood009C",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=PaintedWood009C_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/PaintedWood009C/PaintedWood009C_1K-JPG_AmbientOcclusion.jpg",
+        "Assets/Environment/External/Textures/PaintedWood009C/PaintedWood009C_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/PaintedWood009C/PaintedWood009C_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/PaintedWood009C/PaintedWood009C_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/PaintedWood009C/PaintedWood009C_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "Wood035",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/Wood035",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=Wood035",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=Wood035_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/Wood035/Wood035_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/Wood035/Wood035_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/Wood035/Wood035_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/Wood035/Wood035_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "Metal064",
+      "type": "PBR Material (1K-JPG)",
+      "source_url": "https://ambientcg.com/a/Metal064",
+      "api_url": "https://ambientcg.com/api/v2/full_json?id=Metal064",
+      "author": "Lennart Demes (ambientCG)",
+      "license": "CC0 1.0 Universal (Public Domain)",
+      "downloaded_files": [
+        "https://ambientcg.com/get?file=Metal064_1K-JPG.zip"
+      ],
+      "modifications": "Extracted Color, NormalGL, AO, Roughness/Metalness and packed Unity Standard MetallicSmoothness RGBA PNG.",
+      "unity_paths": [
+        "Assets/Environment/External/Textures/Metal064/Metal064_1K-JPG_Color.jpg",
+        "Assets/Environment/External/Textures/Metal064/Metal064_1K-JPG_Metalness.jpg",
+        "Assets/Environment/External/Textures/Metal064/Metal064_1K-JPG_NormalGL.jpg",
+        "Assets/Environment/External/Textures/Metal064/Metal064_1K-JPG_Roughness.jpg",
+        "Assets/Environment/External/Textures/Metal064/Metal064_MetalSmooth.png"
+      ]
+    }
+  ],
+  "original_first_party_assets": [
+    {
+      "asset_name": "Festek_Device (Custom Working Model & Original Source)",
+      "type": "Custom 3D Gameplay Item (GLB Source + Optimized Multi-LOD FBX + PBR)",
+      "source_url": "User-supplied attachment: sample_2026-11-28T092759.820.zip (sample_2026-11-28T092759.820.glb)",
+      "author": "THE LAST BELL Project / User-Provided Original Asset",
+      "license": "Project Original / First-Party Asset",
+      "modifications": "Archived untouched original 297k-tri GLB in Assets/Environment/Original/Festek/Source/; extracted WebP BaseColor & MetallicRoughness into Unity PNGs; scaled working copy to 0.21m handheld coupler; generated UV-preserving LOD0 (6,534 polys) & LOD1 (3,016 polys); added physical Activation_Button_Cap and Grip_Point / Insertion_Align_Point / Tip_Reference / Button_Point anchors.",
+      "unity_paths": [
+        "Assets/Environment/Original/Festek/Source/sample_2026-11-28T092759.820.glb",
+        "Assets/Environment/Original/Festek/Festek_Device.fbx",
+        "Assets/Environment/Original/Festek/Festek_Albedo.png",
+        "Assets/Environment/Original/Festek/Festek_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "ArrivedSedan_Car",
+      "type": "Original 3D Vehicle Model (FBX)",
+      "source_url": "Created in-house via Headless Blender 4.0.2",
+      "author": "THE LAST BELL Production Team",
+      "license": "Project Original (First-Party)",
+      "modifications": "Modeled 4,710-polygon unbranded 4-door sedan with sculpted body shell, tinted glass windows, interior seats/dashboard/steering wheel, 4 spoked alloy wheels & tires, bumpers, mirrors, handles, and lamps.",
+      "unity_paths": [
+        "Assets/Environment/Original/Vehicle/ArrivedSedan_Car.fbx"
+      ]
+    },
+    {
+      "asset_name": "HarputCourse_Sign (HARPUT / ENGLISH COURSE)",
+      "type": "Original 3D Extruded Metal Signage + Weathered PBR Maps",
+      "source_url": "Created in-house via Headless Blender 4.0.2 + Pillow",
+      "author": "THE LAST BELL Production Team",
+      "license": "Project Original (First-Party)",
+      "modifications": "Modeled steel backing plate, angle-iron frame, mounting brackets, hex bolts, and 3D extruded bevelled metal typography ('HARPUT' / 'ENGLISH COURSE') with rust-streaked enamel PBR maps.",
+      "unity_paths": [
+        "Assets/Environment/Original/Signage/HarputCourse_Sign.fbx",
+        "Assets/Environment/Original/Signage/HarputSign_Backing_Albedo.jpg",
+        "Assets/Environment/Original/Signage/HarputSign_Backing_MetalSmooth.png"
+      ]
+    },
+    {
+      "asset_name": "SchoolEntrance_DetailedDoor",
+      "type": "Original 3D Hinged Institutional Double Door (FBX)",
+      "source_url": "Created in-house via Headless Blender 4.0.2",
+      "author": "THE LAST BELL Production Team",
+      "license": "Project Original (First-Party)",
+      "modifications": "Modeled outer timber/steel frame, transom window, hinged left/right paneled leaves, kickplates, upper glass, 6 barrel hinges, lock plates, lever handles, and Door_Handle_Target IK anchor.",
+      "unity_paths": [
+        "Assets/Environment/Original/Doors/SchoolEntrance_DetailedDoor.fbx"
+      ]
+    },
+    {
+      "asset_name": "ElectricalPanel_Unit & FestekSocket_Unit",
+      "type": "Original 3D Interactive Mechanical Puzzle Assets (FBX)",
+      "source_url": "Created in-house via Headless Blender 4.0.2",
+      "author": "THE LAST BELL Production Team",
+      "license": "Project Original (First-Party)",
+      "modifications": "Modeled open steel breaker cabinet with DIN rails, 12 breakers, copper busbars, rotating Main_Lever_Pivot, Fe\u015ftek cradle, plus wall-mounted Fe\u015ftek receiving socket with guide ribs, Insertion_Transform, pressable Activation_Button, and status lens.",
+      "unity_paths": [
+        "Assets/Environment/Original/Electrical/ElectricalPanel_Unit.fbx",
+        "Assets/Environment/Original/Electrical/Panel_HazardDecal.jpg",
+        "Assets/Environment/Original/Electrical/FestekSocket_Unit.fbx"
+      ]
+    },
+    {
+      "asset_name": "Radiator_CastIron, Whiteboard_Classroom & Course Graphics",
+      "type": "Original 3D Architectural Props & 2D Aged Educational Graphics",
+      "source_url": "Created in-house via Headless Blender 4.0.2 + Pillow",
+      "author": "THE LAST BELL Production Team",
+      "license": "Project Original (First-Party)",
+      "modifications": "Modeled 11-fin cast-iron wall radiator, aluminum-framed classroom whiteboard, evening B1 lesson texture, irregular verbs poster, and CRT scanline static map.",
+      "unity_paths": [
+        "Assets/Environment/Original/Props/Radiator_CastIron.fbx",
+        "Assets/Environment/Original/Props/Whiteboard_Classroom.fbx",
+        "Assets/Environment/Original/Props/Whiteboard_Lesson_Albedo.jpg",
+        "Assets/Environment/Original/Props/CoursePoster_Verbs_Albedo.jpg",
+        "Assets/Environment/Original/Props/CRT_Static_Scanlines.png"
+      ]
+    },
+    {
+      "asset_name": "Chapter I Spatial 3D Soundscape (15 WAV Clips)",
+      "type": "Original Procedural PCM Audio Assets",
+      "source_url": "Synthesized in-house via Python DSP (22.05 kHz 16-bit mono PCM)",
+      "author": "THE LAST BELL Production Team",
+      "license": "Project Original (First-Party, Royalty-Free)",
+      "modifications": "Generated seamless exterior wind & interior room tone loops plus mechanical door, panel lever, metallic Fe\u015ftek impact/pickup/socket/button, contactor relay, fluorescent starter/hum, and CRT TV startup/static clips.",
+      "unity_paths": [
+        "Assets/Audio/Chapter1/"
+      ]
+    }
+  ]
+}

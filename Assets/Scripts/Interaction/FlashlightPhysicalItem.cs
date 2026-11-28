@@ -8,13 +8,15 @@ namespace TheLastBell.Interaction
     {
         HeldInRig,
         HeldInHandBone,
+        HeldInLeftHandBone,
         DroppedPhysics
     }
 
     /// <summary>
     /// THE LAST BELL - Fiziksel El Feneri Etkileşim Mimarisi.
-    /// Fenerin kamera/el soketi arasında geçiş yapmasını, düşme/olay anında Rigidbody fiziğine
-    /// geçerek yerde ışık saçmaya devam etmesini ve tekrar yerden alınıp ele takılmasını sağlar.
+    /// Fenerin kamera/el soketi arasında geçiş yapmasını, sağ el özel bir nesne (Feştek) tuttuğunda
+    /// sol ele (LeftHand_Flashlight_Socket) çakışmasız aktarılmasını ve düşme anında Rigidbody fiziğine
+    /// geçerek yerde ışık saçmaya devam etmesini sağlar.
     /// </summary>
     [DisallowMultipleComponent]
     public class FlashlightPhysicalItem : MonoBehaviour, IInteractable
@@ -23,6 +25,7 @@ namespace TheLastBell.Interaction
         [SerializeField] private FlashlightPhysicalState currentState = FlashlightPhysicalState.HeldInRig;
         [SerializeField] private Transform cameraRigAttachPoint;
         [SerializeField] private Transform handAttachPoint;
+        [SerializeField] private Transform leftHandAttachPoint;
         [SerializeField] private FlashlightController flashlightController;
         [SerializeField] private ProtagonistAnimationController animController;
 
@@ -35,7 +38,10 @@ namespace TheLastBell.Interaction
         [SerializeField] private Vector3 handLocalPosition = Vector3.zero;
         [SerializeField] private Vector3 handLocalEuler = Vector3.zero;
 
+        private FlashlightPhysicalState stateBeforeLeftTransfer = FlashlightPhysicalState.HeldInRig;
+
         public FlashlightPhysicalState CurrentState => currentState;
+        public bool IsTransferredToLeftHand => currentState == FlashlightPhysicalState.HeldInLeftHandBone;
 
         public event Action<FlashlightPhysicalState> OnPhysicalStateChanged;
 
@@ -47,10 +53,11 @@ namespace TheLastBell.Interaction
             {
                 animController = transform.root.GetComponentInChildren<ProtagonistAnimationController>(true);
             }
-            if (handAttachPoint == null && animController != null)
+            if (animController != null)
             {
                 animController.InitializeIfNeeded();
-                handAttachPoint = animController.RightHandSocket;
+                if (handAttachPoint == null) handAttachPoint = animController.RightHandSocket;
+                if (leftHandAttachPoint == null) leftHandAttachPoint = animController.LeftHandFlashlightSocket;
             }
 
             if (itemRigidbody == null) itemRigidbody = GetComponent<Rigidbody>();
@@ -87,6 +94,7 @@ namespace TheLastBell.Interaction
             }
             currentState = FlashlightPhysicalState.HeldInRig;
             ApplyStateVisualAndPhysics(currentState);
+            animController?.SetLeftHandFlashlightHeld(false);
             animController?.SetFlashlightEquipped(true);
             OnPhysicalStateChanged?.Invoke(currentState);
         }
@@ -106,8 +114,52 @@ namespace TheLastBell.Interaction
             }
             currentState = FlashlightPhysicalState.HeldInHandBone;
             ApplyStateVisualAndPhysics(currentState);
+            animController?.SetLeftHandFlashlightHeld(false);
             animController?.SetFlashlightEquipped(true);
             OnPhysicalStateChanged?.Invoke(currentState);
+        }
+
+        public void TransferToLeftHand()
+        {
+            if (currentState == FlashlightPhysicalState.DroppedPhysics) return;
+            if (currentState != FlashlightPhysicalState.HeldInLeftHandBone)
+            {
+                stateBeforeLeftTransfer = currentState;
+            }
+
+            if (leftHandAttachPoint == null && animController != null)
+            {
+                animController.InitializeIfNeeded();
+                leftHandAttachPoint = animController.LeftHandFlashlightSocket;
+            }
+
+            if (leftHandAttachPoint != null)
+            {
+                transform.SetParent(leftHandAttachPoint, false);
+                transform.localPosition = handLocalPosition;
+                transform.localRotation = Quaternion.Euler(handLocalEuler);
+            }
+            currentState = FlashlightPhysicalState.HeldInLeftHandBone;
+            ApplyStateVisualAndPhysics(currentState);
+            animController?.SetFlashlightEquipped(false);
+            animController?.SetLeftHandFlashlightHeld(true);
+            OnPhysicalStateChanged?.Invoke(currentState);
+        }
+
+        public void ReturnFromLeftHand()
+        {
+            if (currentState != FlashlightPhysicalState.HeldInLeftHandBone) return;
+            animController?.SetLeftHandFlashlightHeld(false);
+            bool preferHand = (stateBeforeLeftTransfer == FlashlightPhysicalState.HeldInHandBone) ||
+                              (CameraModeController.Instance != null && CameraModeController.Instance.IsThirdPerson);
+            if (preferHand && handAttachPoint != null)
+            {
+                AttachToHand();
+            }
+            else
+            {
+                AttachToCameraRig();
+            }
         }
 
         public void DropWithPhysics(Vector3 worldImpulse, Vector3 angularImpulse = default)
@@ -129,6 +181,7 @@ namespace TheLastBell.Interaction
             }
 
             // Fener yerdeyken de ışık saçmaya devam eder; sadece karakter el animasyonu bırakılır
+            animController?.SetLeftHandFlashlightHeld(false);
             animController?.SetFlashlightEquipped(false);
             OnPhysicalStateChanged?.Invoke(currentState);
         }
@@ -136,6 +189,12 @@ namespace TheLastBell.Interaction
         public void PickupAndReattach(bool attachToHandBone = false)
         {
             animController?.TriggerFlashlightPickup();
+            if (animController != null && animController.IsRightHandHoldingCustomItem)
+            {
+                currentState = FlashlightPhysicalState.HeldInRig;
+                TransferToLeftHand();
+                return;
+            }
             bool useHand = attachToHandBone || (CameraModeController.Instance != null && CameraModeController.Instance.IsThirdPerson);
             if (useHand && handAttachPoint != null)
             {
@@ -171,7 +230,7 @@ namespace TheLastBell.Interaction
         private void ApplyStateVisualAndPhysics(FlashlightPhysicalState state)
         {
             bool isDropped = (state == FlashlightPhysicalState.DroppedPhysics);
-            bool inHand = (state == FlashlightPhysicalState.HeldInHandBone);
+            bool inHand = (state == FlashlightPhysicalState.HeldInHandBone || state == FlashlightPhysicalState.HeldInLeftHandBone);
 
             if (itemRigidbody != null)
             {

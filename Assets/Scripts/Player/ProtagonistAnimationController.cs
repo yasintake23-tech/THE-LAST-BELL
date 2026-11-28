@@ -30,17 +30,21 @@ namespace TheLastBell.Player
         [SerializeField] private Transform lookTargetOverride;
         [SerializeField] private Transform cameraTransform;
         [SerializeField] private Transform rightHandAttachSocket;
+        [SerializeField] private Transform rightHandFestekSocket;
+        [SerializeField] private Transform leftHandFlashlightSocket;
         [SerializeField] private Transform leftHandInteractTarget;
 
         [Header("--- Katman Ağırlıkları & Geçiş Hızı ---")]
         [SerializeField] private float layerBlendSpeed = 10f;
         [SerializeField] private bool flashlightEquipped = true;
+        [SerializeField] private bool rightHandHoldingCustomItem = false;
+        [SerializeField] private bool leftHandHoldingFlashlight = false;
         [SerializeField] private float headLookAtWeight = 0.45f;
         [SerializeField] private float rightHandIkWeight = 0.0f;
 
         [Header("--- Ayak Zemin IK (Foot IK) ---")]
         [SerializeField] private bool enableFootIK = true;
-        [SerializeField] private float footSoleOffset = 0.09f;
+        [SerializeField] private float footSoleOffset = 0.086f;
         [SerializeField] private float footRayHeight = 0.45f;
         [SerializeField] private float footRayDistance = 0.70f;
         [SerializeField] private LayerMask groundLayers = ~0;
@@ -80,6 +84,9 @@ namespace TheLastBell.Player
         private Quaternion rightHandIkTargetRot = Quaternion.identity;
         private float dynamicRightHandIkWeight = 0f;
         private float dynamicLeftHandIkWeight = 0f;
+        private Vector3 leftHandAimIkPos;
+        private Quaternion leftHandAimIkRot = Quaternion.identity;
+        private float leftHandAimIkWeight = 0f;
 
         // Animator Parametre Hash'leri
         private static readonly int HashSpeed = Animator.StringToHash("Speed");
@@ -125,6 +132,8 @@ namespace TheLastBell.Player
 
         public Animator AnimatorComponent => animator;
         public bool IsFlashlightEquipped => flashlightEquipped;
+        public bool IsRightHandHoldingCustomItem => rightHandHoldingCustomItem;
+        public bool IsLeftHandHoldingFlashlight => leftHandHoldingFlashlight;
         public float FearLevel => fearLevel;
         public bool IsFullBodyOverrideActive => isCinematicOverride || fullOverrideTimer > 0f;
         public bool IsIsolatedPreviewActive => isIsolatedPreview;
@@ -133,6 +142,8 @@ namespace TheLastBell.Player
         public float PreviewSpeed => previewSpeed;
         public AnimationClip CurrentPreviewClip => currentPreviewClip;
         public Transform RightHandSocket => rightHandAttachSocket;
+        public Transform RightHandFestekSocket => rightHandFestekSocket;
+        public Transform LeftHandFlashlightSocket => leftHandFlashlightSocket;
 
         private void Awake()
         {
@@ -174,23 +185,61 @@ namespace TheLastBell.Player
 
         private void EnsureHandSocket()
         {
-            if (rightHandAttachSocket != null || animator == null || !animator.isHuman) return;
+            if (animator == null || !animator.isHuman) return;
 
             Transform rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
             if (rightHand != null)
             {
-                Transform existing = rightHand.Find("Flashlight_Hand_Socket");
-                if (existing != null)
+                if (rightHandAttachSocket == null)
                 {
-                    rightHandAttachSocket = existing;
+                    Transform existing = rightHand.Find("Flashlight_Hand_Socket");
+                    if (existing != null)
+                    {
+                        rightHandAttachSocket = existing;
+                    }
+                    else
+                    {
+                        var sock = new GameObject("Flashlight_Hand_Socket");
+                        sock.transform.SetParent(rightHand, false);
+                        sock.transform.localPosition = new Vector3(0.01f, 0.055f, 0.025f);
+                        sock.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                        rightHandAttachSocket = sock.transform;
+                    }
+                }
+
+                if (rightHandFestekSocket == null)
+                {
+                    Transform existingFestek = rightHand.Find("RightHand_Festek_Socket");
+                    if (existingFestek != null)
+                    {
+                        rightHandFestekSocket = existingFestek;
+                    }
+                    else
+                    {
+                        var fsock = new GameObject("RightHand_Festek_Socket");
+                        fsock.transform.SetParent(rightHand, false);
+                        fsock.transform.localPosition = new Vector3(-0.015f, 0.065f, 0.030f);
+                        fsock.transform.localRotation = Quaternion.Euler(85f, 0f, 0f);
+                        rightHandFestekSocket = fsock.transform;
+                    }
+                }
+            }
+
+            Transform leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
+            if (leftHand != null && leftHandFlashlightSocket == null)
+            {
+                Transform existingLeft = leftHand.Find("LeftHand_Flashlight_Socket");
+                if (existingLeft != null)
+                {
+                    leftHandFlashlightSocket = existingLeft;
                 }
                 else
                 {
-                    var sock = new GameObject("Flashlight_Hand_Socket");
-                    sock.transform.SetParent(rightHand, false);
-                    sock.transform.localPosition = new Vector3(0.01f, 0.055f, 0.025f);
-                    sock.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-                    rightHandAttachSocket = sock.transform;
+                    var lsock = new GameObject("LeftHand_Flashlight_Socket");
+                    lsock.transform.SetParent(leftHand, false);
+                    lsock.transform.localPosition = new Vector3(-0.01f, 0.055f, 0.025f);
+                    lsock.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                    leftHandFlashlightSocket = lsock.transform;
                 }
             }
         }
@@ -217,8 +266,8 @@ namespace TheLastBell.Player
             bool fullOverride = IsFullBodyOverrideActive;
 
             float targetUpper = fullOverride ? 0f : (fearLevel > 0.05f ? fearLevel : 0f);
-            float targetRight = (!fullOverride && flashlightEquipped) ? 1f : 0f;
-            float targetLeft = (!fullOverride && leftArmTimer > 0f) ? 1f : 0f;
+            float targetRight = (!fullOverride && (flashlightEquipped || rightHandHoldingCustomItem || dynamicRightHandIkWeight > 0.01f)) ? 1f : 0f;
+            float targetLeft = (!fullOverride && (leftArmTimer > 0f || leftHandHoldingFlashlight || leftHandAimIkWeight > 0.01f)) ? 1f : 0f;
             float targetHead = (!fullOverride && (headLookTimer > 0f || lookTargetOverride != null)) ? 1f : 0f;
             float targetAdd = (!fullOverride && fearLevel > 0.1f) ? Mathf.Clamp01(fearLevel * 0.45f) : 0f;
             float targetFull = fullOverride ? 1f : 0f;
@@ -260,11 +309,28 @@ namespace TheLastBell.Player
 
         public void SetFootIKEnabled(bool enabled) => enableFootIK = enabled;
 
+        public void SetRightHandCustomItemHeld(bool held)
+        {
+            rightHandHoldingCustomItem = held;
+        }
+
+        public void SetLeftHandFlashlightHeld(bool held)
+        {
+            leftHandHoldingFlashlight = held;
+        }
+
         public void SetRightHandAimIK(Vector3 worldPos, Quaternion worldRot, float weight)
         {
             rightHandIkTargetPos = worldPos;
             rightHandIkTargetRot = worldRot;
             dynamicRightHandIkWeight = Mathf.Clamp01(weight);
+        }
+
+        public void SetLeftHandAimIK(Vector3 worldPos, Quaternion worldRot, float weight)
+        {
+            leftHandAimIkPos = worldPos;
+            leftHandAimIkRot = worldRot;
+            leftHandAimIkWeight = Mathf.Clamp01(weight);
         }
 
         public void SetLeftHandInteractionIK(Transform target, float weight)
@@ -550,31 +616,41 @@ namespace TheLastBell.Player
                 animator.SetLookAtPosition(lookTargetOverride.position);
             }
 
-            // Layer 2: RightArm_Flashlight -> Dinamik fener nişan alma el IK'sı
-            if (layerIndex == idxRightArm && flashlightEquipped)
+            // Layer 2: RightArm_Flashlight -> Dinamik fener nişan alma veya sağ el özel nesne (Feştek / şalter) IK'sı
+            if (layerIndex == idxRightArm && (flashlightEquipped || rightHandHoldingCustomItem || dynamicRightHandIkWeight > 0.01f))
             {
                 float w = Mathf.Max(rightHandIkWeight, dynamicRightHandIkWeight);
                 if (w > 0.01f)
                 {
                     animator.SetIKPositionWeight(AvatarIKGoal.RightHand, w);
                     animator.SetIKPosition(AvatarIKGoal.RightHand, rightHandIkTargetPos);
-                    animator.SetIKRotationWeight(AvatarIKGoal.RightHand, w * 0.65f);
+                    animator.SetIKRotationWeight(AvatarIKGoal.RightHand, w * 0.72f);
                     animator.SetIKRotation(AvatarIKGoal.RightHand, rightHandIkTargetRot);
                 }
             }
 
-            // Layer 3: LeftArm_Interaction -> Kapı kolu / duvar desteği hedef IK'sı
-            if (layerIndex == idxLeftArm && leftHandInteractTarget != null)
+            // Layer 3: LeftArm_Interaction -> Çevresel etkileşim (kapı/duvar) veya sol ele aktarılmış el feneri IK'sı
+            if (layerIndex == idxLeftArm)
             {
-                float w = dynamicLeftHandIkWeight > 0.01f
-                    ? dynamicLeftHandIkWeight
-                    : (leftArmTimer > 0f ? Mathf.Clamp01(leftArmTimer * 2f) * 0.70f : 0f);
-                if (w > 0.01f)
+                if (leftHandInteractTarget != null)
                 {
-                    animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, w);
-                    animator.SetIKPosition(AvatarIKGoal.LeftHand, leftHandInteractTarget.position);
-                    animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, w * 0.55f);
-                    animator.SetIKRotation(AvatarIKGoal.LeftHand, leftHandInteractTarget.rotation);
+                    float w = dynamicLeftHandIkWeight > 0.01f
+                        ? dynamicLeftHandIkWeight
+                        : (leftArmTimer > 0f ? Mathf.Clamp01(leftArmTimer * 2f) * 0.70f : 0f);
+                    if (w > 0.01f)
+                    {
+                        animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, w);
+                        animator.SetIKPosition(AvatarIKGoal.LeftHand, leftHandInteractTarget.position);
+                        animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, w * 0.55f);
+                        animator.SetIKRotation(AvatarIKGoal.LeftHand, leftHandInteractTarget.rotation);
+                    }
+                }
+                else if (leftHandAimIkWeight > 0.01f)
+                {
+                    animator.SetIKPositionWeight(AvatarIKGoal.LeftHand, leftHandAimIkWeight);
+                    animator.SetIKPosition(AvatarIKGoal.LeftHand, leftHandAimIkPos);
+                    animator.SetIKRotationWeight(AvatarIKGoal.LeftHand, leftHandAimIkWeight * 0.65f);
+                    animator.SetIKRotation(AvatarIKGoal.LeftHand, leftHandAimIkRot);
                 }
             }
         }

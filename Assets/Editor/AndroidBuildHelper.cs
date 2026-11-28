@@ -85,6 +85,7 @@ namespace TheLastBell.Editor
             Debug.Log("[AndroidBuildHelper] Batchmode proje doğrulaması başlatılıyor...");
             MobileSetupHelper.ApplyMobileFixes();
             ProtagonistAnimationSetup.SetupAll();
+            Chapter1EnvironmentBuilder.SetupChapter1();
             ConfigureAndroidSettings();
             bool ok = ValidateProject(checkScenesDeep: true, out string report);
             bool testsOk = VerificationSuite.RunAll(out string testReport);
@@ -100,6 +101,7 @@ namespace TheLastBell.Editor
             Debug.Log("[AndroidBuildHelper] Batchmode kurulum, doğrulama ve APK derleme başlatılıyor...");
             MobileSetupHelper.ApplyMobileFixes();
             ProtagonistAnimationSetup.SetupAll();
+            Chapter1EnvironmentBuilder.SetupChapter1();
             ConfigureAndroidSettings();
 
             bool valid = ValidateProject(checkScenesDeep: true, out string report);

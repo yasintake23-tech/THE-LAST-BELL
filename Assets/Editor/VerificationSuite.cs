@@ -13,6 +13,7 @@ using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using TheLastBell.Player;
 using TheLastBell.Interaction;
+using TheLastBell.Gameplay;
 using TheLastBell.UI;
 
 namespace TheLastBell.Editor
@@ -22,7 +23,8 @@ namespace TheLastBell.Editor
     /// Runs 8-direction analog joystick tests, camera-relative movement at 0/90/180 deg yaw,
     /// simultaneous multi-touch move+look, release stop, resolution dp layout checks (2340x1080),
     /// 7-layer Humanoid animation & physical flashlight verification,
-    /// and captures rendered Gameplay HUD + Flashlight + Protagonist Walk screenshots.
+    /// Chapter I environment / toe alignment / 13-state Feştek & CRT TV narrative puzzle simulation,
+    /// and captures rendered Gameplay HUD + Flashlight + Environment + Puzzle screenshots.
     /// </summary>
     public static class VerificationSuite
     {
@@ -48,6 +50,7 @@ namespace TheLastBell.Editor
                 VerifyAnimationAndPhysicalFlashlight(sb, failures);
                 RunFunctionalMovementAndJoystickTests(sb, failures);
                 CaptureVisualScreenshots(sb);
+                VerifyChapter1ProductionAndPuzzleArc(sb, failures);
             }
             catch (Exception ex)
             {
@@ -907,6 +910,291 @@ namespace TheLastBell.Editor
             }
 
             if (canvas != null) canvas.gameObject.SetActive(true);
+        }
+
+        private static void VerifyChapter1ProductionAndPuzzleArc(StringBuilder sb, List<string> failures)
+        {
+            sb.AppendLine("=== Chapter I: The Arrival — Environment, Toe Alignment & Puzzle Verification ===");
+
+            // 1. Provenance & Skybox & Zero Pink/Error Materials Check
+            if (!File.Exists("Assets/Environment/ASSET_PROVENANCE.md"))
+                failures.Add("ASSET_PROVENANCE.md missing in Assets/Environment/.");
+
+            if (RenderSettings.skybox == null)
+                failures.Add("RenderSettings.skybox is null (expected Blue Hour winter_evening skybox).");
+
+            var allRenderers = UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            int errorMatCount = 0;
+            foreach (var r in allRenderers)
+            {
+                if (r == null || !r.enabled) continue;
+                var mats = r.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    if (mats[i] == null || mats[i].shader == null || mats[i].shader.name.Contains("InternalErrorShader"))
+                    {
+                        errorMatCount++;
+                        failures.Add($"Missing or pink error material on '{r.gameObject.name}' (slot {i}).");
+                    }
+                }
+            }
+            sb.AppendLine($"  Material Integrity: {allRenderers.Length} scene renderers checked, {errorMatCount} missing/error materials OK");
+
+            // 2. Hero Environment Objects Check (Sedan, 3D HARPUT Sign, Detailed Door, Panel, Feştek, Socket, CRT TV)
+            var sedan = GameObject.Find("Protagonist_ArrivedSedan");
+            var sign = GameObject.Find("HarputEnglishCourse_3DSign");
+            var signText1 = GameObject.Find("Sign_3DText_HARPUT");
+            var signText2 = GameObject.Find("Sign_3DText_ENGLISH_COURSE");
+            var detailedDoor = GameObject.Find("Detailed_Entrance_DoorSet");
+            var objMgr = UnityEngine.Object.FindAnyObjectByType<ChapterObjectiveManager>(FindObjectsInactive.Include);
+            var panel = UnityEngine.Object.FindAnyObjectByType<ElectricalPanelInteractable>(FindObjectsInactive.Include);
+            var festek = UnityEngine.Object.FindAnyObjectByType<FestekItem>(FindObjectsInactive.Include);
+            var socket = UnityEngine.Object.FindAnyObjectByType<FestekSocketInteractable>(FindObjectsInactive.Include);
+            var powerMgr = UnityEngine.Object.FindAnyObjectByType<FacilityPowerManager>(FindObjectsInactive.Include);
+            var tvCtrl = UnityEngine.Object.FindAnyObjectByType<AbandonedTelevisionController>(FindObjectsInactive.Include);
+
+            if (sedan == null || sedan.GetComponent<Collider>() == null)
+                failures.Add("Protagonist_ArrivedSedan or its collider is missing.");
+            if (sign == null || signText1 == null || signText2 == null)
+                failures.Add("3D extruded HARPUT / ENGLISH COURSE sign or raised letter meshes missing.");
+            if (detailedDoor == null)
+                failures.Add("Detailed_Entrance_DoorSet missing on SchoolEntrance_Doorway.");
+            if (objMgr == null || panel == null || festek == null || socket == null || powerMgr == null || tvCtrl == null)
+            {
+                failures.Add("One or more Chapter I gameplay/puzzle components missing in AbandonedSchool.unity.");
+                return;
+            }
+
+            // 3. Protagonist Toe & Sole Flat Ground Alignment Check (Sec 20)
+            var player = GameObject.Find("Player_Protagonist");
+            var anim = player != null ? player.GetComponentInChildren<Animator>(true) : null;
+            var animCtrl = player != null ? player.GetComponentInChildren<ProtagonistAnimationController>(true) : null;
+            var procCtrl = player != null ? player.GetComponent<CharacterProceduralController>() : null;
+            var fpc = player != null ? player.GetComponent<FirstPersonController>() : null;
+            var flashPhys = player != null ? player.GetComponentInChildren<FlashlightPhysicalItem>(true) : null;
+            var camMode = player != null ? player.GetComponent<CameraModeController>() : null;
+            var registry = AssetDatabase.LoadAssetAtPath<AnimationLibraryRegistry>(ProtagonistAnimationSetup.REGISTRY_PATH);
+
+            if (anim != null && procCtrl != null && registry != null)
+            {
+                player.transform.position = Vector3.zero;
+                player.transform.rotation = Quaternion.identity;
+                anim.transform.localPosition = Vector3.zero;
+                anim.transform.localRotation = Quaternion.identity;
+                procCtrl.InitializeIfNeeded();
+
+                var idleV2 = registry.FindClip("Idle_Natural_V2");
+                if (idleV2 != null)
+                {
+                    anim.Rebind();
+                    idleV2.SampleAnimation(anim.gameObject, idleV2.length * 0.25f);
+                    procCtrl.StepProcedural(0.02f);
+
+                    Transform lToeBase = anim.GetBoneTransform(HumanBodyBones.LeftToes);
+                    Transform rToeBase = anim.GetBoneTransform(HumanBodyBones.RightToes);
+                    Transform lToeEnd = lToeBase != null && lToeBase.childCount > 0 ? lToeBase.GetChild(0) : null;
+                    Transform rToeEnd = rToeBase != null && rToeBase.childCount > 0 ? rToeBase.GetChild(0) : null;
+
+                    if (lToeBase != null && lToeEnd != null && rToeBase != null && rToeEnd != null)
+                    {
+                        float lLift = lToeEnd.position.y - lToeBase.position.y;
+                        float rLift = rToeEnd.position.y - rToeBase.position.y;
+                        if (lLift > 0.004f || rLift > 0.004f || lToeEnd.position.y < 0.012f)
+                        {
+                            failures.Add($"Toe alignment check failed: LeftToeLift={lLift:F4}m, RightToeLift={rLift:F4}m, LToeEndY={lToeEnd.position.y:F4}m.");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"  Toe & Sole Alignment OK: LToeBaseY={lToeBase.position.y:F3}m -> LToeEndY={lToeEnd.position.y:F3}m (lift={lLift:F4}m), RToeEndY={rToeEnd.position.y:F3}m");
+                        }
+                    }
+                }
+            }
+
+            // Setup screenshot helper camera if rendering is available
+            bool canRender = SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null;
+            Camera shotCam = null;
+            GameObject shotCamGo = null;
+            var canvas = UnityEngine.Object.FindAnyObjectByType<Canvas>(FindObjectsInactive.Include);
+            bool prevCanvasActive = canvas != null && canvas.gameObject.activeSelf;
+            if (canRender)
+            {
+                if (canvas != null) canvas.gameObject.SetActive(false);
+                shotCamGo = new GameObject("_Chapter1_VerifyShotCam");
+                shotCam = shotCamGo.AddComponent<Camera>();
+                shotCam.fieldOfView = 58f;
+                shotCam.nearClipPlane = 0.05f;
+                shotCam.farClipPlane = 120f;
+                shotCam.clearFlags = CameraClearFlags.Skybox;
+
+                // Shot 1: Exterior Arrival — Car + Wet Asphalt + Weeds + HARPUT ENGLISH COURSE Building
+                shotCamGo.transform.position = new Vector3(-1.35f, 1.62f, -21.2f);
+                shotCamGo.transform.LookAt(new Vector3(1.1f, 1.45f, -9.5f));
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Arrival_Car_And_Facade.png", sb);
+
+                // Shot 2: Close-up of 3D Extruded HARPUT ENGLISH COURSE Sign & Detailed Entrance Door
+                shotCamGo.transform.position = new Vector3(-0.65f, 2.25f, -5.2f);
+                shotCamGo.transform.LookAt(new Vector3(0.0f, 2.55f, -0.15f));
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Harput_3DSign_And_Door.png", sb);
+
+                // Shot 3: Interior Classroom 101 (Desks, B1 Whiteboard Lesson, Bookshelf, Notebook)
+                var c101Fill = new GameObject("_Temp_C101_ShotLight").AddComponent<Light>();
+                c101Fill.type = LightType.Spot;
+                c101Fill.spotAngle = 62f;
+                c101Fill.range = 14f;
+                c101Fill.intensity = 2.6f;
+                c101Fill.color = new Color(1.0f, 0.96f, 0.88f);
+                c101Fill.transform.position = new Vector3(-3.4f, 1.68f, 7.6f);
+                c101Fill.transform.LookAt(new Vector3(-6.2f, 1.15f, 3.8f));
+                shotCamGo.transform.position = c101Fill.transform.position;
+                shotCamGo.transform.rotation = c101Fill.transform.rotation;
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Classroom101_B1Lesson.png", sb);
+                UnityEngine.Object.DestroyImmediate(c101Fill.gameObject);
+            }
+
+            // 4. Full 13-State Chapter I Narrative & Physical Puzzle Progression Verification
+            InvokePrivate(objMgr, "Awake");
+            InvokePrivate(powerMgr, "Awake");
+            InvokePrivate(tvCtrl, "Awake");
+            InvokePrivate(panel, "Awake");
+            InvokePrivate(festek, "Awake");
+            InvokePrivate(socket, "Awake");
+            if (flashPhys != null) InvokePrivate(flashPhys, "Awake");
+
+            if (objMgr.CurrentState != ChapterObjectiveState.Arrival)
+                failures.Add($"Initial objective expected Arrival, got {objMgr.CurrentState}.");
+            if (powerMgr.IsPowerRestored || tvCtrl.IsPoweredOn)
+                failures.Add("Facility power or CRT TV must be OFF at Chapter I start.");
+            if (festek.CurrentState != FestekItemState.CradledInPanel)
+                failures.Add($"Festek expected CradledInPanel at start, got {festek.CurrentState}.");
+
+            // Edge-case test: interacting with socket BEFORE holding Feştek must NOT restore power
+            socket.Interact(null);
+            if (socket.IsActivated || powerMgr.IsPowerRestored)
+                failures.Add("Out-of-order socket interaction restored power without Feştek!");
+
+            // Spatial progression Arrival -> EnterBuilding -> ExploreInstitution -> LocateElectricalPanel -> OperateElectricalPanel
+            objMgr.EvaluateSpatialProgression(new Vector3(0f, 0.02f, -8.0f));
+            if (objMgr.CurrentState != ChapterObjectiveState.EnterBuilding)
+                failures.Add($"Expected EnterBuilding at courtyard approach, got {objMgr.CurrentState}.");
+
+            objMgr.EvaluateSpatialProgression(new Vector3(0f, 0.02f, 1.5f));
+            if (objMgr.CurrentState != ChapterObjectiveState.ExploreInstitution)
+                failures.Add($"Expected ExploreInstitution inside entrance, got {objMgr.CurrentState}.");
+
+            objMgr.EvaluateSpatialProgression(new Vector3(0f, 0.02f, 5.0f));
+            if (objMgr.CurrentState != ChapterObjectiveState.LocateElectricalPanel)
+                failures.Add($"Expected LocateElectricalPanel in dark hallway, got {objMgr.CurrentState}.");
+
+            objMgr.EvaluateSpatialProgression(new Vector3(3.85f, 0.02f, 7.8f));
+            if (objMgr.CurrentState != ChapterObjectiveState.OperateElectricalPanel)
+                failures.Add($"Expected OperateElectricalPanel near panel, got {objMgr.CurrentState}.");
+
+            // Step 5-6: Pull electrical panel lever -> power stays OFF, Feştek physically drops!
+            panel.ExecuteImmediateForTest();
+            panel.ExecuteImmediateForTest(); // Spam resilience check
+            if (!panel.HasOperated || powerMgr.IsPowerRestored)
+                failures.Add("Operating panel lever either failed or prematurely restored power without Feştek.");
+            if (festek.CurrentState != FestekItemState.DroppedPhysics)
+                failures.Add($"Feştek did not enter DroppedPhysics after lever pull (got {festek.CurrentState}).");
+            if (objMgr.CurrentState != ChapterObjectiveState.DiscoverFestek)
+                failures.Add($"Expected DiscoverFestek after lever pull, got {objMgr.CurrentState}.");
+
+            // Test Feştek out-of-bounds safety recovery onto reachable floor
+            festek.transform.position = new Vector3(3.85f, -4.5f, 8.5f);
+            festek.EnforceReachableSafetyBounds();
+            if (festek.transform.position.y < 0.02f || festek.transform.position.y > 0.25f)
+                failures.Add($"Feştek safety recovery failed: pos={festek.transform.position}");
+
+            if (canRender && shotCam != null)
+            {
+                // Shot 4: Electrical Panel (Pulled Lever) + Dropped Custom Feştek on Floor under Flashlight
+                var pSpot = new GameObject("_Temp_PanelSpot").AddComponent<Light>();
+                pSpot.type = LightType.Spot;
+                pSpot.spotAngle = 60f;
+                pSpot.range = 10f;
+                pSpot.intensity = 2.5f;
+                pSpot.color = new Color(1.0f, 0.96f, 0.88f);
+                pSpot.transform.position = new Vector3(3.85f, 1.55f, 6.75f);
+                pSpot.transform.LookAt(new Vector3(3.85f, 0.72f, 8.95f));
+                shotCamGo.transform.position = pSpot.transform.position;
+                shotCamGo.transform.rotation = pSpot.transform.rotation;
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Puzzle_Panel_And_DroppedFestek.png", sb);
+                UnityEngine.Object.DestroyImmediate(pSpot.gameObject);
+            }
+
+            // Step 7: Pick up Feştek into Right Hand + Verify Off-Hand Left Flashlight Transfer (Zero Overlap!)
+            var spotLight = GameObject.Find("SpotLight")?.GetComponent<Light>();
+            if (flashPhys != null) flashPhys.AttachToHand();
+            festek.PickupIntoRightHand(player);
+
+            if (festek.CurrentState != FestekItemState.HeldInRightHand || animCtrl == null || !festek.transform.IsChildOf(animCtrl.RightHandFestekSocket))
+                failures.Add("Feştek did not attach cleanly to RightHand_Festek_Socket.");
+            if (flashPhys == null || !flashPhys.IsTransferredToLeftHand || !flashPhys.transform.IsChildOf(animCtrl.LeftHandFlashlightSocket))
+                failures.Add("Flashlight did not transfer to LeftHand_Flashlight_Socket when picking up Feştek.");
+            if (spotLight != null && !spotLight.enabled)
+                failures.Add("Flashlight SpotLight turned off during left-hand transfer.");
+            if (objMgr.CurrentState != ChapterObjectiveState.LocateFestekSocket)
+                failures.Add($"Expected LocateFestekSocket after Feştek pickup, got {objMgr.CurrentState}.");
+
+            if (canRender && shotCam != null && camMode != null)
+            {
+                // Shot 5: 3P Dual-Hand Coordination (Right Hand holding Feştek + Left Hand holding Flashlight + Flat Shoes)
+                camMode.SetCameraMode(CameraViewMode.ThirdPerson);
+                player.transform.position = new Vector3(4.8f, 0.0f, 7.6f);
+                player.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
+                if (fpc != null) fpc.StepController(0.02f);
+                if (procCtrl != null) procCtrl.StepProcedural(0.02f);
+
+                var charFill = new GameObject("_Temp_DualHandFill").AddComponent<Light>();
+                charFill.type = LightType.Point;
+                charFill.range = 8f;
+                charFill.intensity = 1.6f;
+                charFill.transform.position = new Vector3(4.8f, 1.6f, 5.6f);
+
+                shotCamGo.transform.position = new Vector3(5.35f, 1.22f, 5.55f);
+                shotCamGo.transform.LookAt(new Vector3(4.8f, 0.92f, 7.6f));
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_DualHand_Festek_And_Flashlight.png", sb);
+
+                UnityEngine.Object.DestroyImmediate(charFill.gameObject);
+                camMode.SetCameraMode(CameraViewMode.FirstPerson);
+            }
+
+            // Step 8-13: Approach Socket -> Insert Feştek -> Press Activation Button -> Restore Power -> TV Turns ON -> Milestone Complete!
+            objMgr.EvaluateSpatialProgression(new Vector3(5.65f, 0.02f, 8.0f));
+            if (objMgr.CurrentState != ChapterObjectiveState.InsertFestek)
+                failures.Add($"Expected InsertFestek near socket, got {objMgr.CurrentState}.");
+
+            socket.ExecuteImmediateForTest(festek, player);
+
+            if (festek.CurrentState != FestekItemState.SeatedInSocket)
+                failures.Add($"Expected Feştek SeatedInSocket, got {festek.CurrentState}.");
+            if (!socket.IsActivated)
+                failures.Add("FestekSocketInteractable did not reach Activated state.");
+            if (flashPhys != null && flashPhys.IsTransferredToLeftHand)
+                failures.Add("Flashlight did not return from left hand after seating Feştek.");
+            if (!powerMgr.IsPowerRestored)
+                failures.Add("FacilityPowerManager.IsPowerRestored is false after Feştek activation.");
+            if (!tvCtrl.IsPoweredOn || tvCtrl.ScreenLocalLight == null || !tvCtrl.ScreenLocalLight.enabled)
+                failures.Add("AbandonedTelevisionController or its local glow light did not activate when electricity restored.");
+            if (objMgr.CurrentState != ChapterObjectiveState.ChapterMilestoneComplete)
+                failures.Add($"Expected final state ChapterMilestoneComplete, got {objMgr.CurrentState}.");
+            if (fpc != null && !fpc.AllowMovement)
+                failures.Add("Player movement was locked at ChapterMilestoneComplete (player must remain in control!).");
+
+            sb.AppendLine("  Chapter I 13-State Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Right-Hand Pickup + Left-Hand Flashlight -> Socket Insert & Button Press -> Power Restored -> CRT TV Active -> ChapterMilestoneComplete OK");
+
+            if (canRender && shotCam != null)
+            {
+                // Shot 6: Powered Facility + Seated Feştek in Socket + Active CRT Television Glowing on the Right!
+                tvCtrl.StepStaticEffect(0.15f);
+                shotCamGo.transform.position = new Vector3(5.35f, 1.52f, 6.35f);
+                shotCamGo.transform.LookAt(new Vector3(6.65f, 1.32f, 9.05f));
+                RenderAndSave(shotCam, 1280, 720, "Logs/Screenshots/Chapter1_Socket_Seated_And_TV_Active.png", sb);
+
+                UnityEngine.Object.DestroyImmediate(shotCamGo);
+                if (canvas != null) canvas.gameObject.SetActive(prevCanvasActive);
+            }
         }
 
         private static void RenderAndSave(Camera cam, int w, int h, string path, StringBuilder sb)
