@@ -50,6 +50,9 @@ namespace TheLastBell.Player
         [SerializeField] private float minWallDistance = 0.55f;
         [SerializeField] private LayerMask collisionMask = ~0;
 
+        private bool finaleEyePose;
+        private Vector3 finaleEyePosition;
+        private Quaternion finaleEyeRotation;
         private Renderer[] characterRenderers;
         private float currentBlend = 0f; // 0 = 1P, 1 = 3P/Orbit
         private float smoothedDistance;
@@ -151,10 +154,28 @@ namespace TheLastBell.Player
             StepCamera(Time.unscaledDeltaTime);
         }
 
+        public void SetFinaleEyePose(Vector3 position, Quaternion rotation)
+        {
+            finaleEyePose = true;
+            finaleEyePosition = position;
+            finaleEyeRotation = rotation;
+        }
+
+        public void ClearFinaleEyePose()
+        {
+            finaleEyePose = false;
+            hasSmoothedEyeY = false;
+        }
+
         public void StepCamera(float dt)
         {
             if (mainCamera == null || cameraPivot == null) return;
             if (mainCamera.transform.parent != cameraPivot) return;
+            if (finaleEyePose)
+            {
+                mainCamera.transform.SetPositionAndRotation(finaleEyePosition, finaleEyeRotation);
+                return;
+            }
 
             float safeDt = Mathf.Max(0.0001f, dt);
             float targetBlend = IsThirdPerson ? 1f : 0f;

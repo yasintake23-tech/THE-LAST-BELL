@@ -176,6 +176,7 @@ namespace TheLastBell.Player
             controller.Move(planarStep + Vector3.down * (1.5f * deltaTime));
             guidedVelocity = Vector3.ProjectOnPlane(transform.position - before, Vector3.up) / deltaTime;
             guidedMoveFrame = Time.frameCount;
+            HandleFootsteps(deltaTime);
         }
 
         private void Awake()

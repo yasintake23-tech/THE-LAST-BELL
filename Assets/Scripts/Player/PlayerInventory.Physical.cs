@@ -105,6 +105,27 @@ namespace TheLastBell.Player
             EndTransfer();
         }
 
+        public IEnumerator StoreEquippedForCinematic()
+        {
+            if (EquippedItem == null || transferring) yield break;
+            if (!Application.isPlaying)
+            {
+                CommitStorage();
+                yield break;
+            }
+            pose = GetComponentInChildren<ProtagonistAnimationController>(true);
+            pose?.InitializeIfNeeded();
+            Transform wrist = pose != null && pose.LeftHandFestekSocket != null ? pose.LeftHandFestekSocket.parent : null;
+            transferring = true;
+            if (wrist != null)
+            {
+                pose.IsPosingFestek = true;
+                yield return ReachPocket(wrist, GetPocket(), EquippedItem.Definition);
+            }
+            CommitStorage();
+            EndTransfer();
+        }
+
         private IEnumerator ReachPocket(Transform wrist, Transform target, InventoryItemDefinition definition)
         {
             Vector3 from = transform.InverseTransformPoint(wrist.position);

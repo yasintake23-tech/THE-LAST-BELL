@@ -30,6 +30,7 @@ namespace TheLastBell.Gameplay
         private Material runtimeScreenMat;
         private RenderTexture videoFrame;
         private float warmUpProgress = 0f;
+        private bool showingScreening;
         private float staticScrollTimer = 0f;
 
         public bool IsPoweredOn => isPoweredOn;
@@ -138,6 +139,20 @@ namespace TheLastBell.Gameplay
             return true;
         }
 
+        public void SetScreeningAudio(bool screening)
+        {
+            showingScreening = screening;
+            if (tvAudioSource == null || !isPoweredOn) return;
+            if (screening) tvAudioSource.Stop();
+            else if (staticLoopClip != null && !tvAudioSource.isPlaying)
+            {
+                tvAudioSource.clip = staticLoopClip;
+                tvAudioSource.loop = true;
+                tvAudioSource.volume = 0.38f;
+                tvAudioSource.Play();
+            }
+        }
+
         private IEnumerator WarmUpRoutine()
         {
             float dur = 0.95f;
@@ -163,7 +178,7 @@ namespace TheLastBell.Gameplay
 
         public void StepStaticEffect(float dt)
         {
-            if (!isPoweredOn || videoFrame != null) return;
+            if (!isPoweredOn || videoFrame != null || showingScreening) return;
             staticScrollTimer += dt;
 
             // Dengesiz analog parazit titremesi (korkutucu ama abartısız soğuk fosfor ışıması)

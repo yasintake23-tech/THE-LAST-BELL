@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using TheLastBell.Player;
+using TheLastBell.Gameplay;
 
 namespace TheLastBell.Interaction
 {
@@ -134,7 +135,8 @@ namespace TheLastBell.Interaction
 
             lastInteractTime = Time.time;
             // DoorInteractable owns the handle animation and starts its own physical motion.
-            if (!(currentInteractable is DoorInteractable || currentInteractable is FestekItem || currentInteractable is FestekSocketInteractable))
+            if (!(currentInteractable is DoorInteractable || currentInteractable is FestekItem || currentInteractable is FestekSocketInteractable ||
+                currentInteractable is TelevisionScreening))
             {
                 if (tps != null)
                 {

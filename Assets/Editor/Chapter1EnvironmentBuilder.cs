@@ -26,7 +26,7 @@ namespace TheLastBell.Editor
     /// - Derslikler, koridor, öğretmenler/personel odası (elektrik panosu -> fiziksel Feştek düşüşü -> Feştek yuvası -> sağ taraftaki CRT televizyon)
     /// - 7 yeni Bölüm I karakter etkileşim animasyonu (.anim, Humanoid uyumlu) ve 15 uzamsal 3B ses klibi
     /// </summary>
-    public static class Chapter1EnvironmentBuilder
+    public static partial class Chapter1EnvironmentBuilder
     {
         public const string MAT_DIR = "Assets/Environment/Materials";
         public const string CH1_ANIM_DIR = "Assets/Animations/Chapter1";
@@ -1710,19 +1710,21 @@ namespace TheLastBell.Editor
             cue.spatialBlend = 0f;
             objMgr.ConfigureCue(cue, AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Chapter1/SFX_ObjectiveCue.wav"));
             var intro = UnityEngine.Object.FindAnyObjectByType<SeamlessIntroManager>(FindObjectsInactive.Include);
-            sysParent.gameObject.AddComponent<ChapterDialogue>().Configure(
+            var voices = sysParent.gameObject.AddComponent<ChapterDialogue>();
+            voices.Configure(
                 voice, playerT, mainEntranceDoor != null ? mainEntranceDoor.transform : null, objMgr, intro,
                 LoadDialogue("Return", new SubtitleSegment(0.02f, 3.48f, "Tekrardan buradayım, beş yıl sonra.")),
                 LoadDialogue("Entrance", new SubtitleSegment(0f, 2.65f, "Burası düşündüğümden daha kötü hâle gelmiş.")),
                 LoadDialogue("Inside", new SubtitleSegment(0f, 2.56f, "Hadi ama, elektrik de yokmuş."),
                     new SubtitleSegment(2.74f, 4.30f, "En iyisi panoyu arayayım.")));
+            WireChapterFinale(mats, sysParent, tvCtrl, objMgr, voices, playerT);
         }
 
         private static InventoryItemDefinition CreateFestekInventoryDefinition()
         {
             const string iconPath = "Assets/UI/Inventory_Festek.png";
             if (AssetImporter.GetAtPath(iconPath) is TextureImporter importer &&
-                (importer.textureType != TextureImporterType.Sprite || importer.mipmapEnabled))
+                (importer.textureType != TextureImporterType.Sprite || importer.spriteImportMode != SpriteImportMode.Single || importer.mipmapEnabled))
             {
                 importer.textureType = TextureImporterType.Sprite;
                 importer.spriteImportMode = SpriteImportMode.Single;
@@ -1738,9 +1740,9 @@ namespace TheLastBell.Editor
                 AssetDatabase.CreateAsset(definition, path);
             }
             definition.Configure("chapter1.festek", "Feştek", "Eski tip devre köprüsü.",
-                AssetDatabase.LoadAssetAtPath<Sprite>(iconPath),
+                AssetDatabase.LoadAllAssetsAtPath(iconPath).OfType<Sprite>().FirstOrDefault(),
                 AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Environment/Original/Festek/Festek_Device.fbx"),
-                HandGripProfile.Device, true);
+                HandGripProfile.Device, true, AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath));
             EditorUtility.SetDirty(definition);
             return definition;
         }
@@ -1969,6 +1971,8 @@ namespace TheLastBell.Editor
             "SchoolDesk_01" => 0.8826f,
             "desk_lamp_arm_01" => 0.8790f,
             "FestekSocket_Unit" => 0.7800f,
+            "Elevator_Cab" => 2.605f,
+            "Elevator_Leaf" => 2.370f,
             "binder_notebook" => 0.5840f,
             "book_encyclopedia_set_01" => 0.5513f,
             "cardboard_box_01" => 0.5159f,

@@ -26,6 +26,7 @@ namespace TheLastBell.UI
 
         private bool isIntroActive = false;
         private bool interactionFocused;
+        private bool flashlightAvailable = true;
         private bool isPaused = false;
 
         public bool IsMobileActive { get; private set; }
@@ -56,6 +57,12 @@ namespace TheLastBell.UI
         public void SetInteractionFocus(bool focused)
         {
             interactionFocused = focused;
+            ApplyPlatformControls();
+        }
+
+        public void SetFlashlightAvailable(bool available)
+        {
+            flashlightAvailable = available;
             ApplyPlatformControls();
         }
 
@@ -123,7 +130,7 @@ namespace TheLastBell.UI
             {
                 foreach (var btn in actionButtons)
                 {
-                    if (btn != null) btn.SetActive(active);
+                    if (btn != null) btn.SetActive(active && (flashlightAvailable || btn.name != "Mobile_FlashlightButton"));
                 }
             }
         }

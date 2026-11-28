@@ -43,6 +43,28 @@ namespace TheLastBell.Interaction
         public FlashlightPhysicalState CurrentState => currentState;
         public bool IsTransferredToLeftHand => currentState == FlashlightPhysicalState.HeldInLeftHandBone;
 
+        private AudioClip lostImpact;
+        private bool lost;
+        private float lastImpact;
+        public bool IsLost => lost;
+
+        public void LoseInElevator(AudioClip impact)
+        {
+            if (lost) return;
+            lostImpact = impact;
+            lost = true;
+            if (currentState != FlashlightPhysicalState.DroppedPhysics)
+                DropWithPhysics(transform.forward * 0.37f, transform.right * 0.38f);
+            if (flashlightController != null) flashlightController.enabled = false;
+        }
+
+        private void OnCollisionEnter(Collision hit)
+        {
+            if (!lost || lostImpact == null || hit.contactCount == 0 || hit.relativeVelocity.sqrMagnitude < 0.36f || Time.time - lastImpact < 0.22f) return;
+            lastImpact = Time.time;
+            AudioSource.PlayClipAtPoint(lostImpact, hit.GetContact(0).point, Mathf.Clamp(hit.relativeVelocity.magnitude * 0.17f, 0.12f, 0.8f));
+        }
+
         public event Action<FlashlightPhysicalState> OnPhysicalStateChanged;
 
         private void Awake()
@@ -258,6 +280,7 @@ namespace TheLastBell.Interaction
 
         private void HandleAnimGripEvent()
         {
+            if (lost) return;
             if (currentState == FlashlightPhysicalState.DroppedPhysics)
             {
                 AttachToHand();
@@ -272,7 +295,7 @@ namespace TheLastBell.Interaction
 
         public bool CanInteract()
         {
-            return currentState == FlashlightPhysicalState.DroppedPhysics;
+            return !lost && currentState == FlashlightPhysicalState.DroppedPhysics;
         }
 
         public void Interact(PlayerInteractor interactor)

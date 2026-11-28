@@ -14,6 +14,7 @@ using UnityEditor.SceneManagement;
 using TheLastBell.Player;
 using TheLastBell.Interaction;
 using TheLastBell.Gameplay;
+using TheLastBell.Cinematics;
 using TheLastBell.UI;
 
 namespace TheLastBell.Editor
@@ -1263,10 +1264,17 @@ namespace TheLastBell.Editor
                 failures.Add("Powered removal failed, duplicated the item, lost left-hand attachment, or changed facility power.");
 
             var entry = inventory != null ? inventory.EquippedItem : null;
-            if (entry == null || inventory.PhysicalItems.Count != 1 || !entry.Definition.IsQuestItem ||
-                entry.Definition.ItemId != "chapter1.festek" || entry.Definition.Model == null || entry.Definition.Icon == null ||
-                inventory.TryCollectEquipped(entry.Definition, festek))
-                failures.Add("The Feştek inventory definition is incomplete or allowed a duplicate.");
+            if (entry == null || inventory.PhysicalItems.Count != 1)
+                failures.Add("The Feştek inventory must contain one entry.");
+            else
+            {
+                if (!entry.Definition.IsQuestItem || entry.Definition.ItemId != "chapter1.festek" ||
+                    entry.Definition.Model == null || entry.Definition.Icon == null)
+                    failures.Add($"Invalid Feştek definition: id={entry.Definition.ItemId}, quest={entry.Definition.IsQuestItem}, " +
+                        $"model={entry.Definition.Model != null}, icon={entry.Definition.Icon != null}.");
+                if (inventory.TryCollectEquipped(entry.Definition, festek))
+                    failures.Add("Feştek was collected twice.");
+            }
             if (entry != null)
             {
                 inventory.ToggleEquipment(entry);
@@ -1289,6 +1297,8 @@ namespace TheLastBell.Editor
             if (failures.Count == puzzleStartFailures)
                 sb.AppendLine("  Chapter I Puzzle Chain: Arrival -> Enter -> Explore -> Panel Lever -> Feştek Physics Drop & Recovery -> Left-Hand Pickup + Right-Hand Flashlight -> Socket Insert, Reverse, Withdraw, Reinsert & 90-Degree Turn -> Power Restored -> Powered Removal -> Pocket Storage & Re-equip -> CRT TV Active -> ChapterMilestoneComplete OK");
 
+            VerifyChapterFinale(player, inventory, entry, festek, powerMgr, shotCam, sb, failures);
+
             if (canRender && shotCam != null)
             {
                 // Shot 6: Powered Facility + Seated Feştek in Socket + Active CRT Television Glowing on the Right!
@@ -1300,6 +1310,86 @@ namespace TheLastBell.Editor
                 UnityEngine.Object.DestroyImmediate(shotCamGo);
                 if (canvas != null) canvas.gameObject.SetActive(prevCanvasActive);
             }
+        }
+
+        private static void VerifyChapterFinale(GameObject player, PlayerInventory inventory,
+            PlayerInventory.PhysicalItem entry, FestekItem item, FacilityPowerManager power, Camera camera, StringBuilder log,
+            List<string> failures)
+        {
+            var finale = UnityEngine.Object.FindAnyObjectByType<ChapterFinale>();
+            if (finale == null || !finale.AssetsReady || finale.Screening == null || !finale.Screening.UsesPhysicalScreen ||
+                string.IsNullOrWhiteSpace(finale.Screening.StreamingFile) ||
+                !File.Exists(Path.Combine(Application.streamingAssetsPath, finale.Screening.StreamingFile)))
+            {
+                failures.Add("Chapter finale media, CRT renderer, animation or effect references are incomplete.");
+                return;
+            }
+            int before = failures.Count;
+            var socket = finale.ElevatorSocket;
+            var threshold = finale.ElevatorThreshold;
+            var blocker = threshold.Find("Elevator_Progression_Blocker")?.GetComponent<BoxCollider>();
+            if (!finale.Screening.CanInteract() || socket == null || !socket.IsElevatorSocket || socket.CanInteract() ||
+                blocker == null || !blocker.enabled || !Mathf.Approximately(threshold.position.z, 26.10f) ||
+                ChapterFinale.IsCabInterior(Vector3.forward * 0.1f) || !ChapterFinale.IsCabInterior(Vector3.forward) ||
+                finale.Awakening == null || finale.Awakening.parent.gameObject.activeSelf)
+                failures.Add("CRT and elevator progression gates, threshold or awakening room are incorrectly configured.");
+            if (socket == null || blocker == null || finale.Awakening == null) return;
+
+            blocker.enabled = false;
+            Physics.SyncTransforms();
+            Vector3 center = threshold.TransformPoint(new Vector3(0, 0, 0.55f));
+            var obstructions = Physics.OverlapCapsule(center + Vector3.up * 0.38f, center + Vector3.up * 1.36f,
+                0.26f, ~0, QueryTriggerInteraction.Ignore);
+            foreach (var obstruction in obstructions)
+                if (!obstruction.transform.IsChildOf(player.transform))
+                    failures.Add($"Open elevator path intersects {obstruction.name}.");
+            blocker.enabled = true;
+
+            if (entry != null && inventory != null && inventory.EquippedItem == null)
+            {
+                inventory.ToggleEquipment(entry);
+                socket.AllowElevatorUse = true;
+                socket.SeatForVerification(item, player);
+                socket.ApplyRotationDelta(72f);
+                socket.ApplyRotationDelta(-19f);
+                if (socket.IsActivated || Mathf.Abs(socket.RotationDegrees - 53f) > 0.02f)
+                    failures.Add("Elevator Feştek must turn both directions and remain unlocked below 90 degrees.");
+                socket.CancelAndWithdraw();
+                if (item.CurrentState != FestekItemState.HeldInLeftHand)
+                    failures.Add("Elevator cancellation failed to return the Feştek to the hand.");
+                socket.SeatForVerification(item, player);
+                socket.ApplyRotationDelta(90f);
+                socket.RecoverElevatorItem().MoveNext();
+                if (!socket.IsActivated || socket.SeatedFestek != null || item.CurrentState != FestekItemState.HeldInLeftHand)
+                    failures.Add("Elevator recovery did not return the original device after the lock.");
+                inventory.StoreEquippedForCinematic().MoveNext();
+                if (!power.IsPowerRestored || inventory.PhysicalItems.Count != 1 ||
+                    inventory.EquippedItem != null || item.CurrentState != FestekItemState.Stored)
+                    failures.Add("Elevator lock changed facility electricity or lost/duplicated the inventory item.");
+            }
+
+            if (camera != null)
+            {
+                var oldPosition = camera.transform.position;
+                var oldRotation = camera.transform.rotation;
+                camera.transform.position = threshold.TransformPoint(new Vector3(0.13f, 1.5f, -2.82f));
+                camera.transform.LookAt(threshold.TransformPoint(new Vector3(0.03f, 1.3f, 0f)));
+                RenderAndSave(camera, 1280, 720, "Logs/Screenshots/Chapter1_Elevator_Closed.png", log);
+                camera.transform.position = threshold.TransformPoint(new Vector3(0.37f, 1.52f, 0.54f));
+                camera.transform.LookAt(socket.InsertionAnchor.position);
+                RenderAndSave(camera, 1280, 720, "Logs/Screenshots/Chapter1_Elevator_Interior.png", log);
+                var room = finale.Awakening.parent.gameObject;
+                room.SetActive(true);
+                camera.transform.position = finale.Awakening.position + new Vector3(0f, 0.23f, -1.54f);
+                camera.transform.rotation = Quaternion.LookRotation(new Vector3(0f, 1f, 0.26f), Vector3.back);
+                RenderAndSave(camera, 1280, 720, "Logs/Screenshots/Chapter2_Dragging_Ceiling.png", log);
+                camera.transform.SetPositionAndRotation(finale.Awakening.position + Vector3.up * 1.64f, finale.Awakening.rotation);
+                RenderAndSave(camera, 1280, 720, "Logs/Screenshots/Chapter2_Awakening_Standing.png", log);
+                room.SetActive(false);
+                camera.transform.SetPositionAndRotation(oldPosition, oldRotation);
+            }
+            if (failures.Count == before)
+                log.AppendLine("  Finale structure, elevator traversal clearance, powered rotation and quest item continuity OK (EditMode).");
         }
 
         private static void VerifyHeroGeometry(GameObject sedan, AbandonedTelevisionController television,

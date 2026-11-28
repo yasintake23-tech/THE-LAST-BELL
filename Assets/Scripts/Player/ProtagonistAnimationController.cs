@@ -164,6 +164,8 @@ namespace TheLastBell.Player
 
         private WristContact leftContact;
         private float lowReach;
+        private float flashlightGripWeight = 1f;
+        public void SetFlashlightGripWeight(float weight) => flashlightGripWeight = Mathf.Clamp01(weight);
         private WristContact rightContact;
         private HandCalibration leftCalibration;
         private HandCalibration rightCalibration;
@@ -813,7 +815,7 @@ namespace TheLastBell.Player
                     animator.SetIKRotationWeight(AvatarIKGoal.RightHand, w * 0.72f);
                     animator.SetIKRotation(AvatarIKGoal.RightHand, rightHandIkTargetRot);
                     if (flashlightEquipped && !leftHandHoldingFlashlight)
-                        ApplyGrip(rightCalibration, HandGripProfile.Flashlight, 0.92f);
+                        ApplyGrip(rightCalibration, HandGripProfile.Flashlight, 0.92f * flashlightGripWeight);
                 }
             }
 

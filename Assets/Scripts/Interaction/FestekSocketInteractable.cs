@@ -44,6 +44,10 @@ namespace TheLastBell.Interaction
         private float turn;
         private int notch;
         private bool removing;
+        [SerializeField] private bool elevatorSocket;
+        public bool AllowElevatorUse { get; set; }
+        public event System.Action ElevatorLocked;
+        public bool IsElevatorSocket => elevatorSocket;
         public FestekSocketState SocketState => socketState;
         public bool IsActivated => socketState == FestekSocketState.Activated;
         public FestekItem SeatedFestek => seatedFestek;
@@ -63,12 +67,14 @@ namespace TheLastBell.Interaction
         }
 
         public void ConfigureInventoryItem(InventoryItemDefinition definition) => inventoryItem = definition;
+        public void ConfigureElevatorSocket() => elevatorSocket = true;
+        public InteractionFocus ActiveFocus => focus;
 
-        private bool CanRemove => IsActivated && seatedFestek != null && !removing && focus == null &&
+        private bool CanRemove => !elevatorSocket && IsActivated && seatedFestek != null && !removing && focus == null &&
             powerManager != null && powerManager.IsPowerRestored;
 
         public string GetInteractionPrompt() => socketState == FestekSocketState.SeatedReadyToActivate
-            ? "[E] - Feştek’i çevir" : socketState == FestekSocketState.Empty ? GetEmptyPrompt() : CanRemove ? "[E] - Feştek’i çıkar" : "";
+            ? "[E] - Feştek’i çevir" : socketState == FestekSocketState.Empty ? (elevatorSocket ? "[E] - Feştek’i kullan" : GetEmptyPrompt()) : CanRemove ? "[E] - Feştek’i çıkar" : "";
 
         private static string GetEmptyPrompt()
         {
@@ -81,9 +87,9 @@ namespace TheLastBell.Interaction
         {
             if (statusLensRenderer == null) return;
             var player = ChapterObjectiveManager.Instance;
-            bool guiding = socketState == FestekSocketState.Empty && player != null &&
-                (player.CurrentState == ChapterObjectiveState.InsertFestek ||
-                 player.CurrentState == ChapterObjectiveState.LocateFestekSocket);
+            bool guiding = socketState == FestekSocketState.Empty && (elevatorSocket ? AllowElevatorUse :
+                player != null && (player.CurrentState == ChapterObjectiveState.InsertFestek ||
+                 player.CurrentState == ChapterObjectiveState.LocateFestekSocket));
             if (lensProperties == null) lensProperties = new MaterialPropertyBlock();
             statusLensRenderer.GetPropertyBlock(lensProperties);
             float glow = guiding ? 0.17f + 0.12f * Mathf.Sin(Time.time * 2.8f) : 0f;
@@ -96,7 +102,8 @@ namespace TheLastBell.Interaction
             statusLensRenderer.SetPropertyBlock(lensProperties);
         }
 
-        public bool CanInteract() => socketState == FestekSocketState.Empty || socketState == FestekSocketState.SeatedReadyToActivate || CanRemove;
+        public bool CanInteract() => (!elevatorSocket || AllowElevatorUse) &&
+            (socketState == FestekSocketState.Empty || socketState == FestekSocketState.SeatedReadyToActivate || CanRemove);
 
         public void Interact(PlayerInteractor interactor)
         {
@@ -134,7 +141,8 @@ namespace TheLastBell.Interaction
             var item = controller.LeftHandFestekSocket.GetComponentInChildren<FestekItem>();
             if (item == null || item.CurrentState != FestekItemState.HeldInLeftHand)
             {
-                interactor.ShowStatusMessage("Yuvaya uygun metal bir bağlantı parçası gerekiyor.");
+                interactor.ShowStatusMessage(elevatorSocket ? "Feştek’i envanterden eline al." :
+                    "Yuvaya uygun metal bir bağlantı parçası gerekiyor.");
                 return;
             }
 
@@ -297,7 +305,7 @@ namespace TheLastBell.Interaction
         {
             carrier = player;
             seatedFestek = item;
-            item.SeatIntoSocket(insertionTransform, player);
+            item.SeatIntoSocket(insertionTransform, player, notify: !elevatorSocket);
             socketState = FestekSocketState.SeatedReadyToActivate;
         }
 
@@ -344,6 +352,13 @@ namespace TheLastBell.Interaction
                 properties.SetColor(LensColor, new Color(0.32f, 0.78f, 0.36f));
                 properties.SetColor(LensEmission, new Color(0.26f, 0.68f, 0.28f));
                 statusLensRenderer.SetPropertyBlock(properties);
+            }
+            if (elevatorSocket)
+            {
+                if (rotationPanel != null) Destroy(rotationPanel);
+                rotationPanel = null;
+                ElevatorLocked?.Invoke();
+                return;
             }
             ChapterObjectiveManager.Instance?.NotifyFestekActivated();
             if (Application.isPlaying)
@@ -422,6 +437,26 @@ namespace TheLastBell.Interaction
                 socketState = FestekSocketState.SeatedReadyToActivate;
             }
             ReleaseFocus();
+        }
+
+        public IEnumerator RecoverElevatorItem()
+        {
+            if (!elevatorSocket || !IsActivated || seatedFestek == null || carrier == null) yield break;
+            if (Application.isPlaying)
+            {
+                yield return ApproachSocket(carrier);
+                var device = seatedFestek.transform;
+                Vector3 seated = device.localPosition;
+                Play(socketInsertClip, 0.51f);
+                for (float t = 0f; t < 0.46f; t += Time.deltaTime)
+                {
+                    device.localPosition = seated - Vector3.forward * (0.14f * Mathf.SmoothStep(0f, 1f, t / 0.46f));
+                    PoseHand(device.position, device.rotation);
+                    yield return null;
+                }
+            }
+            if (seatedFestek.AttachToLeftHand(carrier)) seatedFestek = null;
+            if (animation != null) animation.ClearPhysicalContact(PreferredInteractionHand.Left);
         }
 
         private IEnumerator ReleaseAfterLock()

@@ -197,6 +197,7 @@ namespace TheLastBell.Player
 
         public void ToggleFlashlight()
         {
+            if (!isActiveAndEnabled) return;
             if (currentBattery <= 0f)
             {
                 currentBattery = maxBattery;

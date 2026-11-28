@@ -53,6 +53,8 @@ namespace TheLastBell.Gameplay
         private float objectiveChangeTime = float.NegativeInfinity;
         private bool entranceOpened;
         private bool televisionReady;
+        private string finaleObjective;
+        private bool finaleObjectiveActive;
         private bool festekStored;
         [SerializeField] private AudioSource objectiveAudio;
         [SerializeField] private AudioClip objectiveCue;
@@ -206,6 +208,16 @@ namespace TheLastBell.Gameplay
             StepPresentation(Time.unscaledTime, intro == null || intro.IsIntroFinished);
         }
 
+        public void SetFinaleObjective(string text)
+        {
+            if (finaleObjectiveActive && finaleObjective == text) return;
+            finaleObjectiveActive = true;
+            finaleObjective = text;
+            pendingObjective = text;
+            objectiveFadeStarted = Time.unscaledTime;
+            if (text == null && objectiveHudGroup != null) objectiveHudGroup.alpha = 0f;
+        }
+
         public void StepPresentation(float now, bool controlsReady)
         {
             if (introGroup == null) InitializePresentation();
@@ -219,6 +231,11 @@ namespace TheLastBell.Gameplay
             float age = now - introTime;
             introGroup.alpha = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(Mathf.Min(age / 0.65f, (5.45f - age) / 0.8f)));
 
+            if (finaleObjectiveActive && finaleObjective == null)
+            {
+                objectiveHudGroup.alpha = 0f;
+                return;
+            }
             float changeAge = now - objectiveChangeTime;
             objectiveHeader.text = changeAge < 0.9f ? "✓ GÖREV" : "GÖREV";
             if (pendingObjective != null)

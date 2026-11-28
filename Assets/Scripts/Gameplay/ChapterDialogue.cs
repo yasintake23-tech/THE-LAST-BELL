@@ -45,6 +45,7 @@ namespace TheLastBell.Gameplay
         private Text subtitle;
         private CanvasGroup subtitleGroup;
         private bool paused;
+        private bool backgrounded;
         public event Action<string> Completed;
         public bool IsSpeaking => active != null && !paused;
         public bool SubtitlesVisible
@@ -77,6 +78,8 @@ namespace TheLastBell.Gameplay
             pending.Enqueue(line);
         }
 
+        private void OnApplicationPause(bool pausedBySystem) => backgrounded = pausedBySystem;
+
         private void Update()
         {
             if (voice == null) return;
@@ -95,7 +98,7 @@ namespace TheLastBell.Gameplay
                 }
             }
 
-            bool shouldPause = Time.timeScale <= 0f;
+            bool shouldPause = backgrounded || Time.timeScale <= 0f;
             if (shouldPause != paused)
             {
                 paused = shouldPause;
