@@ -986,7 +986,9 @@ namespace TheLastBell.Editor
                 var idleV2 = registry.FindClip("Idle_Natural_V2");
                 if (idleV2 != null)
                 {
-                    anim.Rebind();
+                    // Earlier checks can leave a full-body action active. Test the idle pose in a clean state.
+                    animCtrl.ResetAnimationState();
+                    procCtrl.InitializeIfNeeded();
                     animCtrl.StartIsolatedPreview(idleV2, true);
                     try
                     {
