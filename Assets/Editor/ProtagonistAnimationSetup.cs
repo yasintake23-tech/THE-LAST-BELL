@@ -248,9 +248,10 @@ namespace TheLastBell.Editor
                     }
                     importer.SaveAndReimport();
 
-                    // Kaynak iskeletteki yürüyüş-ortası bacak/ayak rest pose'unu temiz T-Pose'a kalibre et
+                    // Yalnızca geçerli Humanoid kemik eşlemesi (human >= 15 kemik) zaten mevcutsa bacak T-Pose kalibrasyonu uygula;
+                    // aksi halde boş human=[] yazarak Avatar'ı geçersiz kılma!
                     HumanDescription hd = importer.humanDescription;
-                    if (hd.skeleton != null && hd.skeleton.Length > 0)
+                    if (hd.human != null && hd.human.Length >= 15 && hd.skeleton != null && hd.skeleton.Length > 0)
                     {
                         bool poseFixed = false;
                         for (int b = 0; b < hd.skeleton.Length; b++)
