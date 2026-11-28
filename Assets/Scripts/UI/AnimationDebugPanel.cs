@@ -9,13 +9,14 @@ using TheLastBell.Interaction;
 namespace TheLastBell.UI
 {
     /// <summary>
-    /// THE LAST BELL - Mobil Uyumlu, Katlanabilir Animasyon Hata Ayıklama ve Önizleme Paneli.
+    /// THE LAST BELL - Gelişmiş Mobil Animasyon & Prosedürel Karakter Hata Ayıklama Paneli.
     /// Özellikler:
-    /// - Varsayılan olarak kapalı başlar; ekranın üst köşesinde dokunmatik dostu "ANIM" ve "1P/3P" butonları sunar.
-    /// - Canlı Oynanış (Live Gameplay) ve İzole Önizleme (Isolated Preview / PlayableGraph) modları.
-    /// - Kayıtlı tüm 23+ klibi listeler, oynatır, duraklatır, hız/zaman çizelgesi ve döngü kontrolü sağlar.
-    /// - 7 katman ağırlık geçersiz kılma (override) ve canlı kemik/zemin telemetrisi (HipsY, LFootY, RFootY).
-    /// - Üretim (Release) derlemelerinde tek bir bayrakla (enableDebugTools) kolayca kapatılabilir.
+    /// - Tüm 52 (29 V2 + 23 V1) klibe ALL / V2 / V1 filtresiyle erişim ve karşılaştırma.
+    /// - Canlı Oynanış vs İzole Önizleme (PlayableGraph) modları.
+    /// - 1P (True FPS) / 3P / Serbest İnceleme Yörüngesi (karakter bakışını bozmadan 360° inceleme).
+    /// - Nötr İnceleme Işığı ve çalışma zamanı IK/kemik/soket görselleştirme işaretçileri.
+    /// - Bağımsız prosedürel anahtarlar: Kafa, Gövde, Ayak IK, El IK, Fener Nişan, İkincil Hareket.
+    /// - Taşma yapmayan kaydırılabilir gövde + canlı kemik/zemin/bakış telemetrisi.
     /// </summary>
     [DisallowMultipleComponent]
     public class AnimationDebugPanel : MonoBehaviour
@@ -28,6 +29,7 @@ namespace TheLastBell.UI
 
         [Header("--- Sahne Referansları ---")]
         [SerializeField] private ProtagonistAnimationController animController;
+        [SerializeField] private CharacterProceduralController proceduralController;
         [SerializeField] private CameraModeController cameraModeController;
         [SerializeField] private FirstPersonController playerController;
         [SerializeField] private FlashlightPhysicalItem flashlightPhysical;
@@ -36,6 +38,7 @@ namespace TheLastBell.UI
         private bool isPanelOpen = false;
         private bool isIsolatedMode = false;
         private int selectedClipIndex = 0;
+        private string activeVersionFilter = "ALL"; // "ALL", "V2", "V1"
         private bool isScrubbing = false;
         private Vector3 initialPlayerPosition;
         private Quaternion initialPlayerRotation;
@@ -51,12 +54,16 @@ namespace TheLastBell.UI
         private TextMeshProUGUI speedLabel;
         private TextMeshProUGUI loopBtnLabel;
         private TextMeshProUGUI playPauseBtnLabel;
+        private TextMeshProUGUI neutralLightBtnLabel;
+        private TextMeshProUGUI gizmoBtnLabel;
         private TextMeshProUGUI telemetryText;
         private Slider timelineSlider;
         private Slider speedSlider;
         private Slider camDistSlider;
         private Slider camHeightSlider;
-        private readonly List<Button> clipListButtons = new List<Button>();
+        private Slider orbitYawSlider;
+        private Transform clipListContent;
+        private readonly List<int> filteredIndices = new List<int>();
         private readonly List<Image> clipListBackgrounds = new List<Image>();
         private readonly Slider[] layerSliders = new Slider[7];
 
@@ -94,6 +101,7 @@ namespace TheLastBell.UI
             isBuilt = true;
             SetPanelOpen(false);
             RefreshCameraToggleLabel();
+            RebuildClipListItems();
             RefreshClipSelectionUI();
         }
 
@@ -103,10 +111,11 @@ namespace TheLastBell.UI
             {
                 libraryRegistry = Resources.Load<AnimationLibraryRegistry>("AnimationLibraryRegistry");
             }
-            if (playerController == null) playerController = FindFirstObjectByType<FirstPersonController>();
-            if (cameraModeController == null) cameraModeController = FindFirstObjectByType<CameraModeController>();
-            if (animController == null) animController = FindFirstObjectByType<ProtagonistAnimationController>();
-            if (flashlightPhysical == null) flashlightPhysical = FindFirstObjectByType<FlashlightPhysicalItem>();
+            if (playerController == null) playerController = FindAnyObjectByType<FirstPersonController>();
+            if (cameraModeController == null) cameraModeController = FindAnyObjectByType<CameraModeController>();
+            if (animController == null) animController = FindAnyObjectByType<ProtagonistAnimationController>();
+            if (proceduralController == null) proceduralController = FindAnyObjectByType<CharacterProceduralController>();
+            if (flashlightPhysical == null) flashlightPhysical = FindAnyObjectByType<FlashlightPhysicalItem>();
 
             if (playerController != null && !hasSavedInitialPose)
             {
@@ -157,6 +166,14 @@ namespace TheLastBell.UI
             RefreshCameraToggleLabel();
         }
 
+        public void SetCameraModeDirect(CameraViewMode mode)
+        {
+            ResolveReferences();
+            if (cameraModeController == null) return;
+            cameraModeController.SetCameraMode(mode);
+            RefreshCameraToggleLabel();
+        }
+
         public void EnterIsolatedPreview()
         {
             ResolveReferences();
@@ -196,14 +213,17 @@ namespace TheLastBell.UI
             selectedClipIndex = ((index % count) + count) % count;
             RefreshClipSelectionUI();
 
-            if (!isIsolatedMode)
-            {
-                EnterIsolatedPreview();
-            }
-            else
-            {
-                PlaySelectedClipInPreview();
-            }
+            if (!isIsolatedMode) EnterIsolatedPreview();
+            else PlaySelectedClipInPreview();
+        }
+
+        private void SelectFilteredStep(int delta)
+        {
+            if (filteredIndices.Count == 0) return;
+            int curPos = filteredIndices.IndexOf(selectedClipIndex);
+            if (curPos < 0) curPos = 0;
+            int nextPos = ((curPos + delta) % filteredIndices.Count + filteredIndices.Count) % filteredIndices.Count;
+            SelectClipByIndex(filteredIndices[nextPos]);
         }
 
         private void PlaySelectedClipInPreview()
@@ -220,8 +240,13 @@ namespace TheLastBell.UI
         private void RefreshCameraToggleLabel()
         {
             if (cameraToggleLabel == null) return;
-            bool is3P = cameraModeController != null && cameraModeController.IsThirdPerson;
-            cameraToggleLabel.text = is3P ? "CAM: 3P" : "CAM: 1P";
+            if (cameraModeController == null) { cameraToggleLabel.text = "CAM: 1P"; return; }
+            switch (cameraModeController.CurrentMode)
+            {
+                case CameraViewMode.FirstPerson: cameraToggleLabel.text = "CAM: 1P"; break;
+                case CameraViewMode.ThirdPerson: cameraToggleLabel.text = "CAM: 3P"; break;
+                case CameraViewMode.FreeInspectionOrbit: cameraToggleLabel.text = "CAM: ORB"; break;
+            }
         }
 
         private void RefreshModeBadge()
@@ -238,12 +263,56 @@ namespace TheLastBell.UI
         {
             if (animController == null) return;
             if (playPauseBtnLabel != null)
-            {
                 playPauseBtnLabel.text = (isIsolatedMode && animController.IsPreviewPlaying) ? "DURAKLAT" : "OYNAT";
-            }
             if (loopBtnLabel != null)
-            {
                 loopBtnLabel.text = animController.IsPreviewLoop ? "DÖNGÜ: AÇIK" : "DÖNGÜ: KAPALI";
+            if (neutralLightBtnLabel != null && cameraModeController != null)
+                neutralLightBtnLabel.text = cameraModeController.IsNeutralLightActive ? "IŞIK: NÖTR" : "IŞIK: KORKU";
+            if (gizmoBtnLabel != null && proceduralController != null)
+                gizmoBtnLabel.text = proceduralController.enableDebugVisuals ? "GİZMO: AÇIK" : "GİZMO: KAPALI";
+        }
+
+        private void SetVersionFilter(string filter)
+        {
+            activeVersionFilter = filter;
+            RebuildClipListItems();
+            RefreshClipSelectionUI();
+        }
+
+        private void RebuildClipListItems()
+        {
+            if (clipListContent == null) return;
+            for (int i = clipListContent.childCount - 1; i >= 0; i--)
+            {
+                Destroy(clipListContent.GetChild(i).gameObject);
+            }
+            filteredIndices.Clear();
+            clipListBackgrounds.Clear();
+
+            if (libraryRegistry == null) return;
+
+            for (int i = 0; i < libraryRegistry.Entries.Count; i++)
+            {
+                var entry = libraryRegistry.Entries[i];
+                if (entry == null) continue;
+                string ver = string.IsNullOrEmpty(entry.versionTag) ? "V1" : entry.versionTag;
+                if (activeVersionFilter != "ALL" && !string.Equals(ver, activeVersionFilter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                int idx = i;
+                filteredIndices.Add(idx);
+                string durText = entry.clip != null ? $"{entry.clip.length:F2}s" : "MISSING";
+                string statusTag = entry.approvalStatus == AnimationApprovalStatus.DebugPreviewOnly ? " [DBG]" : "";
+                string label = $"{filteredIndices.Count:D2}. [{ver}] {entry.displayName} ({durText}){statusTag}";
+
+                var btn = CreateRowButton(clipListContent, label, 0f, new Color(0.14f, 0.16f, 0.20f, 0.88f), () => SelectClipByIndex(idx));
+                btn.GetComponent<LayoutElement>().preferredHeight = 36f;
+                var tmp = btn.GetComponentInChildren<TextMeshProUGUI>();
+                tmp.alignment = TextAlignmentOptions.Left;
+                tmp.margin = new Vector4(10f, 0f, 8f, 0f);
+                tmp.fontSize = 16;
+
+                clipListBackgrounds.Add(btn.GetComponent<Image>());
             }
         }
 
@@ -260,16 +329,17 @@ namespace TheLastBell.UI
             if (clipTitleText != null && entry != null)
             {
                 float len = entry.clip != null ? entry.clip.length : 0f;
-                clipTitleText.text = $"[{selectedClipIndex + 1}/{libraryRegistry.Entries.Count}] {entry.displayName} ({entry.category}, {len:F2}s)";
+                string ver = string.IsNullOrEmpty(entry.versionTag) ? "V1" : entry.versionTag;
+                clipTitleText.text = $"[{selectedClipIndex + 1}/{libraryRegistry.Entries.Count}] [{ver}] {entry.displayName} ({len:F2}s)";
             }
 
-            for (int i = 0; i < clipListBackgrounds.Count; i++)
+            for (int i = 0; i < filteredIndices.Count && i < clipListBackgrounds.Count; i++)
             {
                 if (clipListBackgrounds[i] != null)
                 {
-                    clipListBackgrounds[i].color = (i == selectedClipIndex)
-                        ? new Color(0.75f, 0.52f, 0.14f, 0.85f)
-                        : new Color(0.14f, 0.16f, 0.20f, 0.85f);
+                    clipListBackgrounds[i].color = (filteredIndices[i] == selectedClipIndex)
+                        ? new Color(0.75f, 0.52f, 0.14f, 0.90f)
+                        : new Color(0.14f, 0.16f, 0.20f, 0.88f);
                 }
             }
         }
@@ -287,9 +357,7 @@ namespace TheLastBell.UI
                 normTime = animController.GetPreviewNormalizedTime();
                 stateName = $"Preview: {animController.CurrentPreviewClip.name}";
                 if (timelineSlider != null && !isScrubbing)
-                {
                     timelineSlider.SetValueWithoutNotify(normTime);
-                }
                 if (timelineLabel != null)
                 {
                     float curSec = normTime * animController.CurrentPreviewClip.length;
@@ -300,11 +368,8 @@ namespace TheLastBell.UI
             {
                 var st = anim.GetCurrentAnimatorStateInfo(0);
                 normTime = st.normalizedTime % 1f;
-                stateName = $"BaseHash:{st.shortNameHash} ({normTime:F2})";
-                if (timelineLabel != null)
-                {
-                    timelineLabel.text = $"Canlı Döngü: {normTime * 100f:F0}%";
-                }
+                stateName = $"Canlı ({normTime:F2})";
+                if (timelineLabel != null) timelineLabel.text = $"Canlı Döngü: {normTime * 100f:F0}%";
             }
 
             if (telemetryText != null)
@@ -315,11 +380,13 @@ namespace TheLastBell.UI
                 float rFootY = GetBoneRelY(anim, HumanBodyBones.RightFoot, rootY);
                 bool grounded = playerController != null && playerController.IsGrounded;
                 float vel = playerController != null ? new Vector3(playerController.CurrentVelocity.x, 0f, playerController.CurrentVelocity.z).magnitude : 0f;
+                float relYaw = playerController != null ? playerController.RelativeLookYaw : 0f;
+                float pitch = playerController != null ? playerController.DesiredLookPitch : 0f;
 
                 telemetryText.text =
-                    $"Durum: {stateName}\n" +
-                    $"Grounded: {grounded} | Hız: {vel:F2} m/s | RootMotion: {anim.applyRootMotion}\n" +
-                    $"HipsY: {hipsY:F2}m | LFootY: {lFootY:F2}m | RFootY: {rFootY:F2}m";
+                    $"{stateName} | Grounded:{grounded} | Hız:{vel:F2}m/s\n" +
+                    $"Bakış RelYaw:{relYaw:F1}° Pitch:{pitch:F1}° | WallPull:{(proceduralController != null ? proceduralController.WallPullback01 : 0f):F2}\n" +
+                    $"HipsY:{hipsY:F2}m | LFootY:{lFootY:F2}m | RFootY:{rFootY:F2}m";
             }
         }
 
@@ -345,14 +412,14 @@ namespace TheLastBell.UI
             rootRt.offsetMin = Vector2.zero;
             rootRt.offsetMax = Vector2.zero;
 
-            // 1. Üst Sol: "ANIM" Panel Aç/Kapa Butonu (Stamina barının altında, joystick'ten uzak)
+            // Üst Sol: "ANIM" Aç/Kapa Butonu
             var animBtn = CreateActionButton(hudToggleRoot.transform, "Mobile_AnimDebugButton", "ANIM",
                 new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
                 new Vector2(40f, -150f), new Vector2(138f, 64f),
                 new Color(0.10f, 0.12f, 0.16f, 0.78f), () => SetPanelOpen(!isPanelOpen));
             AddBorderOutline(animBtn.gameObject, new Color(0.85f, 0.65f, 0.22f, 0.75f));
 
-            // 2. Üst Sağ: "CAM: 1P / 3P" Kamera Modu Butonu (Pause butonunun hemen solunda)
+            // Üst Sağ: "CAM: 1P / 3P" Butonu
             var camBtn = CreateActionButton(hudToggleRoot.transform, "Mobile_CameraToggleButton", "CAM: 1P",
                 new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f),
                 new Vector2(-170f, -38f), new Vector2(156f, 68f),
@@ -360,59 +427,112 @@ namespace TheLastBell.UI
             cameraToggleLabel = camBtn.GetComponentInChildren<TextMeshProUGUI>();
             AddBorderOutline(camBtn.gameObject, new Color(0.45f, 0.78f, 0.95f, 0.75f));
 
-            // 3. Katlanabilir Debug Paneli (Sol tarafa yaslı, sağ taraf karakteri görmek için açık)
+            // Katlanabilir Ana Panel (Sol tarafta, taşmayı önlemek için içten kaydırılabilir)
             panelRoot = new GameObject("Animation_Debug_Panel_Root", typeof(RectTransform), typeof(Image));
             panelRoot.transform.SetParent(parentTransform, false);
             var panelRt = panelRoot.GetComponent<RectTransform>();
-            panelRt.anchorMin = new Vector2(0f, 0.04f);
-            panelRt.anchorMax = new Vector2(0f, 0.96f);
+            panelRt.anchorMin = new Vector2(0f, 0.03f);
+            panelRt.anchorMax = new Vector2(0f, 0.97f);
             panelRt.pivot = new Vector2(0f, 0.5f);
-            panelRt.anchoredPosition = new Vector2(28f, 0f);
-            panelRt.sizeDelta = new Vector2(690f, 0f);
+            panelRt.anchoredPosition = new Vector2(24f, 0f);
+            panelRt.sizeDelta = new Vector2(700f, 0f);
 
-            var panelBg = panelRoot.GetComponent<Image>();
-            panelBg.color = new Color(0.06f, 0.07f, 0.09f, 0.90f);
-            AddBorderOutline(panelRoot, new Color(0.82f, 0.62f, 0.24f, 0.55f));
+            panelRoot.GetComponent<Image>().color = new Color(0.06f, 0.07f, 0.09f, 0.92f);
+            AddBorderOutline(panelRoot, new Color(0.82f, 0.62f, 0.24f, 0.65f));
 
-            var vLayout = panelRoot.AddComponent<VerticalLayoutGroup>();
-            vLayout.padding = new RectOffset(14, 14, 10, 10);
+            // Ana ScrollRect (hiçbir eleman çerçeveden taşmaz!)
+            var bodyScroll = new GameObject("Panel_Body_Scroll", typeof(RectTransform), typeof(ScrollRect), typeof(RectMask2D));
+            bodyScroll.transform.SetParent(panelRoot.transform, false);
+            var bsRt = bodyScroll.GetComponent<RectTransform>();
+            bsRt.anchorMin = Vector2.zero;
+            bsRt.anchorMax = Vector2.one;
+            bsRt.offsetMin = new Vector2(8f, 8f);
+            bsRt.offsetMax = new Vector2(-8f, -8f);
+
+            var bodyContent = new GameObject("Body_Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            bodyContent.transform.SetParent(bodyScroll.transform, false);
+            var bcRt = bodyContent.GetComponent<RectTransform>();
+            bcRt.anchorMin = new Vector2(0f, 1f);
+            bcRt.anchorMax = new Vector2(1f, 1f);
+            bcRt.pivot = new Vector2(0.5f, 1f);
+            bcRt.offsetMin = Vector2.zero;
+            bcRt.offsetMax = Vector2.zero;
+
+            var vLayout = bodyContent.GetComponent<VerticalLayoutGroup>();
+            vLayout.padding = new RectOffset(6, 6, 4, 8);
             vLayout.spacing = 6f;
             vLayout.childControlWidth = true;
             vLayout.childControlHeight = false;
             vLayout.childForceExpandWidth = true;
-            vLayout.childForceExpandHeight = false;
+            bodyContent.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            // Başlık & Kapatma Satırı
-            var headerRow = CreateHorizontalRow(panelRoot.transform, 42f, 8f);
-            modeBadgeText = CreateLabel(headerRow, "MOD: CANLI OYNANIŞ", 21, FontStyles.Bold, new Color(0.45f, 0.92f, 0.62f));
-            var badgeLE = modeBadgeText.gameObject.AddComponent<LayoutElement>();
-            badgeLE.flexibleWidth = 1f;
+            var mainSr = bodyScroll.GetComponent<ScrollRect>();
+            mainSr.content = bcRt;
+            mainSr.horizontal = false;
+            mainSr.vertical = true;
+            mainSr.scrollSensitivity = 30f;
 
-            CreateRowButton(headerRow, "CANLI", 105f, new Color(0.14f, 0.34f, 0.22f, 0.9f), ExitIsolatedPreview);
-            CreateRowButton(headerRow, "ÖNİZLE", 115f, new Color(0.45f, 0.32f, 0.10f, 0.9f), EnterIsolatedPreview);
-            CreateRowButton(headerRow, "X", 52f, new Color(0.48f, 0.14f, 0.14f, 0.9f), () => SetPanelOpen(false));
+            Transform body = bodyContent.transform;
 
-            // Kamera Mesafe & Yükseklik Satırı
-            var camRow = CreateHorizontalRow(panelRoot.transform, 40f, 10f);
-            CreateRowButton(camRow, "1P / 3P", 120f, new Color(0.16f, 0.28f, 0.42f, 0.9f), ToggleCameraMode);
+            // 1. Başlık & Mod Satırı
+            var headerRow = CreateHorizontalRow(body, 40f, 6f);
+            modeBadgeText = CreateLabel(headerRow, "MOD: CANLI OYNANIŞ", 19, FontStyles.Bold, new Color(0.45f, 0.92f, 0.62f));
+            modeBadgeText.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+            CreateRowButton(headerRow, "CANLI", 96f, new Color(0.14f, 0.34f, 0.22f, 0.95f), ExitIsolatedPreview);
+            CreateRowButton(headerRow, "ÖNİZLE", 104f, new Color(0.45f, 0.32f, 0.10f, 0.95f), EnterIsolatedPreview);
+            CreateRowButton(headerRow, "X", 48f, new Color(0.48f, 0.14f, 0.14f, 0.95f), () => SetPanelOpen(false));
+
+            // 2. Kamera Modları (1P / 3P / ORBIT) + Nötr Işık + Gizmo
+            var camModeRow = CreateHorizontalRow(body, 38f, 6f);
+            CreateRowButton(camModeRow, "1P", 0f, new Color(0.16f, 0.26f, 0.38f, 0.95f), () => SetCameraModeDirect(CameraViewMode.FirstPerson));
+            CreateRowButton(camModeRow, "3P", 0f, new Color(0.16f, 0.30f, 0.44f, 0.95f), () => SetCameraModeDirect(CameraViewMode.ThirdPerson));
+            CreateRowButton(camModeRow, "ORBIT", 0f, new Color(0.26f, 0.22f, 0.42f, 0.95f), () => SetCameraModeDirect(CameraViewMode.FreeInspectionOrbit));
+            var lightBtn = CreateRowButton(camModeRow, "IŞIK: KORKU", 0f, new Color(0.32f, 0.28f, 0.16f, 0.95f), () =>
+            {
+                if (cameraModeController != null)
+                {
+                    cameraModeController.SetNeutralInspectionLight(!cameraModeController.IsNeutralLightActive);
+                    RefreshPlaybackLabels();
+                }
+            });
+            neutralLightBtnLabel = lightBtn.GetComponentInChildren<TextMeshProUGUI>();
+            var gizBtn = CreateRowButton(camModeRow, "GİZMO: KAPALI", 0f, new Color(0.22f, 0.28f, 0.24f, 0.95f), () =>
+            {
+                if (proceduralController != null)
+                {
+                    proceduralController.enableDebugVisuals = !proceduralController.enableDebugVisuals;
+                    RefreshPlaybackLabels();
+                }
+            });
+            gizmoBtnLabel = gizBtn.GetComponentInChildren<TextMeshProUGUI>();
+
+            // 3. Kamera Mesafe / Yükseklik / Yörünge Açısı Sliderları
+            var camRow = CreateHorizontalRow(body, 40f, 8f);
             camDistSlider = CreateLabeledSlider(camRow, "Mesafe", 1.5f, 4.5f,
                 cameraModeController != null ? cameraModeController.ThirdPersonDistance : 2.65f,
                 v => { if (cameraModeController != null) cameraModeController.SetThirdPersonDistance(v); });
-            camHeightSlider = CreateLabeledSlider(camRow, "Yükseklik", 1.1f, 2.2f,
+            camHeightSlider = CreateLabeledSlider(camRow, "Yükseklik", 1.0f, 2.2f,
                 cameraModeController != null ? cameraModeController.ThirdPersonHeight : 1.55f,
                 v => { if (cameraModeController != null) cameraModeController.SetThirdPersonHeight(v); });
+            orbitYawSlider = CreateLabeledSlider(camRow, "Orbit Açısı", 0f, 360f, 155f,
+                v => { if (cameraModeController != null) cameraModeController.SetOrbitAngles(v, 12f); });
 
-            // Seçili Klip Başlığı ve Önceki/Sonraki
-            var clipNavRow = CreateHorizontalRow(panelRoot.transform, 42f, 8f);
-            CreateRowButton(clipNavRow, "< ÖNCEKİ", 125f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectClipByIndex(selectedClipIndex - 1));
-            clipTitleText = CreateLabel(clipNavRow, "Klip Seçilmedi", 18, FontStyles.Bold, Color.white);
+            // 4. Sürüm Filtresi (ALL 52 / V2 29 / V1 23) + Önceki/Sonraki
+            var filterRow = CreateHorizontalRow(body, 36f, 6f);
+            CreateRowButton(filterRow, "TÜMÜ (52)", 0f, new Color(0.22f, 0.24f, 0.30f, 0.95f), () => SetVersionFilter("ALL"));
+            CreateRowButton(filterRow, "V2 YENİ (29)", 0f, new Color(0.18f, 0.34f, 0.24f, 0.95f), () => SetVersionFilter("V2"));
+            CreateRowButton(filterRow, "V1 ESKİ (23)", 0f, new Color(0.28f, 0.22f, 0.18f, 0.95f), () => SetVersionFilter("V1"));
+
+            var clipNavRow = CreateHorizontalRow(body, 38f, 6f);
+            CreateRowButton(clipNavRow, "< ÖNCEKİ", 118f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectFilteredStep(-1));
+            clipTitleText = CreateLabel(clipNavRow, "Klip Seçilmedi", 16, FontStyles.Bold, Color.white);
             clipTitleText.alignment = TextAlignmentOptions.Center;
             clipTitleText.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-            CreateRowButton(clipNavRow, "SONRAKİ >", 130f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectClipByIndex(selectedClipIndex + 1));
+            CreateRowButton(clipNavRow, "SONRAKİ >", 122f, new Color(0.18f, 0.20f, 0.25f, 0.95f), () => SelectFilteredStep(1));
 
-            // Oynatma Kontrolleri Satırı
-            var playRow = CreateHorizontalRow(panelRoot.transform, 40f, 8f);
-            var playBtn = CreateRowButton(playRow, "OYNAT", 130f, new Color(0.16f, 0.36f, 0.24f, 0.95f), () =>
+            // 5. Oynatma Kontrolleri + Zaman & Hız
+            var playRow = CreateHorizontalRow(body, 38f, 6f);
+            var playBtn = CreateRowButton(playRow, "OYNAT", 0f, new Color(0.16f, 0.36f, 0.24f, 0.95f), () =>
             {
                 if (!isIsolatedMode) EnterIsolatedPreview();
                 else if (animController != null)
@@ -422,8 +542,7 @@ namespace TheLastBell.UI
                 }
             });
             playPauseBtnLabel = playBtn.GetComponentInChildren<TextMeshProUGUI>();
-
-            CreateRowButton(playRow, "BAŞA SAR", 130f, new Color(0.20f, 0.24f, 0.30f, 0.95f), () =>
+            CreateRowButton(playRow, "BAŞA SAR", 0f, new Color(0.20f, 0.24f, 0.30f, 0.95f), () =>
             {
                 if (!isIsolatedMode) EnterIsolatedPreview();
                 else if (animController != null)
@@ -433,8 +552,7 @@ namespace TheLastBell.UI
                     RefreshPlaybackLabels();
                 }
             });
-
-            var loopBtn = CreateRowButton(playRow, "DÖNGÜ: AÇIK", 160f, new Color(0.24f, 0.22f, 0.34f, 0.95f), () =>
+            var loopBtn = CreateRowButton(playRow, "DÖNGÜ: AÇIK", 0f, new Color(0.24f, 0.22f, 0.34f, 0.95f), () =>
             {
                 if (animController != null)
                 {
@@ -443,14 +561,11 @@ namespace TheLastBell.UI
                 }
             });
             loopBtnLabel = loopBtn.GetComponentInChildren<TextMeshProUGUI>();
+            CreateRowButton(playRow, "DURDUR", 0f, new Color(0.42f, 0.16f, 0.16f, 0.95f), ExitIsolatedPreview);
 
-            CreateRowButton(playRow, "DURDUR", 120f, new Color(0.42f, 0.16f, 0.16f, 0.95f), ExitIsolatedPreview);
-
-            // Zaman Çizelgesi & Hız Sliderları
-            var scrubRow = CreateHorizontalRow(panelRoot.transform, 36f, 10f);
-            timelineLabel = CreateLabel(scrubRow, "Zaman: 0.00s", 16, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
-            var tlLE = timelineLabel.gameObject.AddComponent<LayoutElement>();
-            tlLE.preferredWidth = 235f;
+            var scrubRow = CreateHorizontalRow(body, 32f, 8f);
+            timelineLabel = CreateLabel(scrubRow, "Zaman: 0.00s", 15, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
+            timelineLabel.gameObject.AddComponent<LayoutElement>().preferredWidth = 225f;
             timelineSlider = CreateRawSlider(scrubRow, 0f, 1f, 0f, v =>
             {
                 if (isIsolatedMode && animController != null)
@@ -463,20 +578,35 @@ namespace TheLastBell.UI
                 }
             });
 
-            var speedRow = CreateHorizontalRow(panelRoot.transform, 36f, 10f);
-            speedLabel = CreateLabel(speedRow, "Hız: 1.00x", 16, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
-            speedLabel.gameObject.AddComponent<LayoutElement>().preferredWidth = 135f;
+            var speedRow = CreateHorizontalRow(body, 32f, 8f);
+            speedLabel = CreateLabel(speedRow, "Hız: 1.00x", 15, FontStyles.Normal, new Color(0.86f, 0.88f, 0.92f));
+            speedLabel.gameObject.AddComponent<LayoutElement>().preferredWidth = 125f;
             speedSlider = CreateRawSlider(speedRow, 0.25f, 2.0f, 1.0f, v =>
             {
                 if (speedLabel != null) speedLabel.text = $"Hız: {v:F2}x";
                 if (animController != null) animController.SetPreviewSpeed(v);
             });
 
-            // Kaydırılabilir 23 Klip Listesi
-            BuildClipScrollList(panelRoot.transform, 220f);
+            // 6. Kaydırılabilir 52 Klip Listesi
+            BuildClipScrollList(body, 170f);
 
-            // Hızlı Canlı Olay Tetikleyicileri
-            var actionRow1 = CreateHorizontalRow(panelRoot.transform, 38f, 6f);
+            // 7. Bağımsız Prosedürel Sistem Anahtarları (6 Toggle)
+            var procRow = CreateHorizontalRow(body, 36f, 4f);
+            CreateToggleButton(procRow, "KAFA", () => proceduralController == null || proceduralController.enableHeadTracking,
+                v => { if (proceduralController != null) proceduralController.enableHeadTracking = v; });
+            CreateToggleButton(procRow, "GÖVDE", () => proceduralController == null || proceduralController.enableTorsoTracking,
+                v => { if (proceduralController != null) proceduralController.enableTorsoTracking = v; });
+            CreateToggleButton(procRow, "AYAK IK", () => proceduralController == null || proceduralController.enableFootIK,
+                v => { if (proceduralController != null) proceduralController.enableFootIK = v; });
+            CreateToggleButton(procRow, "EL IK", () => proceduralController == null || proceduralController.enableHandIK,
+                v => { if (proceduralController != null) proceduralController.enableHandIK = v; });
+            CreateToggleButton(procRow, "FENER", () => proceduralController == null || proceduralController.enableFlashlightAiming,
+                v => { if (proceduralController != null) proceduralController.enableFlashlightAiming = v; });
+            CreateToggleButton(procRow, "İKİNCİL", () => proceduralController == null || proceduralController.enableSecondaryMotion,
+                v => { if (proceduralController != null) proceduralController.enableSecondaryMotion = v; });
+
+            // 8. Hızlı Canlı Olay Tetikleyicileri
+            var actionRow1 = CreateHorizontalRow(body, 36f, 5f);
             CreateRowButton(actionRow1, "FENER BIRAK", 0f, new Color(0.32f, 0.24f, 0.14f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
@@ -487,34 +617,35 @@ namespace TheLastBell.UI
                         : Vector3.forward;
                     flashlightPhysical.DropWithPhysics(impulse);
                 }
-                else if (animController != null) animController.TriggerFlashlightRelease();
+                else animController?.TriggerFlashlightRelease();
             });
             CreateRowButton(actionRow1, "FENER AL", 0f, new Color(0.20f, 0.32f, 0.18f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
-                if (flashlightPhysical != null)
-                {
-                    bool toHand = cameraModeController != null && cameraModeController.IsThirdPerson;
-                    flashlightPhysical.PickupAndReattach(toHand);
-                }
-                else if (animController != null) animController.TriggerFlashlightPickup();
+                if (flashlightPhysical != null) flashlightPhysical.PickupAndReattach(true);
+                else animController?.TriggerFlashlightPickup();
             });
             CreateRowButton(actionRow1, "KAPI AÇ", 0f, new Color(0.18f, 0.26f, 0.34f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
                 animController?.TriggerDoorInteract();
             });
-            CreateRowButton(actionRow1, "SAĞA BAK", 0f, new Color(0.22f, 0.22f, 0.32f, 0.95f), () =>
+            CreateRowButton(actionRow1, "İRKİL", 0f, new Color(0.30f, 0.20f, 0.32f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
-                animController?.TriggerLookRight();
+                animController?.TriggerStartle();
             });
 
-            var actionRow2 = CreateHorizontalRow(panelRoot.transform, 38f, 6f);
-            CreateRowButton(actionRow2, "SENDELE", 0f, new Color(0.32f, 0.22f, 0.22f, 0.95f), () =>
+            var actionRow2 = CreateHorizontalRow(body, 36f, 5f);
+            CreateRowButton(actionRow2, "DÖN SOL", 0f, new Color(0.20f, 0.24f, 0.30f, 0.95f), () =>
             {
                 ExitIsolatedPreview();
-                animController?.TriggerStumble();
+                animController?.TriggerTurnInPlace(-1);
+            });
+            CreateRowButton(actionRow2, "DÖN SAĞ", 0f, new Color(0.20f, 0.24f, 0.30f, 0.95f), () =>
+            {
+                ExitIsolatedPreview();
+                animController?.TriggerTurnInPlace(1);
             });
             CreateRowButton(actionRow2, "DÜŞ", 0f, new Color(0.38f, 0.16f, 0.16f, 0.95f), () =>
             {
@@ -528,9 +659,9 @@ namespace TheLastBell.UI
             });
             CreateRowButton(actionRow2, "SIFIRLA", 0f, new Color(0.26f, 0.26f, 0.28f, 0.95f), ResetCharacterAndAnimations);
 
-            // Katman Ağırlıkları (1..6) + Otomatik Sıfırla
-            var layerRow = CreateHorizontalRow(panelRoot.transform, 40f, 6f);
-            CreateRowButton(layerRow, "OTO KATMAN", 130f, new Color(0.20f, 0.24f, 0.28f, 0.95f), () =>
+            // 9. Katman Ağırlıkları (1..6)
+            var layerRow = CreateHorizontalRow(body, 38f, 5f);
+            CreateRowButton(layerRow, "OTO KAT", 100f, new Color(0.20f, 0.24f, 0.28f, 0.95f), () =>
             {
                 animController?.ClearManualLayerWeights();
             });
@@ -542,28 +673,26 @@ namespace TheLastBell.UI
                     w => animController?.SetManualLayerWeight(layerIdx, w));
             }
 
-            // Canlı Telemetri Kutusu
+            // 10. Canlı Telemetri Kutusu
             var telObj = new GameObject("Telemetry_Box", typeof(RectTransform), typeof(Image));
-            telObj.transform.SetParent(panelRoot.transform, false);
-            telObj.GetComponent<Image>().color = new Color(0.03f, 0.04f, 0.05f, 0.92f);
-            var telLE = telObj.AddComponent<LayoutElement>();
-            telLE.preferredHeight = 82f;
+            telObj.transform.SetParent(body, false);
+            telObj.GetComponent<Image>().color = new Color(0.03f, 0.04f, 0.05f, 0.95f);
+            telObj.AddComponent<LayoutElement>().preferredHeight = 76f;
 
-            telemetryText = CreateLabel(telObj.transform, "Telemetri hazırlanıyor...", 16, FontStyles.Normal, new Color(0.76f, 0.92f, 0.84f));
+            telemetryText = CreateLabel(telObj.transform, "Telemetri hazırlanıyor...", 15, FontStyles.Normal, new Color(0.76f, 0.92f, 0.84f));
             var telRt = telemetryText.GetComponent<RectTransform>();
             telRt.anchorMin = Vector2.zero;
             telRt.anchorMax = Vector2.one;
-            telRt.offsetMin = new Vector2(10f, 6f);
-            telRt.offsetMax = new Vector2(-10f, -6f);
+            telRt.offsetMin = new Vector2(8f, 4f);
+            telRt.offsetMax = new Vector2(-8f, -4f);
         }
 
         private void BuildClipScrollList(Transform parent, float height)
         {
             var scrollObj = new GameObject("Clip_ScrollView", typeof(RectTransform), typeof(Image), typeof(ScrollRect), typeof(RectMask2D));
             scrollObj.transform.SetParent(parent, false);
-            scrollObj.GetComponent<Image>().color = new Color(0.04f, 0.05f, 0.07f, 0.90f);
-            var le = scrollObj.AddComponent<LayoutElement>();
-            le.preferredHeight = height;
+            scrollObj.GetComponent<Image>().color = new Color(0.04f, 0.05f, 0.07f, 0.92f);
+            scrollObj.AddComponent<LayoutElement>().preferredHeight = height;
 
             var contentObj = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
             contentObj.transform.SetParent(scrollObj.transform, false);
@@ -575,14 +704,13 @@ namespace TheLastBell.UI
             contentRt.offsetMax = Vector2.zero;
 
             var contentLayout = contentObj.GetComponent<VerticalLayoutGroup>();
-            contentLayout.padding = new RectOffset(6, 6, 6, 6);
-            contentLayout.spacing = 4f;
+            contentLayout.padding = new RectOffset(5, 5, 5, 5);
+            contentLayout.spacing = 3f;
             contentLayout.childControlWidth = true;
             contentLayout.childControlHeight = false;
             contentLayout.childForceExpandWidth = true;
 
-            var fitter = contentObj.GetComponent<ContentSizeFitter>();
-            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            contentObj.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
             var scrollRect = scrollObj.GetComponent<ScrollRect>();
             scrollRect.content = contentRt;
@@ -591,38 +719,27 @@ namespace TheLastBell.UI
             scrollRect.scrollSensitivity = 30f;
             scrollRect.movementType = ScrollRect.MovementType.Clamped;
 
-            clipListButtons.Clear();
-            clipListBackgrounds.Clear();
+            clipListContent = contentObj.transform;
+        }
 
-            if (libraryRegistry != null)
+        private void CreateToggleButton(Transform parent, string label, Func<bool> getter, Action<bool> setter)
+        {
+            var btn = CreateRowButton(parent, label, 0f, new Color(0.16f, 0.34f, 0.22f, 0.95f), null);
+            var img = btn.GetComponent<Image>();
+            void Refresh()
             {
-                for (int i = 0; i < libraryRegistry.Entries.Count; i++)
-                {
-                    int idx = i;
-                    var entry = libraryRegistry.Entries[i];
-                    if (entry == null) continue;
-
-                    string durText = entry.clip != null ? $"{entry.clip.length:F2}s" : "MISSING";
-                    string label = $"{i + 1:D2}. {entry.displayName}   [{entry.category} | {durText}]";
-
-                    var btn = CreateRowButton(contentObj.transform, label, 0f, new Color(0.14f, 0.16f, 0.20f, 0.85f), () => SelectClipByIndex(idx));
-                    var btnLE = btn.GetComponent<LayoutElement>();
-                    btnLE.preferredHeight = 42f;
-                    var tmp = btn.GetComponentInChildren<TextMeshProUGUI>();
-                    tmp.alignment = TextAlignmentOptions.Left;
-                    tmp.margin = new Vector4(12f, 0f, 8f, 0f);
-                    tmp.fontSize = 18;
-
-                    clipListButtons.Add(btn);
-                    clipListBackgrounds.Add(btn.GetComponent<Image>());
-                }
+                bool on = getter();
+                img.color = on ? new Color(0.16f, 0.36f, 0.22f, 0.95f) : new Color(0.28f, 0.16f, 0.16f, 0.95f);
             }
+            Refresh();
+            btn.onClick.AddListener(() => { setter(!getter()); Refresh(); });
         }
 
         private void ResetCharacterAndAnimations()
         {
             ExitIsolatedPreview();
             animController?.ResetAnimationState();
+            proceduralController?.CancelEnvironmentalInteraction();
             if (playerController != null && hasSavedInitialPose)
             {
                 var cc = playerController.GetComponent<CharacterController>();
@@ -631,11 +748,7 @@ namespace TheLastBell.UI
                 playerController.transform.rotation = initialPlayerRotation;
                 if (cc != null) cc.enabled = true;
             }
-            if (flashlightPhysical != null && cameraModeController != null)
-            {
-                if (cameraModeController.IsThirdPerson) flashlightPhysical.AttachToHand();
-                else flashlightPhysical.AttachToCameraRig();
-            }
+            if (flashlightPhysical != null) flashlightPhysical.AttachToHand();
         }
 
         private Transform CreateHorizontalRow(Transform parent, float height, float spacing)
@@ -648,8 +761,7 @@ namespace TheLastBell.UI
             h.childControlHeight = true;
             h.childForceExpandWidth = false;
             h.childForceExpandHeight = true;
-            var le = row.AddComponent<LayoutElement>();
-            le.preferredHeight = height;
+            row.AddComponent<LayoutElement>().preferredHeight = height;
             return row.transform;
         }
 
@@ -690,15 +802,15 @@ namespace TheLastBell.UI
             else le.flexibleWidth = 1f;
 
             var btn = go.GetComponent<Button>();
-            btn.onClick.AddListener(() => onClick?.Invoke());
+            if (onClick != null) btn.onClick.AddListener(() => onClick.Invoke());
 
-            var tmp = CreateLabel(go.transform, text, 17, FontStyles.Bold, Color.white);
+            var tmp = CreateLabel(go.transform, text, 15, FontStyles.Bold, Color.white);
             tmp.alignment = TextAlignmentOptions.Center;
             var trt = tmp.GetComponent<RectTransform>();
             trt.anchorMin = Vector2.zero;
             trt.anchorMax = Vector2.one;
-            trt.offsetMin = new Vector2(4f, 0f);
-            trt.offsetMax = new Vector2(-4f, 0f);
+            trt.offsetMin = new Vector2(3f, 0f);
+            trt.offsetMax = new Vector2(-3f, 0f);
             return btn;
         }
 
@@ -707,12 +819,12 @@ namespace TheLastBell.UI
             var box = new GameObject($"SliderBox_{labelText}", typeof(RectTransform), typeof(VerticalLayoutGroup));
             box.transform.SetParent(parent, false);
             var vl = box.GetComponent<VerticalLayoutGroup>();
-            vl.spacing = 2f;
+            vl.spacing = 1f;
             vl.childControlWidth = true;
             vl.childControlHeight = true;
             box.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
-            var lbl = CreateLabel(box.transform, labelText, 14, FontStyles.Normal, new Color(0.85f, 0.85f, 0.90f));
+            var lbl = CreateLabel(box.transform, labelText, 13, FontStyles.Normal, new Color(0.85f, 0.85f, 0.90f));
             lbl.alignment = TextAlignmentOptions.Center;
             return CreateRawSlider(box.transform, min, max, initial, onChanged);
         }
@@ -723,7 +835,7 @@ namespace TheLastBell.UI
             go.transform.SetParent(parent, false);
             var le = go.AddComponent<LayoutElement>();
             le.flexibleWidth = 1f;
-            le.preferredHeight = 26f;
+            le.preferredHeight = 20f;
 
             var bg = new GameObject("Background", typeof(RectTransform), typeof(Image));
             bg.transform.SetParent(go.transform, false);
@@ -764,7 +876,7 @@ namespace TheLastBell.UI
             var hRt = handle.GetComponent<RectTransform>();
             hRt.anchorMin = new Vector2(0.5f, 0.5f);
             hRt.anchorMax = new Vector2(0.5f, 0.5f);
-            hRt.sizeDelta = new Vector2(18f, 18f);
+            hRt.sizeDelta = new Vector2(16f, 16f);
             handle.GetComponent<Image>().color = Color.white;
 
             var slider = go.GetComponent<Slider>();

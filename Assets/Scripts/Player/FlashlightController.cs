@@ -128,18 +128,13 @@ namespace TheLastBell.Player
 
             if (isAttachedToHand)
             {
-                // Sağ el soketine bağlıyken pozisyon el kemiğini takip eder, ışık kameranın baktığı hedefe yönelir
+                // Fiziksel fener ve SpotLight hüzmesi daima el soketiyle birebir senkronize kalır
                 transform.localPosition = Vector3.zero;
-                if (cameraTarget != null && flashlightLight != null)
+                transform.localRotation = Quaternion.identity;
+                if (flashlightLight != null)
                 {
-                    Vector3 aimPoint = cameraTarget.position + cameraTarget.forward * 10.0f;
-                    Vector3 toAim = aimPoint - flashlightLight.transform.position;
-                    if (toAim.sqrMagnitude > 0.01f)
-                    {
-                        Quaternion targetRot = Quaternion.LookRotation(toAim.normalized, Vector3.up);
-                        flashlightLight.transform.rotation = Quaternion.Slerp(
-                            flashlightLight.transform.rotation, targetRot, 1f - Mathf.Exp(-swaySmoothSpeed * Mathf.Max(0.0001f, Time.deltaTime)));
-                    }
+                    flashlightLight.transform.localPosition = new Vector3(0f, 0f, 0.02f);
+                    flashlightLight.transform.localRotation = Quaternion.identity;
                 }
                 return;
             }

@@ -32,7 +32,10 @@ namespace TheLastBell.Interaction
         private Quaternion closedRotR;
         private Quaternion openRotR;
 
+        private InteractionTarget interactionTarget;
         private bool isAnimating = false;
+
+        public InteractionTarget DoorInteractionTarget => interactionTarget;
 
         private void Awake()
         {
@@ -51,13 +54,37 @@ namespace TheLastBell.Interaction
             {
                 blockerCollider.enabled = !isOpen;
             }
+
+            EnsureDoorHandleTarget();
+        }
+
+        private void EnsureDoorHandleTarget()
+        {
+            interactionTarget = GetComponent<InteractionTarget>();
+            if (interactionTarget == null)
+            {
+                interactionTarget = gameObject.AddComponent<InteractionTarget>();
+            }
+
+            Transform leaf = doorLeafLeft != null ? doorLeafLeft : (doorLeafRight != null ? doorLeafRight : transform);
+            Transform handle = leaf.Find("Door_Handle_Target");
+            if (handle == null)
+            {
+                var handleGo = new GameObject("Door_Handle_Target");
+                handleGo.transform.SetParent(leaf, false);
+                handleGo.transform.localPosition = new Vector3(0.42f, 1.02f, -0.08f);
+                handleGo.transform.localRotation = Quaternion.identity;
+                handle = handleGo.transform;
+            }
+
+            interactionTarget.Configure(handle, PreferredInteractionHand.Left, "DoorOpen", 2.0f, 0.38f, 0.65f);
         }
 
         public string GetInteractionPrompt()
         {
             if (isAnimating) return "";
-            if (isLocked) return "[E] - Kapy A (Kilitli)";
-            return isOpen ? "[E] - Kapy Kapat" : "[E] - Kapy A";
+            if (isLocked) return "[E] - Kapıyı Aç (Kilitli)";
+            return isOpen ? "[E] - Kapıyı Kapat" : "[E] - Kapıyı Aç";
         }
 
         public bool CanInteract() => !isAnimating;
@@ -73,7 +100,8 @@ namespace TheLastBell.Interaction
                 {
                     isLocked = false;
                     interactor.ShowStatusMessage(unlockedNotice);
-                    StartCoroutine(AnimateDoor(true));
+                    TriggerHandInteraction(interactor);
+                    StartCoroutine(AnimateDoor(true, 0.42f));
                     return;
                 }
                 else
@@ -83,14 +111,31 @@ namespace TheLastBell.Interaction
                 }
             }
 
-            StartCoroutine(AnimateDoor(!isOpen));
+            TriggerHandInteraction(interactor);
+            StartCoroutine(AnimateDoor(!isOpen, 0.42f));
         }
 
-        private IEnumerator AnimateDoor(bool targetOpen)
+        private void TriggerHandInteraction(PlayerInteractor interactor)
+        {
+            if (interactor == null) return;
+            EnsureDoorHandleTarget();
+            var proc = interactor.GetComponentInChildren<CharacterProceduralController>(true);
+            if (proc != null && interactionTarget != null)
+            {
+                proc.BeginEnvironmentalInteraction(interactionTarget);
+            }
+        }
+
+        private IEnumerator AnimateDoor(bool targetOpen, float contactDelay = 0f)
         {
             isAnimating = true;
 
-            // Geii amak iin blocker collider hemen kapatlr
+            if (contactDelay > 0f)
+            {
+                yield return new WaitForSeconds(contactDelay);
+            }
+
+            // Geçişi açmak için blocker collider hemen kapatılır
             if (targetOpen && blockerCollider != null)
             {
                 blockerCollider.enabled = false;

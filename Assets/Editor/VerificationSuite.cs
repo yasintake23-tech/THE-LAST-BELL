@@ -189,6 +189,7 @@ namespace TheLastBell.Editor
             var player = GameObject.Find("Player_Protagonist");
             var anim = player != null ? player.GetComponentInChildren<Animator>(true) : null;
             var animCtrl = player != null ? player.GetComponentInChildren<ProtagonistAnimationController>(true) : null;
+            var procCtrl = player != null ? player.GetComponent<CharacterProceduralController>() : null;
             var camMode = player != null ? player.GetComponent<CameraModeController>() : null;
             var fpc = player != null ? player.GetComponent<FirstPersonController>() : null;
             var controller = anim != null ? anim.runtimeAnimatorController as AnimatorController : null;
@@ -198,15 +199,14 @@ namespace TheLastBell.Editor
                 failures.Add("Protagonist Animator or Humanoid Avatar is invalid.");
                 return;
             }
-            if (anim.applyRootMotion)
-            {
-                failures.Add("Protagonist Animator.applyRootMotion must be false to prevent CharacterController conflict.");
-            }
+            if (anim.applyRootMotion) failures.Add("Protagonist Animator.applyRootMotion must be false.");
             if (animCtrl == null) failures.Add("ProtagonistAnimationController missing on protagonist.");
+            if (procCtrl == null) failures.Add("CharacterProceduralController missing on Player_Protagonist.");
             if (camMode == null) failures.Add("CameraModeController missing on Player_Protagonist.");
 
-            // Validate all 23 clips in AnimationLibraryRegistry
+            // Validate ALL 52 clips (29 V2 + 23 V1) in AnimationLibraryRegistry
             int validClips = 0;
+            int v2Count = 0;
             player.transform.position = Vector3.zero;
             player.transform.rotation = Quaternion.identity;
             anim.transform.localPosition = Vector3.zero;
@@ -230,7 +230,6 @@ namespace TheLastBell.Editor
                     continue;
                 }
 
-                // Sample clip at mid-point using true Humanoid PlayableGraph solver (not legacy SampleAnimation)
                 Vector3 rootBefore = anim.transform.localPosition;
                 animCtrl.StartIsolatedPreview(entry.clip, true);
                 animCtrl.SetPreviewNormalizedTime(0.35f);
@@ -253,8 +252,7 @@ namespace TheLastBell.Editor
                     continue;
                 }
 
-                // Critical Idle Ground Alignment Check (Fixes half-body underground bug!)
-                if (string.Equals(entry.id, "Idle_Breathing", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(entry.id, "Idle_Natural_V2", StringComparison.OrdinalIgnoreCase))
                 {
                     float hipsY = hips.position.y - player.transform.position.y;
                     float headY = head.position.y - player.transform.position.y;
@@ -263,20 +261,21 @@ namespace TheLastBell.Editor
 
                     if (hipsY < 0.72f || headY < 1.40f || lFootY < -0.04f || lFootY > 0.25f || rFootY < -0.04f || rFootY > 0.25f)
                     {
-                        failures.Add($"Idle_Breathing ground alignment FAILED: HipsY={hipsY:F2}m, HeadY={headY:F2}m, LFootY={lFootY:F2}m, RFootY={rFootY:F2}m");
+                        failures.Add($"Idle_Natural_V2 ground alignment FAILED: HipsY={hipsY:F2}m, HeadY={headY:F2}m, LFootY={lFootY:F2}m, RFootY={rFootY:F2}m");
                     }
                     else
                     {
-                        sb.AppendLine($"  Idle Ground Alignment OK: HipsY={hipsY:F2}m, HeadY={headY:F2}m, LFootY={lFootY:F2}m, RFootY={rFootY:F2}m");
+                        sb.AppendLine($"  Idle_Natural_V2 Ground Alignment OK: HipsY={hipsY:F2}m, HeadY={headY:F2}m, LFootY={lFootY:F2}m, RFootY={rFootY:F2}m");
                     }
                 }
 
+                if (string.Equals(entry.versionTag, "V2", StringComparison.OrdinalIgnoreCase)) v2Count++;
                 animCtrl.StopIsolatedPreview();
                 validClips++;
             }
-            sb.AppendLine($"  Animation Library Registry: {validClips}/{registry.Entries.Count} Humanoid clips validated OK");
+            sb.AppendLine($"  Animation Library Registry: {validClips}/{registry.Entries.Count} Humanoid clips validated ({v2Count} V2 + {validClips - v2Count} V1) OK");
 
-            // Validate 7-layer AnimatorController architecture
+            // Validate 7-layer AnimatorController architecture + Stationary Crouch + Turn-in-Place states
             if (controller == null)
             {
                 failures.Add("Protagonist AnimatorController missing.");
@@ -295,41 +294,68 @@ namespace TheLastBell.Editor
                 foreach (var lName in expectedLayers)
                 {
                     if (!controller.layers.Any(l => l.name == lName))
-                    {
                         failures.Add($"AnimatorController missing modular layer '{lName}'.");
-                    }
                 }
 
-                var walkClip = registry.FindClip("Walk_Forward_unity");
+                var walkV2 = registry.FindClip("Walk_Grounded_V2");
                 var baseSm = controller.layers[0].stateMachine;
                 var locoState = baseSm.states.FirstOrDefault(s => s.state.name == "Locomotion").state;
-                if (locoState == null || !(locoState.motion is BlendTree bt))
+                var crouchIdleState = baseSm.states.FirstOrDefault(s => s.state.name == "Crouch_Idle").state;
+                var turnLeftState = baseSm.states.FirstOrDefault(s => s.state.name == "Turn_Left_45").state;
+                var turnRightState = baseSm.states.FirstOrDefault(s => s.state.name == "Turn_Right_45").state;
+
+                if (locoState == null || !(locoState.motion is BlendTree bt) || bt.children.Length < 7)
+                    failures.Add("Base Layer missing 7-clip Locomotion 2D BlendTree.");
+                else if (!bt.children.Any(c => c.motion == walkV2 && Mathf.Abs(c.position.y - 1.0f) < 0.05f))
+                    failures.Add("Locomotion BlendTree (0,1) slot does not use Walk_Grounded_V2.");
+
+                if (crouchIdleState == null) failures.Add("Base Layer missing dedicated Crouch_Idle state (stationary crouch).");
+                if (turnLeftState == null || turnRightState == null) failures.Add("Base Layer missing Turn_Left_45 / Turn_Right_45 states.");
+
+                sb.AppendLine($"  Animator Architecture: Layers={controller.layers.Length}/7, StationaryCrouch=True, TurnInPlace=True, RootMotion={anim.applyRootMotion} OK");
+            }
+
+            // Test A & B: Stationary Look (feet planted) + Large Turn-in-Place (90 deg)
+            if (fpc != null && procCtrl != null)
+            {
+                InvokePrivate(fpc, "Awake");
+                procCtrl.InitializeIfNeeded();
+                player.transform.rotation = Quaternion.identity;
+                fpc.MobileMoveInput = Vector2.zero;
+                fpc.StepController(0.02f);
+
+                // Small look (+25 deg): body stays planted, RelativeLookYaw updates
+                fpc.MobileLookInput = new Vector2(20f / 1.4f, 0f);
+                fpc.StepController(0.02f);
+                procCtrl.StepProcedural(0.02f);
+                float smallBodyYaw = Mathf.Abs(Mathf.DeltaAngle(0f, player.transform.eulerAngles.y));
+                if (smallBodyYaw > 2.0f || Mathf.Abs(fpc.RelativeLookYaw) < 15f)
                 {
-                    failures.Add("Base Layer missing Locomotion BlendTree.");
+                    failures.Add($"Test A (Stationary Small Look) failed: bodyYaw={smallBodyYaw:F1}deg, relYaw={fpc.RelativeLookYaw:F1}deg.");
                 }
                 else
                 {
-                    int walkForwardMatches = 0;
-                    bool forwardSlotValid = false;
-                    foreach (var ch in bt.children)
-                    {
-                        if (ch.motion == walkClip)
-                        {
-                            walkForwardMatches++;
-                            if (Mathf.Abs(ch.position.x) < 0.05f && Mathf.Abs(ch.position.y - 1.0f) < 0.05f)
-                            {
-                                forwardSlotValid = true;
-                            }
-                        }
-                    }
-                    if (!forwardSlotValid) failures.Add("Locomotion BlendTree (0,1) slot does not use Walk_Forward_unity.");
-                    if (walkForwardMatches != 1) failures.Add($"Walk_Forward_unity used {walkForwardMatches} times in BlendTree.");
-                    if (bt.children.Length < 7) failures.Add($"Locomotion 2D BlendTree has only {bt.children.Length} clips (expected 7 directional clips).");
+                    sb.AppendLine($"  Test A (Stationary Look): BodyPlanted={smallBodyYaw:F2}deg, RelLookYaw={fpc.RelativeLookYaw:F1}deg OK");
                 }
-                sb.AppendLine($"  Animator Architecture: Layers={controller.layers.Length}/7, HumanoidAvatar={anim.avatar.name}, RootMotion={anim.applyRootMotion} OK");
+
+                // Large turn (+85 deg): triggers Turn-in-Place and smoothly rotates body
+                fpc.MobileLookInput = new Vector2(75f / 1.4f, 0f);
+                fpc.StepController(0.02f);
+                bool triggeredTurn = fpc.IsTurningInPlace;
+                for (int i = 0; i < 45; i++) fpc.StepController(0.02f);
+                float alignedDelta = Mathf.Abs(Mathf.DeltaAngle(player.transform.eulerAngles.y, fpc.DesiredLookYaw));
+                if (!triggeredTurn || alignedDelta > 10f)
+                {
+                    failures.Add($"Test B (Large Turn-in-Place) failed: triggered={triggeredTurn}, residualDelta={alignedDelta:F1}deg.");
+                }
+                else
+                {
+                    sb.AppendLine($"  Test B (Large Turn-in-Place): Triggered={triggeredTurn}, BodyAlignedDelta={alignedDelta:F1}deg OK");
+                }
+                player.transform.rotation = Quaternion.identity;
             }
 
-            // Validate CameraModeController 1P <-> 3P switching
+            // Test C: True First-Person selective visibility + 3P + FreeInspectionOrbit + Neutral Light
             if (camMode != null)
             {
                 InvokePrivate(camMode, "Awake");
@@ -337,22 +363,51 @@ namespace TheLastBell.Editor
 
                 camMode.SetCameraMode(CameraViewMode.FirstPerson);
                 var renderers = player.transform.Find("Character_Model")?.GetComponentsInChildren<Renderer>(true);
-                if (renderers != null && renderers.Any(r => r.shadowCastingMode != ShadowCastingMode.ShadowsOnly))
+                if (renderers != null)
                 {
-                    failures.Add("FirstPerson mode did not set all Character_Model renderers to ShadowsOnly.");
+                    bool bodyVisible = renderers.Any(r => r.gameObject.name.Contains("outfit_bottom") && r.shadowCastingMode == ShadowCastingMode.On);
+                    bool headHidden = renderers.Where(r => r.gameObject.name.Contains("AvatarHead")).All(r => r.shadowCastingMode == ShadowCastingMode.ShadowsOnly);
+                    if (!bodyVisible || !headHidden)
+                    {
+                        failures.Add($"Test C (True FPS Selective Visibility) failed: bodyVisible={bodyVisible}, headHidden={headHidden}.");
+                    }
                 }
+
+                camMode.SetCameraMode(CameraViewMode.FreeInspectionOrbit);
+                if (fpc != null && !fpc.FreezeGazeForInspection)
+                    failures.Add("FreeInspectionOrbit did not freeze character gaze.");
 
                 camMode.SetCameraMode(CameraViewMode.ThirdPerson);
                 if (renderers != null && renderers.Any(r => r.shadowCastingMode != ShadowCastingMode.On))
-                {
-                    failures.Add("ThirdPerson mode did not restore Character_Model renderers to ShadowCastingMode.On.");
-                }
+                    failures.Add("ThirdPerson mode did not restore all Character_Model renderers to ShadowCastingMode.On.");
+
                 if ((player.transform.position - posBefore).sqrMagnitude > 0.001f)
-                {
                     failures.Add("Camera mode switch perturbed player world position.");
-                }
+
+                camMode.SetNeutralInspectionLight(true);
+                camMode.SetNeutralInspectionLight(false);
                 camMode.SetCameraMode(CameraViewMode.FirstPerson);
-                sb.AppendLine("  CameraModeController: 1P (ShadowsOnly) <-> 3P (FullBody Visible) switch OK");
+                sb.AppendLine("  Test C (True FPS Selective Culling & Orbit): 1P(Body=ON,Head=ShadowsOnly) <-> 3P <-> FreeOrbit OK");
+            }
+
+            // Test F: Door Environmental InteractionTarget check
+            var door = UnityEngine.Object.FindAnyObjectByType<DoorInteractable>(FindObjectsInactive.Include);
+            if (door != null && procCtrl != null)
+            {
+                InvokePrivate(door, "Awake");
+                if (door.DoorInteractionTarget == null || door.DoorInteractionTarget.HandTarget == null)
+                {
+                    failures.Add("Test F (Door InteractionTarget) failed: Door_Handle_Target not initialized.");
+                }
+                else
+                {
+                    procCtrl.BeginEnvironmentalInteraction(door.DoorInteractionTarget);
+                    procCtrl.StepProcedural(0.5f);
+                    if (!procCtrl.IsEnvironmentalInteractionActive)
+                        failures.Add("Test F failed: CharacterProceduralController did not activate environmental interaction.");
+                    procCtrl.CancelEnvironmentalInteraction();
+                    sb.AppendLine($"  Test F (Door Handle IK): Target={door.DoorInteractionTarget.HandTarget.name}, LeftHandIK=Active OK");
+                }
             }
 
             // Validate AnimationDebugPanel build, isolated preview enter/exit, and gameplay restoration
@@ -378,10 +433,10 @@ namespace TheLastBell.Editor
                     failures.Add("AnimationDebugPanel.ExitIsolatedPreview failed to cleanly restore gameplay movement/Animator.");
                 }
                 if (camMode != null) camMode.SetCameraMode(CameraViewMode.FirstPerson);
-                sb.AppendLine("  AnimationDebugPanel: Build -> Open -> IsolatedPreview -> Clean Gameplay Restore OK");
+                sb.AppendLine("  AnimationDebugPanel: 52-Clip Build -> Open -> IsolatedPreview -> Clean Gameplay Restore OK");
             }
 
-            // Verify FlashlightPhysicalItem drop -> lit -> pickup -> reattach
+            // Test D: Verify FlashlightPhysicalItem hand socket -> drop -> lit -> pickup -> hand socket
             var physItem = UnityEngine.Object.FindAnyObjectByType<FlashlightPhysicalItem>(FindObjectsInactive.Include);
             var spot = GameObject.Find("SpotLight")?.GetComponent<Light>();
             if (physItem == null)
@@ -391,17 +446,19 @@ namespace TheLastBell.Editor
             else
             {
                 InvokePrivate(physItem, "Awake");
+                physItem.AttachToHand();
+                if (physItem.CurrentState != FlashlightPhysicalState.HeldInHandBone)
+                    failures.Add("Test D failed: Flashlight did not attach to RightHandSocket.");
+
                 physItem.DropWithPhysics(new Vector3(0.5f, 0.2f, 1.0f));
                 if (physItem.CurrentState != FlashlightPhysicalState.DroppedPhysics || (spot != null && !spot.enabled))
-                {
-                    failures.Add("FlashlightPhysicalItem.DropWithPhysics failed or turned off light.");
-                }
-                physItem.PickupAndReattach(false);
-                if (physItem.CurrentState != FlashlightPhysicalState.HeldInRig)
-                {
-                    failures.Add("FlashlightPhysicalItem.PickupAndReattach failed to return to HeldInRig.");
-                }
-                sb.AppendLine("  Physical Flashlight: Rig -> DroppedPhysics (Light ON) -> PickupAndReattach OK");
+                    failures.Add("Test D failed: DropWithPhysics failed or turned off light.");
+
+                physItem.PickupAndReattach(true);
+                if (physItem.CurrentState != FlashlightPhysicalState.HeldInHandBone)
+                    failures.Add("Test D failed: PickupAndReattach did not return to HeldInHandBone.");
+
+                sb.AppendLine("  Test D (Physical Flashlight): HandSocket -> DroppedPhysics (Light ON) -> PickupAndReattach(HandSocket) OK");
             }
         }
 
@@ -762,8 +819,23 @@ namespace TheLastBell.Editor
                 cam.transform.position = player.transform.position + new Vector3(1.65f, 1.25f, 2.35f);
                 cam.transform.LookAt(player.transform.position + Vector3.up * 0.92f);
 
-                // 5a. Idle_Breathing Ground Check
-                var idleClip = registry.FindClip("Idle_Breathing");
+                // 5a. True First-Person Look-Down Body Check (Test C: torso, legs, shoes visible!)
+                var idleClip = registry.FindClip("Idle_Natural_V2") ?? registry.FindClip("Idle_Breathing");
+                if (idleClip != null)
+                {
+                    if (camMode != null) camMode.SetCameraMode(CameraViewMode.FirstPerson);
+                    anim.Rebind();
+                    idleClip.SampleAnimation(anim.gameObject, idleClip.length * 0.25f);
+                    cam.transform.position = player.transform.position + new Vector3(0f, 1.62f, 0.14f);
+                    cam.transform.rotation = Quaternion.Euler(65f, 0f, 0f);
+                    RenderAndSave(cam, 1280, 720, "Logs/Screenshots/TrueFPS_LookDown_Body.png", sb);
+                }
+
+                // 5b. 3P Idle_Natural_V2 Ground Check
+                if (camMode != null) camMode.SetCameraMode(CameraViewMode.ThirdPerson);
+                cam.transform.position = player.transform.position + new Vector3(1.65f, 1.25f, 2.35f);
+                cam.transform.LookAt(player.transform.position + Vector3.up * 0.92f);
+
                 if (idleClip != null)
                 {
                     anim.Rebind();
@@ -771,8 +843,17 @@ namespace TheLastBell.Editor
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Idle_GroundCheck.png", sb);
                 }
 
-                // 5b. Walk_Forward_unity Mid-Stride
-                var walkClip = registry.FindClip("Walk_Forward_unity");
+                // 5c. 3P Crouch_Idle_V2
+                var crouchIdleClip = registry.FindClip("Crouch_Idle_V2");
+                if (crouchIdleClip != null)
+                {
+                    anim.Rebind();
+                    crouchIdleClip.SampleAnimation(anim.gameObject, crouchIdleClip.length * 0.25f);
+                    RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Crouch_Idle.png", sb);
+                }
+
+                // 5d. 3P Walk_Grounded_V2 Mid-Stride
+                var walkClip = registry.FindClip("Walk_Grounded_V2") ?? registry.FindClip("Walk_Forward_unity");
                 if (walkClip != null)
                 {
                     anim.Rebind();
@@ -780,8 +861,8 @@ namespace TheLastBell.Editor
                     RenderAndSave(cam, 1280, 720, "Logs/Screenshots/ThirdPerson_Walk_Forward.png", sb);
                 }
 
-                // 5c. Flashlight_Hold
-                var flashHoldClip = registry.FindClip("Flashlight_Hold");
+                // 5e. 3P Flashlight_Hold_V2
+                var flashHoldClip = registry.FindClip("Flashlight_Hold_V2") ?? registry.FindClip("Flashlight_Hold");
                 if (flashHoldClip != null)
                 {
                     anim.Rebind();

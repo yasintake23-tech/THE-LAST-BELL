@@ -15,23 +15,33 @@ namespace TheLastBell.Player
         Additive
     }
 
+    public enum AnimationApprovalStatus
+    {
+        ApprovedForGameplay,
+        ApprovedWithProceduralCorrection,
+        DebugPreviewOnly,
+        RequiresReplacement
+    }
+
     [Serializable]
     public class RegisteredAnimationEntry
     {
         public string id;
         public string displayName;
+        public string versionTag; // "V2" or "V1"
         public AnimationClipCategory category;
+        public AnimationApprovalStatus approvalStatus;
         public string targetLayer;
         public bool defaultLoop;
         public bool usesRootHeightBakeFromFeet;
+        public float recommendedSpeedMps;
         public string notes;
         public AnimationClip clip;
     }
 
     /// <summary>
     /// THE LAST BELL - Yeniden Kullanılabilir Animasyon Kayıt Defteri (ScriptableObject).
-    /// Tüm içe aktarılmış klipleri kategori, hedef katman ve döngü bilgisiyle saklar;
-    /// AnimationDebugPanel ve gelecekteki sinematik/NPC sistemleri için tek kaynak sağlar.
+    /// Tüm 52 (V1 + V2) içe aktarılmış klibi sürüm, onay durumu, kategori ve hedef katman bilgisiyle saklar.
     /// </summary>
     [CreateAssetMenu(fileName = "AnimationLibraryRegistry", menuName = "The Last Bell/Animation Library Registry")]
     public class AnimationLibraryRegistry : ScriptableObject

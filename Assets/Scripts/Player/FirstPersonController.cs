@@ -88,10 +88,26 @@ namespace TheLastBell.Player
         [SerializeField] private ProtagonistAnimationController animController;
         [SerializeField] private float animDampTime = 0.15f;
 
+        [Header("--- Dinamik Bakış & Yerinde Dönüş (Turn-in-Place) ---")]
+        [SerializeField] private float turnInPlaceTriggerAngle = 58f;
+        [SerializeField] private float turnInPlaceStopAngle = 6f;
+        [SerializeField] private float turnInPlaceSpeed = 135f;
+        [SerializeField] private float movingBodyAlignSpeed = 8.5f;
+
         private CharacterController controller;
         private Vector3 moveVelocity = Vector3.zero;
         private float verticalVelocity = 0f;
         private float cameraPitch = 0f;
+        private float desiredLookYaw = 0f;
+        private float lastKnownBodyYaw = 0f;
+        private bool isTurningInPlace = false;
+        private float turnAnimCooldown = 0f;
+
+        // Sinematik / Senaryolu Bakış Geçersiz Kılma (Bölüm 13)
+        private bool scriptedGazeActive = false;
+        private float scriptedGazeYaw = 0f;
+        private float scriptedGazePitch = 0f;
+        private float scriptedGazeBlend = 0f;
 
         private bool isCrouching = false;
         private bool isSprinting = false;
@@ -112,21 +128,38 @@ namespace TheLastBell.Player
         public bool MobileSprintInput { get; set; }
         public bool MobileCrouchInput { get; set; }
         public bool AllowMovement { get; set; } = true;
+        public bool FreezeGazeForInspection { get; set; } = false;
 
         public float StaminaPercent => currentStamina / maxStamina;
         public bool IsCrouching => isCrouching;
         public bool IsSprinting => isSprinting;
         public bool IsExhausted => isExhausted;
         public bool IsGrounded => controller != null && controller.isGrounded;
+        public bool IsTurningInPlace => isTurningInPlace;
+        public float DesiredLookYaw => desiredLookYaw;
+        public float DesiredLookPitch => cameraPitch;
+        public float RelativeLookYaw => Mathf.DeltaAngle(transform.eulerAngles.y, desiredLookYaw);
+        public Vector3 DesiredLookDirection => Quaternion.Euler(cameraPitch, desiredLookYaw, 0f) * Vector3.forward;
         public Vector3 CurrentVelocity => controller != null ? controller.velocity : moveVelocity;
 
         public event Action<float> OnStaminaChanged;
+
+        public void SetScriptedGazeOverride(bool active, float worldYaw, float pitch, float blend = 1f)
+        {
+            scriptedGazeActive = active;
+            scriptedGazeYaw = worldYaw;
+            scriptedGazePitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+            scriptedGazeBlend = Mathf.Clamp01(blend);
+        }
 
         private void Awake()
         {
             controller = GetComponent<CharacterController>();
             controller.slopeLimit = 45f;
             controller.stepOffset = 0.35f;
+
+            desiredLookYaw = transform.eulerAngles.y;
+            lastKnownBodyYaw = desiredLookYaw;
 
             if (playerCamera == null && cameraHolder != null)
             {
@@ -174,7 +207,6 @@ namespace TheLastBell.Player
             }
             animController?.InitializeIfNeeded();
 
-            // Root Motion'ı CharacterController ile çakışmaması için devre dışı bırak
             if (characterAnimator != null)
             {
                 characterAnimator.applyRootMotion = false;
@@ -206,7 +238,13 @@ namespace TheLastBell.Player
             {
                 foreach (var r in modelRoot.GetComponentsInChildren<Renderer>(true))
                 {
-                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+                    bool isHeadPart = r.gameObject.name.Contains("Head") ||
+                                      r.gameObject.name.Contains("Eye") ||
+                                      r.gameObject.name.Contains("Teeth") ||
+                                      r.gameObject.name.Contains("Eyelash");
+                    r.shadowCastingMode = isHeadPart
+                        ? UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly
+                        : UnityEngine.Rendering.ShadowCastingMode.On;
                 }
             }
         }
@@ -219,7 +257,8 @@ namespace TheLastBell.Player
         public void StepController(float deltaTime)
         {
             float dt = Mathf.Max(0.0001f, deltaTime);
-            HandleLook();
+            SyncExternalRotationIfChanged();
+            HandleLook(dt);
             if (!AllowMovement) return;
             HandleCrouch(dt);
             HandleStamina(dt);
@@ -229,34 +268,103 @@ namespace TheLastBell.Player
             UpdateAnimator(dt);
         }
 
-        private void HandleLook()
+        private void SyncExternalRotationIfChanged()
         {
+            float curYaw = transform.eulerAngles.y;
+            if (Mathf.Abs(Mathf.DeltaAngle(lastKnownBodyYaw, curYaw)) > 0.5f)
+            {
+                desiredLookYaw = curYaw;
+                lastKnownBodyYaw = curYaw;
+                isTurningInPlace = false;
+            }
+        }
+
+        private void HandleLook(float dt)
+        {
+            if (turnAnimCooldown > 0f) turnAnimCooldown = Mathf.Max(0f, turnAnimCooldown - dt);
+
             float lookX = 0f;
             float lookY = 0f;
 
-            // PC Fare Girdisi
-            if (Cursor.lockState == CursorLockMode.Locked)
+            if (!FreezeGazeForInspection)
             {
-                lookX += Input.GetAxisRaw("Mouse X") * mouseSensitivityX;
-                lookY += Input.GetAxisRaw("Mouse Y") * mouseSensitivityY;
+                if (Cursor.lockState == CursorLockMode.Locked)
+                {
+                    lookX += Input.GetAxisRaw("Mouse X") * mouseSensitivityX;
+                    lookY += Input.GetAxisRaw("Mouse Y") * mouseSensitivityY;
+                }
+
+                if (MobileLookInput != Vector2.zero)
+                {
+                    lookX += MobileLookInput.x * mobileSensitivityX;
+                    lookY += MobileLookInput.y * mobileSensitivityY;
+                    MobileLookInput = Vector2.zero;
+                }
+            }
+            else
+            {
+                MobileLookInput = Vector2.zero;
             }
 
-            // Mobil Dokunmatik Bakış Girdisi
-            if (MobileLookInput != Vector2.zero)
+            if (scriptedGazeActive && scriptedGazeBlend > 0.01f)
             {
-                lookX += MobileLookInput.x * mobileSensitivityX;
-                lookY += MobileLookInput.y * mobileSensitivityY;
-                MobileLookInput = Vector2.zero; // Harcandı
+                desiredLookYaw = Mathf.LerpAngle(desiredLookYaw, scriptedGazeYaw, 1f - Mathf.Exp(-8f * dt) * (1f - scriptedGazeBlend));
+                cameraPitch = Mathf.Lerp(cameraPitch, scriptedGazePitch, 1f - Mathf.Exp(-8f * dt));
+            }
+            else
+            {
+                desiredLookYaw = Mathf.Repeat(desiredLookYaw + lookX, 360f);
+                cameraPitch = Mathf.Clamp(cameraPitch - lookY, minPitch, maxPitch);
             }
 
-            // Yatay dönüş: Karakter gövdesini döndür
-            transform.Rotate(Vector3.up * lookX);
+            // Hareket halindeyken veya büyük yatay dönüşlerde gövde yönelimini yumuşakça hizala
+            GetCombinedMoveInput(out float h, out float v);
+            bool hasMoveInput = AllowMovement && (h * h + v * v) > 0.01f;
+            float relYaw = Mathf.DeltaAngle(transform.eulerAngles.y, desiredLookYaw);
 
-            // Dikey bakış: Kamera holder pitch clamp (-75, 75)
-            cameraPitch = Mathf.Clamp(cameraPitch - lookY, minPitch, maxPitch);
+            if (hasMoveInput)
+            {
+                isTurningInPlace = false;
+                float nextYaw = Mathf.LerpAngle(transform.eulerAngles.y, desiredLookYaw, 1f - Mathf.Exp(-movingBodyAlignSpeed * dt));
+                transform.rotation = Quaternion.Euler(0f, nextYaw, 0f);
+            }
+            else
+            {
+                if (!isTurningInPlace && Mathf.Abs(relYaw) >= turnInPlaceTriggerAngle)
+                {
+                    isTurningInPlace = true;
+                    if (turnAnimCooldown <= 0f)
+                    {
+                        animController?.TriggerTurnInPlace(relYaw < 0f ? -1 : 1);
+                        turnAnimCooldown = 0.85f;
+                    }
+                }
+
+                if (isTurningInPlace)
+                {
+                    if (Mathf.Abs(relYaw) > turnInPlaceTriggerAngle * 0.85f && turnAnimCooldown <= 0f)
+                    {
+                        animController?.TriggerTurnInPlace(relYaw < 0f ? -1 : 1);
+                        turnAnimCooldown = 0.85f;
+                    }
+
+                    float stepYaw = Mathf.MoveTowardsAngle(transform.eulerAngles.y, desiredLookYaw, turnInPlaceSpeed * dt);
+                    transform.rotation = Quaternion.Euler(0f, stepYaw, 0f);
+
+                    if (Mathf.Abs(Mathf.DeltaAngle(stepYaw, desiredLookYaw)) <= turnInPlaceStopAngle)
+                    {
+                        isTurningInPlace = false;
+                    }
+                }
+            }
+
+            lastKnownBodyYaw = transform.eulerAngles.y;
+
+            // Camera_Pivot her zaman istenen bakış yönünü takip eder (gövde hizalanırken kamera sıçramaz)
             if (cameraHolder != null)
             {
-                cameraHolder.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
+                float updatedRelYaw = Mathf.DeltaAngle(transform.eulerAngles.y, desiredLookYaw);
+                cameraHolder.localRotation = Quaternion.Euler(cameraPitch, updatedRelYaw, 0f);
             }
         }
 
@@ -405,7 +513,10 @@ namespace TheLastBell.Player
         {
             GetCombinedMoveInput(out float horizontal, out float vertical);
 
-            Vector3 inputDir = transform.forward * vertical + transform.right * horizontal;
+            Quaternion gazeYawRot = Quaternion.Euler(0f, desiredLookYaw, 0f);
+            Vector3 gazeForward = gazeYawRot * Vector3.forward;
+            Vector3 gazeRight = gazeYawRot * Vector3.right;
+            Vector3 inputDir = gazeForward * vertical + gazeRight * horizontal;
             float inputMag = inputDir.magnitude;
             if (inputMag > 1f)
             {
