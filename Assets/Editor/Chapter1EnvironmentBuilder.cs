@@ -240,7 +240,7 @@ namespace TheLastBell.Editor
                     }, "Chapter I clean right-to-left hand flashlight transfer")
             };
 
-            var entries = new List<AnimationClipEntry>(registry.Entries);
+            var entries = new List<RegisteredAnimationEntry>(registry.Entries);
             foreach (var sp in specs)
             {
                 string animPath = $"{CH1_ANIM_DIR}/{sp.id}.anim";
@@ -265,7 +265,8 @@ namespace TheLastBell.Editor
                 settings.loopBlend = sp.loop;
                 settings.keepOriginalPositionY = false;
                 settings.heightFromFeet = true;
-                settings.lockRootHeightY = true;
+                settings.loopBlendPositionY = true;
+                settings.loopBlendOrientation = true;
                 settings.keepOriginalOrientation = true;
                 AnimationUtility.SetAnimationClipSettings(clip, settings);
 
@@ -273,15 +274,17 @@ namespace TheLastBell.Editor
                 else EditorUtility.SetDirty(clip);
 
                 entries.RemoveAll(e => e != null && string.Equals(e.id, sp.id, StringComparison.OrdinalIgnoreCase));
-                entries.Add(new AnimationClipEntry
+                entries.Add(new RegisteredAnimationEntry
                 {
                     id = sp.id,
+                    displayName = sp.id.Replace("_", " "),
                     clip = clip,
                     versionTag = "Ch1",
                     category = sp.cat,
                     approvalStatus = AnimationApprovalStatus.ApprovedWithProceduralCorrection,
                     targetLayer = sp.layer,
-                    looping = sp.loop,
+                    defaultLoop = sp.loop,
+                    usesRootHeightBakeFromFeet = true,
                     recommendedSpeedMps = sp.id.Contains("Walk") ? 0.69f : 0f,
                     notes = sp.notes
                 });
@@ -719,7 +722,7 @@ namespace TheLastBell.Editor
 
         private static void ApplyArchitecturalSurfaceMaterials(Dictionary<string, Material> mats)
         {
-            var allRenderers = UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var allRenderers = UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsInactive.Include);
             foreach (var mr in allRenderers)
             {
                 if (mr == null || mr.transform.IsChildOf(GameObject.Find("Player_Protagonist")?.transform ?? mr.transform))
